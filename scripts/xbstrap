@@ -70,6 +70,12 @@ class HostPackage:
 	def name(self):
 		return self._pkg_yml['name']
 
+	@property
+	def dependencies(self):
+		if 'dependencies' not in self._pkg_yml:
+			return []
+		yield from self._pkg_yml['dependencies']
+
 class TargetPackage:
 	def __init__(self, pkg_yml):
 		self._pkg_yml = pkg_yml
@@ -119,9 +125,28 @@ class EnvironmentComposer:
 		else:
 			environ[varname] = joined
 
-def run_tool(args, host_pkgs=[], workdir=None, extra_environ=dict()):
-	composer = EnvironmentComposer()
+def run_tool(cfg, args, host_pkgs=[], workdir=None, extra_environ=dict()):
+	pkg_queue = []
+	pkg_visited = set()
+
 	for pkg in host_pkgs:
+		assert pkg.name not in pkg_visited
+		pkg_queue.append(pkg)
+		pkg_visited.add(pkg.name)
+
+	i = 0 # Need index-based loop as pkg_queue is mutated in the loop.
+	while i < len(pkg_queue):
+		pkg = pkg_queue[i]
+		for dep_name in pkg.dependencies:
+			if dep_name in pkg_visited:
+				continue
+			dep_pkg = cfg.get_host_pkg(dep_name)
+			pkg_queue.append(dep_pkg)
+			pkg_visited.add(dep_name)
+		i += 1
+
+	composer = EnvironmentComposer()
+	for pkg in pkg_queue:
 		composer.path_dirs.append(os.path.join(pkg.prefix_dir, 'bin'))
 		if pkg.has_shared_libs:
 			composer.shared_lib_dirs.append(os.path.join(pkg.prefix_dir, 'lib'))
@@ -138,7 +163,8 @@ main_parser = argparse.ArgumentParser()
 main_subparsers = main_parser.add_subparsers(dest='command')
 
 def do_run(args):
-	run_tool(args.args)
+	cfg = config_for_dir()
+	run_tool(cfg, args.args)
 
 do_run.parser = main_subparsers.add_parser('run')
 do_run.parser.add_argument('args', nargs=argparse.REMAINDER)
@@ -159,7 +185,7 @@ def do_build(args):
 		for (key, value) in step.environ.items():
 			environ[key] = replace_at_vars(value, substitute)
 
-		run_tool(step.args, host_pkgs=host_pkgs, workdir=pkg.build_dir,
+		run_tool(cfg, step.args, host_pkgs=host_pkgs, workdir=pkg.build_dir,
 				extra_environ=environ)
 
 do_build.parser = main_subparsers.add_parser('build')
