@@ -1,0 +1,176 @@
+#!/usr/bin/python3
+
+import argparse
+import os
+import re
+import subprocess
+import yaml
+
+build_root = os.getcwd()
+
+def replace_at_vars(string, resolve):
+	def do_substitute(m):
+		varname = m.group(1)
+		result = resolve(varname)
+		if result is None:
+			raise RuntimeError("Unexpected substitution {}".format(varname))
+		return result
+
+	return re.sub(r'@(\w+)@', do_substitute, string)
+
+class Config:
+	def __init__(self, root_yml):
+		self._root_yml = root_yml
+		self._host_pkgs = dict()
+		self._target_pkgs = dict()
+
+		for pkg_yml in self._root_yml['host-packages']:
+			pkg = HostPackage(pkg_yml)
+			self._host_pkgs[pkg.name] = pkg
+
+		for pkg_yml in self._root_yml['target-packages']:
+			pkg = TargetPackage(pkg_yml)
+			self._target_pkgs[pkg.name] = pkg
+
+	def get_host_pkg(self, name):
+		return self._host_pkgs[name]
+
+	def get_target_pkg(self, name):
+		return self._target_pkgs[name]
+
+class ScriptStep:
+	def __init__(self, step_yml):
+		self._step_yml = step_yml
+	
+	@property
+	def args(self):
+		return self._step_yml['args']
+
+	@property
+	def environ(self):
+		if 'environ' not in self._step_yml:
+			return dict()
+		return self._step_yml['environ']
+
+class HostPackage:
+	def __init__(self, pkg_yml):
+		self._pkg_yml = pkg_yml
+
+	@property
+	def has_shared_libs(self):
+		if 'has_shared_libs' not in self._pkg_yml:
+			return False
+		return self._pkg_yml['has_shared_libs']
+
+	@property
+	def prefix_dir(self):
+		return os.path.join(build_root, 'prefixes', self.name)
+
+	@property
+	def name(self):
+		return self._pkg_yml['name']
+
+class TargetPackage:
+	def __init__(self, pkg_yml):
+		self._pkg_yml = pkg_yml
+		self._build_steps = [ ]
+
+		for step_yml in self._pkg_yml['build']:
+			self._build_steps.append(ScriptStep(step_yml))
+
+	@property
+	def build_dir(self):
+		return os.path.join(build_root, 'native', 'native-' + self.name)
+
+	@property
+	def name(self):
+		return self._pkg_yml['name']
+
+	@property
+	def host_deps(self):
+		yield from self._pkg_yml['host-deps']
+
+	@property
+	def build_steps(self):
+		yield from self._build_steps
+
+def config_for_dir():
+	with open('bootstrap.link', 'r') as f:
+		return Config(yaml.load(f))
+
+class EnvironmentComposer:
+	def __init__(self):
+		self.path_dirs = [ ]
+		self.shared_lib_dirs = [ ]
+	
+	def compose(self):
+		environ = os.environ.copy()
+		self._append_dirs(environ, 'PATH', self.path_dirs)
+		self._append_dirs(environ, 'LD_LIBRARY_PATH', self.shared_lib_dirs)
+		print(self.shared_lib_dirs)
+		return environ
+
+	def _append_dirs(self, environ, varname, dirs):
+		if not dirs:
+			return
+		joined = ':'.join(dirs)
+		if varname in environ and environ[varname]:
+			environ[varname] += ':' + joined
+		else:
+			environ[varname] = joined
+
+def run_tool(args, host_pkgs=[], workdir=None, extra_environ=dict()):
+	composer = EnvironmentComposer()
+	for pkg in host_pkgs:
+		composer.path_dirs.append(os.path.join(pkg.prefix_dir, 'bin'))
+		if pkg.has_shared_libs:
+			composer.shared_lib_dirs.append(os.path.join(pkg.prefix_dir, 'lib'))
+	environ = composer.compose()
+	environ.update(extra_environ)
+	
+	subprocess.check_call(args, env=environ, cwd=workdir)
+
+# ---------------------------------------------------------------------------------------
+# Command line parsing.
+# ---------------------------------------------------------------------------------------
+
+main_parser = argparse.ArgumentParser()
+main_subparsers = main_parser.add_subparsers(dest='command')
+
+def do_run(args):
+	run_tool(args.args)
+
+do_run.parser = main_subparsers.add_parser('run')
+do_run.parser.add_argument('args', nargs=argparse.REMAINDER)
+
+def do_build(args):
+	cfg = config_for_dir()
+	pkg = cfg.get_target_pkg(args.package)
+	for step in pkg.build_steps:
+		host_pkgs = []
+		for dep_name in pkg.host_deps:
+			host_pkgs.append(cfg.get_host_pkg(dep_name))
+
+		def substitute(varname):
+			if varname == 'DESTDIR':
+				return os.path.join(build_root, 'system-root')
+
+		environ = dict()
+		for (key, value) in step.environ.items():
+			environ[key] = replace_at_vars(value, substitute)
+
+		run_tool(step.args, host_pkgs=host_pkgs, workdir=pkg.build_dir,
+				extra_environ=environ)
+
+do_build.parser = main_subparsers.add_parser('build')
+do_build.parser.add_argument('package', type=str)
+
+args = main_parser.parse_args()
+
+if args.command == 'run':
+	do_run(args)
+elif args.command == 'build':
+	do_build(args)
+else:
+	assert not "Unexpected command"
+
