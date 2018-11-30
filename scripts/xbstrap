@@ -1,11 +1,14 @@
 #!/usr/bin/python3
 
 import argparse
+import errno
 import os
 import re
 import subprocess
 import yaml
 
+source_root = os.path.join(os.getcwd(),
+		os.path.dirname(os.readlink('bootstrap.link')))
 build_root = os.getcwd()
 
 def replace_at_vars(string, resolve):
@@ -80,9 +83,16 @@ class TargetPackage:
 	def __init__(self, pkg_yml):
 		self._pkg_yml = pkg_yml
 		self._build_steps = [ ]
+		self._configure_steps = [ ]
 
+		for step_yml in self._pkg_yml['configure']:
+			self._configure_steps.append(ScriptStep(step_yml))
 		for step_yml in self._pkg_yml['build']:
 			self._build_steps.append(ScriptStep(step_yml))
+
+	@property
+	def source_dir(self):
+		return os.path.join(source_root, self.name)
 
 	@property
 	def build_dir(self):
@@ -95,6 +105,10 @@ class TargetPackage:
 	@property
 	def host_deps(self):
 		yield from self._pkg_yml['host-deps']
+
+	@property
+	def configure_steps(self):
+		yield from self._configure_steps
 
 	@property
 	def build_steps(self):
@@ -169,6 +183,41 @@ def do_run(args):
 do_run.parser = main_subparsers.add_parser('run')
 do_run.parser.add_argument('args', nargs=argparse.REMAINDER)
 
+def do_configure(args):
+	cfg = config_for_dir()
+	pkg = cfg.get_target_pkg(args.package)
+
+	try:
+		os.mkdir(pkg.build_dir)
+	except OSError as e:
+		if e.errno != errno.EEXIST:
+			raise
+
+	for step in pkg.configure_steps:
+		host_pkgs = []
+		for dep_name in pkg.host_deps:
+			host_pkgs.append(cfg.get_host_pkg(dep_name))
+
+		def substitute(varname):
+			if varname == 'SOURCE_ROOT':
+				return source_root
+			elif varname == 'BUILD_ROOT':
+				return build_root
+			elif varname == 'PKG_SOURCE_DIR':
+				return pkg.source_dir
+
+		args = [replace_at_vars(arg, substitute) for arg in step.args]
+
+		environ = dict()
+		for (key, value) in step.environ.items():
+			environ[key] = replace_at_vars(value, substitute)
+
+		run_tool(cfg, args, host_pkgs=host_pkgs, workdir=pkg.build_dir,
+				extra_environ=environ)
+
+do_configure.parser = main_subparsers.add_parser('configure')
+do_configure.parser.add_argument('package', type=str)
+
 def do_build(args):
 	cfg = config_for_dir()
 	pkg = cfg.get_target_pkg(args.package)
@@ -195,6 +244,8 @@ args = main_parser.parse_args()
 
 if args.command == 'run':
 	do_run(args)
+elif args.command == 'configure':
+	do_configure(args)
 elif args.command == 'build':
 	do_build(args)
 else:
