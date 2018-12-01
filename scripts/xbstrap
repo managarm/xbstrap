@@ -4,8 +4,24 @@ import argparse
 import errno
 import os
 import re
+import shutil
 import subprocess
+import tarfile
 import yaml
+
+def try_mkdir(path):
+	try:
+		os.mkdir(path)
+	except OSError as e:
+		if e.errno != errno.EEXIST:
+			raise
+
+def try_rmtree(path):
+	try:
+		shutil.rmtree(path)
+	except OSError as e:
+		if e.errno != errno.ENOENT:
+			raise
 
 def replace_at_vars(string, resolve):
 	def do_substitute(m):
@@ -30,7 +46,7 @@ class Config:
 		for pkg_yml in self._root_yml['target-packages']:
 			pkg = TargetPackage(self, pkg_yml)
 			self._target_pkgs[pkg.name] = pkg
-	
+
 	@property
 	def source_root(self):
 		return os.path.join(os.getcwd(),
@@ -49,7 +65,7 @@ class Config:
 class ScriptStep:
 	def __init__(self, step_yml):
 		self._step_yml = step_yml
-	
+
 	@property
 	def args(self):
 		return self._step_yml['args']
@@ -106,6 +122,14 @@ class TargetPackage:
 		return os.path.join(self._cfg.build_root, 'native', 'native-' + self.name)
 
 	@property
+	def collect_dir(self):
+		return os.path.join(self._cfg.build_root, 'packages', self.name + '.collect')
+
+	@property
+	def archive_file(self):
+		return os.path.join(self._cfg.build_root, 'packages', self.name + '.tar.gz')
+
+	@property
 	def name(self):
 		return self._pkg_yml['name']
 
@@ -129,7 +153,7 @@ class EnvironmentComposer:
 	def __init__(self):
 		self.path_dirs = [ ]
 		self.shared_lib_dirs = [ ]
-	
+
 	def compose(self):
 		environ = os.environ.copy()
 		self._append_dirs(environ, 'PATH', self.path_dirs)
@@ -173,7 +197,7 @@ def run_tool(cfg, args, host_pkgs=[], workdir=None, extra_environ=dict()):
 			composer.shared_lib_dirs.append(os.path.join(pkg.prefix_dir, 'lib'))
 	environ = composer.compose()
 	environ.update(extra_environ)
-	
+
 	subprocess.check_call(args, env=environ, cwd=workdir)
 
 # ---------------------------------------------------------------------------------------
@@ -202,11 +226,7 @@ def do_configure(args):
 	cfg = config_for_dir()
 	pkg = cfg.get_target_pkg(args.package)
 
-	try:
-		os.mkdir(pkg.build_dir)
-	except OSError as e:
-		if e.errno != errno.EEXIST:
-			raise
+	try_mkdir(pkg.build_dir)
 
 	for step in pkg.configure_steps:
 		host_pkgs = []
@@ -236,14 +256,19 @@ do_configure.parser.add_argument('package', type=str)
 def do_build(args):
 	cfg = config_for_dir()
 	pkg = cfg.get_target_pkg(args.package)
+
+	try_mkdir('packages')
+	try_rmtree(pkg.collect_dir)
+	os.mkdir(pkg.collect_dir)
+
 	for step in pkg.build_steps:
 		host_pkgs = []
 		for dep_name in pkg.host_deps:
 			host_pkgs.append(cfg.get_host_pkg(dep_name))
 
 		def substitute(varname):
-			if varname == 'DESTDIR':
-				return os.path.join(cfg.build_root, 'system-root')
+			if varname == 'PKG_COLLECT_DIR':
+				return pkg.collect_dir
 
 		environ = dict()
 		for (key, value) in step.environ.items():
@@ -251,6 +276,10 @@ def do_build(args):
 
 		run_tool(cfg, step.args, host_pkgs=host_pkgs, workdir=pkg.build_dir,
 				extra_environ=environ)
+
+	with tarfile.open(pkg.archive_file, 'w|gz') as tar:
+		for ent in os.listdir(pkg.collect_dir):
+			tar.add(os.path.join(pkg.collect_dir, ent), arcname=ent)
 
 do_build.parser = main_subparsers.add_parser('build')
 do_build.parser.add_argument('package', type=str)
