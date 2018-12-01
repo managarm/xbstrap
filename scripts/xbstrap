@@ -243,14 +243,19 @@ def build_pkg(cfg, pkg):
 			host_pkgs.append(cfg.get_host_pkg(dep_name))
 
 		def substitute(varname):
+			if varname == 'PARALLELISM':
+				nthreads = len(os.sched_getaffinity(0))
+				return str(nthreads)
 			if varname == 'PKG_COLLECT_DIR':
 				return pkg.collect_dir
+
+		args = [replace_at_vars(arg, substitute) for arg in step.args]
 
 		environ = dict()
 		for (key, value) in step.environ.items():
 			environ[key] = replace_at_vars(value, substitute)
 
-		run_tool(cfg, step.args, host_pkgs=host_pkgs, workdir=pkg.build_dir,
+		run_tool(cfg, args, host_pkgs=host_pkgs, workdir=pkg.build_dir,
 				extra_environ=environ)
 
 	with tarfile.open(pkg.archive_file, 'w|gz') as tar:
