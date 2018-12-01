@@ -141,6 +141,12 @@ class TargetPackage:
 		yield from self._pkg_yml['host-deps']
 
 	@property
+	def dependencies(self):
+		if 'dependencies' not in self._pkg_yml:
+			return []
+		yield from self._pkg_yml['dependencies']
+
+	@property
 	def configure_steps(self):
 		yield from self._configure_steps
 
@@ -281,15 +287,20 @@ Action.strings = {
 	Action.INSTALL: 'install'
 }
 
-def compute_plan(desired):
-	def expand(action, pkg):
-		links = [ ]
-		if action == Action.INSTALL:
-			links.append((action.BUILD, pkg))
-		if action == Action.BUILD:
-			links.append((action.CONFIGURE, pkg))
-		return links
+def expand_plan(cfg, action, pkg):
+	links = [ ]
+	if action == Action.INSTALL:
+		links.append((action.BUILD, pkg))
+	if action == Action.BUILD:
+		links.append((action.CONFIGURE, pkg))
 
+		# Building requires all dependencies to be present.
+		for dep_name in pkg.dependencies:
+			dep_pkg = cfg.get_target_pkg(dep_name)
+			links.append((action.INSTALL, dep_pkg))
+	return links
+
+def compute_plan(cfg, desired):
 	class State(Enum):
 		NULL = 0
 		EXPANDING = 1
@@ -302,7 +313,7 @@ def compute_plan(desired):
 
 	def visit(action, pkg):
 		if (action, pkg.name) not in state:
-			links = expand(action, pkg)
+			links = expand_plan(cfg, action, pkg)
 			state[(action, pkg.name)] = State.EXPANDING
 			stack.append((action, pkg, links))
 		elif state[(action, pkg.name)] == State.EXPANDING:
@@ -366,7 +377,7 @@ do_init.parser.add_argument('src_root', type=str)
 def do_configure(args):
 	cfg = config_for_dir()
 	pkg = cfg.get_target_pkg(args.package)
-	plan = compute_plan([(Action.CONFIGURE, pkg)])
+	plan = compute_plan(cfg, [(Action.CONFIGURE, pkg)])
 	run_plan(cfg, plan)
 
 do_configure.parser = main_subparsers.add_parser('configure')
@@ -375,7 +386,7 @@ do_configure.parser.add_argument('package', type=str)
 def do_build(args):
 	cfg = config_for_dir()
 	pkg = cfg.get_target_pkg(args.package)
-	plan = compute_plan([(Action.BUILD, pkg)])
+	plan = compute_plan(cfg, [(Action.BUILD, pkg)])
 	run_plan(cfg, plan)
 
 do_build.parser = main_subparsers.add_parser('build')
@@ -384,7 +395,7 @@ do_build.parser.add_argument('package', type=str)
 def do_install(args):
 	cfg = config_for_dir()
 	pkg = cfg.get_target_pkg(args.package)
-	plan = compute_plan([(Action.INSTALL, pkg)])
+	plan = compute_plan(cfg, [(Action.INSTALL, pkg)])
 	run_plan(cfg, plan)
 
 do_install.parser = main_subparsers.add_parser('install')
