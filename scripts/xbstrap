@@ -116,6 +116,8 @@ class TargetPackage:
 
 	@property
 	def source_dir(self):
+		if 'source_dir' in self._pkg_yml:
+			return os.path.join(self._cfg.source_root, self._pkg_yml['source_dir'])
 		return os.path.join(self._cfg.source_root, self.name)
 
 	@property
@@ -159,7 +161,6 @@ class EnvironmentComposer:
 		environ = os.environ.copy()
 		self._append_dirs(environ, 'PATH', self.path_dirs)
 		self._append_dirs(environ, 'LD_LIBRARY_PATH', self.shared_lib_dirs)
-		print(self.shared_lib_dirs)
 		return environ
 
 	def _append_dirs(self, environ, varname, dirs):
