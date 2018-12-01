@@ -206,6 +206,7 @@ def run_tool(cfg, args, host_pkgs=[], workdir=None, extra_environ=dict()):
 # ---------------------------------------------------------------------------------------
 
 def configure_pkg(cfg, pkg):
+	try_rmtree(pkg.build_dir)
 	try_mkdir(pkg.build_dir)
 
 	for step in pkg.configure_steps:
