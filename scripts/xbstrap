@@ -284,6 +284,16 @@ def do_build(args):
 do_build.parser = main_subparsers.add_parser('build')
 do_build.parser.add_argument('package', type=str)
 
+def do_install(args):
+	cfg = config_for_dir()
+	pkg = cfg.get_target_pkg(args.package)
+
+	with tarfile.open(pkg.archive_file, 'r|gz') as tar:
+		tar.extractall(os.path.join(cfg.build_root, 'system-root'))
+
+do_install.parser = main_subparsers.add_parser('install')
+do_install.parser.add_argument('package', type=str)
+
 args = main_parser.parse_args()
 
 if args.command == 'init':
@@ -294,6 +304,8 @@ elif args.command == 'configure':
 	do_configure(args)
 elif args.command == 'build':
 	do_build(args)
+elif args.command == 'install':
+	do_install(args)
 else:
 	assert not "Unexpected command"
 
