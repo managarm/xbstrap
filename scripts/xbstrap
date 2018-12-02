@@ -21,6 +21,13 @@ def try_mkdir(path):
 		if e.errno != errno.EEXIST:
 			raise
 
+def try_unlink(path):
+	try:
+		os.unlink(path)
+	except OSError as e:
+		if e.errno != errno.ENOENT:
+			raise
+
 def try_rmtree(path):
 	try:
 		shutil.rmtree(path)
@@ -293,8 +300,13 @@ def build_pkg(cfg, pkg):
 			tar.add(os.path.join(pkg.collect_dir, ent), arcname=ent)
 
 def install_pkg(cfg, pkg):
+	try_mkdir(cfg.sysroot_dir)
+
 	with tarfile.open(pkg.archive_file, 'r|gz') as tar:
-		tar.extractall(os.path.join(cfg.build_root, 'system-root'))
+		for info in tar:
+			if not info.isdir():
+				try_unlink(os.path.join(cfg.sysroot_dir, info.name))
+			tar.extract(info, cfg.sysroot_dir)
 
 	pkg.mark_as_installed()
 
@@ -307,6 +319,7 @@ class Action(Enum):
 	CONFIGURE = 1
 	BUILD = 2
 	INSTALL = 3
+
 Action.strings = {
 	Action.CONFIGURE: 'configure',
 	Action.BUILD: 'build',
