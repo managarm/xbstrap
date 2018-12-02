@@ -10,6 +10,10 @@ import subprocess
 import tarfile
 import yaml
 
+def touch(path):
+	with open(path, 'a') as f:
+		pass
+
 def try_mkdir(path):
 	try:
 		os.mkdir(path)
@@ -56,6 +60,10 @@ class Config:
 	@property
 	def build_root(self):
 		return os.getcwd()
+
+	@property
+	def sysroot_dir(self):
+		return os.path.join(self.build_root, 'system-root')
 
 	def get_host_pkg(self, name):
 		return self._host_pkgs[name]
@@ -153,6 +161,22 @@ class TargetPackage:
 	@property
 	def build_steps(self):
 		yield from self._build_steps
+
+	def check_if_configured(self):
+		return False
+
+	def check_archive(self):
+		return os.access(self.archive_file, os.F_OK)
+
+	def mark_as_installed(self):
+		try_mkdir(os.path.join(self._cfg.sysroot_dir, 'etc'))
+		try_mkdir(os.path.join(self._cfg.sysroot_dir, 'etc', 'xbstrap'))
+		path = os.path.join(self._cfg.sysroot_dir, 'etc', 'xbstrap', self.name + '.installed')
+		touch(path)
+
+	def check_if_installed(self):
+		path = os.path.join(self._cfg.sysroot_dir, 'etc', 'xbstrap', self.name + '.installed')
+		return os.access(path, os.F_OK)
 
 def config_for_dir():
 	with open('bootstrap.link', 'r') as f:
@@ -272,6 +296,8 @@ def install_pkg(cfg, pkg):
 	with tarfile.open(pkg.archive_file, 'r|gz') as tar:
 		tar.extractall(os.path.join(cfg.build_root, 'system-root'))
 
+	pkg.mark_as_installed()
+
 # ---------------------------------------------------------------------------------------
 # Build planning.
 # ---------------------------------------------------------------------------------------
@@ -290,14 +316,24 @@ Action.strings = {
 def expand_plan(cfg, action, pkg):
 	links = [ ]
 	if action == Action.INSTALL:
-		links.append((action.BUILD, pkg))
+		if not pkg.check_archive():
+			links.append((action.BUILD, pkg))
+
+		# Usually dependencies will already be installed during the build phase.
+		# However, if the sysroot is removed, we might need to install again.
+		for dep_name in pkg.dependencies:
+			dep_pkg = cfg.get_target_pkg(dep_name)
+			if not dep_pkg.check_if_installed():
+				links.append((action.INSTALL, dep_pkg))
 	if action == Action.BUILD:
-		links.append((action.CONFIGURE, pkg))
+		if not pkg.check_if_configured():
+			links.append((action.CONFIGURE, pkg))
 
 		# Building requires all dependencies to be present.
 		for dep_name in pkg.dependencies:
 			dep_pkg = cfg.get_target_pkg(dep_name)
-			links.append((action.INSTALL, dep_pkg))
+			if not dep_pkg.check_if_installed():
+				links.append((action.INSTALL, dep_pkg))
 	return links
 
 def compute_plan(cfg, desired):
