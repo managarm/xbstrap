@@ -251,6 +251,21 @@ def run_tool(cfg, args, host_pkgs=[], workdir=None, extra_environ=dict()):
 
 	subprocess.check_call(args, env=environ, cwd=workdir)
 
+def postprocess_libtool(cfg, pkg):
+	for libdir in ['lib', 'usr/lib']:
+		filelist = []
+		try:
+			filelist = os.listdir(os.path.join(pkg.collect_dir, libdir))
+		except OSError as e:
+			if e.errno != errno.ENOENT:
+				raise
+
+		for ent in filelist:
+			if not ent.endswith('.la'):
+				continue
+			print('xbstrap: Removing libtool file {}'.format(ent))
+			os.unlink(os.path.join(pkg.collect_dir, libdir, ent))
+
 # ---------------------------------------------------------------------------------------
 # Package building.
 # ---------------------------------------------------------------------------------------
@@ -308,6 +323,8 @@ def build_pkg(cfg, pkg):
 
 		run_tool(cfg, args, host_pkgs=host_pkgs, workdir=pkg.build_dir,
 				extra_environ=environ)
+
+	postprocess_libtool(cfg, pkg)
 
 	with tarfile.open(pkg.archive_file, 'w|gz') as tar:
 		for ent in os.listdir(pkg.collect_dir):
