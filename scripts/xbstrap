@@ -156,16 +156,26 @@ class HostPackage:
 		yield from self._install_steps
 
 	def check_if_configured(self):
-		return os.access(os.path.join(self.build_dir, 'xbstrap.configured'), os.F_OK)
+		return os.access(os.path.join(self.build_dir, 'xbstrap.tool-configured'), os.F_OK)
 
 	def mark_as_configured(self):
-		touch(os.path.join(self.build_dir, 'xbstrap.configured'))
+		touch(os.path.join(self.build_dir, 'xbstrap.tool-configured'))
 
 	def check_if_compiled(self):
-		return os.access(os.path.join(self.build_dir, 'xbstrap.compiled'), os.F_OK)
+		return os.access(os.path.join(self.build_dir, 'xbstrap.tool-compiled'), os.F_OK)
 
 	def mark_as_compiled(self):
-		touch(os.path.join(self.build_dir, 'xbstrap.compiled'))
+		touch(os.path.join(self.build_dir, 'xbstrap.tool-compiled'))
+
+	def check_if_installed(self):
+		path = os.path.join(self.prefix_dir, 'etc', 'xbstrap', self.name + '.tool-installed')
+		return os.access(path, os.F_OK)
+
+	def mark_as_installed(self):
+		try_mkdir(os.path.join(self.prefix_dir, 'etc'))
+		try_mkdir(os.path.join(self.prefix_dir, 'etc', 'xbstrap'))
+		path = os.path.join(self.prefix_dir, 'etc', 'xbstrap', self.name + '.tool-installed')
+		touch(path)
 
 class TargetPackage:
 	def __init__(self, cfg, pkg_yml):
@@ -234,15 +244,15 @@ class TargetPackage:
 	def check_archive(self):
 		return os.access(self.archive_file, os.F_OK)
 
+	def check_if_installed(self):
+		path = os.path.join(self._cfg.sysroot_dir, 'etc', 'xbstrap', self.name + '.installed')
+		return os.access(path, os.F_OK)
+
 	def mark_as_installed(self):
 		try_mkdir(os.path.join(self._cfg.sysroot_dir, 'etc'))
 		try_mkdir(os.path.join(self._cfg.sysroot_dir, 'etc', 'xbstrap'))
 		path = os.path.join(self._cfg.sysroot_dir, 'etc', 'xbstrap', self.name + '.installed')
 		touch(path)
-
-	def check_if_installed(self):
-		path = os.path.join(self._cfg.sysroot_dir, 'etc', 'xbstrap', self.name + '.installed')
-		return os.access(path, os.F_OK)
 
 def config_for_dir():
 	with open('bootstrap.link', 'r') as f:
@@ -373,6 +383,10 @@ def compile_tool(cfg, pkg):
 	pkg.mark_as_compiled()
 
 def install_tool(cfg, pkg):
+	try_mkdir(os.path.join(cfg.build_root, 'prefixes'))
+	try_rmtree(pkg.prefix_dir)
+	try_mkdir(pkg.prefix_dir)
+
 	for step in pkg.install_steps:
 		host_pkgs = []
 #		for dep_name in pkg.host_deps:
@@ -389,6 +403,8 @@ def install_tool(cfg, pkg):
 
 		run_tool(cfg, args, host_pkgs=host_pkgs, workdir=pkg.build_dir,
 				extra_environ=environ)
+	
+	pkg.mark_as_installed()
 
 # ---------------------------------------------------------------------------------------
 # Package building.
@@ -481,6 +497,10 @@ class Action(Enum):
 	BUILD_PKG = 5
 	INSTALL_PKG = 6
 	# "Virtual" actions that are only used during planning.
+	# The ENSURE_X_INSTALLED action recursively expand to ENSURE_X_INSTALLED of dependencies.
+	# They only expand to INSTALL_X if the given package is not installed.
+	# This way, recursive installation dependencies are handed correctly,
+	# even if users delete packages from the sysroot.
 	ENSURE_TOOL_INSTALLED = 7
 	ENSURE_PKG_INSTALLED = 7
 
@@ -513,6 +533,14 @@ def expand_plan(cfg, action, pkg):
 			dep_pkg = cfg.get_target_pkg(dep_name)
 			links.append((action.ENSURE_PKG_INSTALLED, dep_pkg))
 
+	if action == Action.CONFIGURE_TOOL:
+		pass
+	elif action == Action.COMPILE_TOOL:
+		if not pkg.check_if_configured():
+			links.append((action.CONFIGURE_TOOL, pkg))
+	elif action == Action.INSTALL_TOOL:
+		if not pkg.check_if_compiled():
+			links.append((action.COMPILE_TOOL, pkg))
 	if action == Action.CONFIGURE_PKG:
 		# Configuration requires all dependencies to be present.
 		add_target_dependencies()
@@ -529,6 +557,9 @@ def expand_plan(cfg, action, pkg):
 
 		# See Action.BUILD_PKG for rationale.
 		add_target_dependencies()
+	elif action == Action.ENSURE_TOOL_INSTALLED:
+		if not pkg.check_if_installed():
+			links.append((action.INSTALL_TOOL, pkg))
 	elif action == Action.ENSURE_PKG_INSTALLED:
 		if not pkg.check_if_installed():
 			links.append((action.INSTALL_PKG, pkg))
