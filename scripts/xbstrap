@@ -75,6 +75,9 @@ class Config:
 	def get_host_pkg(self, name):
 		return self._host_pkgs[name]
 
+	def all_target_pkgs(self):
+		yield from self._target_pkgs.values()
+
 	def get_target_pkg(self, name):
 		return self._target_pkgs[name]
 
@@ -150,6 +153,12 @@ class TargetPackage:
 	@property
 	def name(self):
 		return self._pkg_yml['name']
+
+	@property
+	def is_implict_package(self):
+		if 'implict_package' not in self._pkg_yml:
+			return False
+		return self._pkg_yml['implict_package']
 
 	@property
 	def host_deps(self):
@@ -328,25 +337,39 @@ Action.strings = {
 
 def expand_plan(cfg, action, pkg):
 	links = [ ]
-	if action == Action.INSTALL:
-		if not pkg.check_archive():
-			links.append((action.BUILD, pkg))
 
-		# Usually dependencies will already be installed during the build phase.
-		# However, if the sysroot is removed, we might need to install again.
+	def add_target_dependencies():
+		# Add implict target dependencies.
+		if not pkg.is_implict_package:
+			for implicit in cfg.all_target_pkgs():
+				if not implicit.is_implict_package:
+					continue
+				if not implicit.check_if_installed():
+					links.append((action.INSTALL, implicit))
+
+		# Add implict target dependencies.
 		for dep_name in pkg.dependencies:
 			dep_pkg = cfg.get_target_pkg(dep_name)
 			if not dep_pkg.check_if_installed():
 				links.append((action.INSTALL, dep_pkg))
-	if action == Action.BUILD:
+
+	if action == Action.CONFIGURE:
+		# Configuration requires all dependencies to be present.
+		add_target_dependencies()
+	elif action == Action.BUILD:
 		if not pkg.check_if_configured():
 			links.append((action.CONFIGURE, pkg))
 
-		# Building requires all dependencies to be present.
-		for dep_name in pkg.dependencies:
-			dep_pkg = cfg.get_target_pkg(dep_name)
-			if not dep_pkg.check_if_installed():
-				links.append((action.INSTALL, dep_pkg))
+		# Usually dependencies will already be installed during the configuration phase.
+		# However, if the sysroot is removed, we might need to install again.
+		add_target_dependencies()
+	elif action == Action.INSTALL:
+		if not pkg.check_archive():
+			links.append((action.BUILD, pkg))
+
+		# See Action.BUILD for rationale.
+		add_target_dependencies()
+
 	return links
 
 def compute_plan(cfg, desired):
