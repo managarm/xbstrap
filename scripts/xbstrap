@@ -179,7 +179,10 @@ class TargetPackage:
 		yield from self._build_steps
 
 	def check_if_configured(self):
-		return False
+		return os.access(os.path.join(self.build_dir, 'xbstrap.configured'), os.F_OK)
+
+	def mark_as_configured(self):
+		touch(os.path.join(self.build_dir, 'xbstrap.configured'))
 
 	def check_archive(self):
 		return os.access(self.archive_file, os.F_OK)
@@ -277,6 +280,8 @@ def configure_pkg(cfg, pkg):
 
 		run_tool(cfg, args, host_pkgs=host_pkgs, workdir=pkg.build_dir,
 				extra_environ=environ)
+
+	pkg.mark_as_configured()
 
 def build_pkg(cfg, pkg):
 	try_mkdir('packages')
