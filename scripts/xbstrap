@@ -51,11 +51,11 @@ class Config:
 		self._host_pkgs = dict()
 		self._target_pkgs = dict()
 
-		for pkg_yml in self._root_yml['host-packages']:
+		for pkg_yml in self._root_yml['tools']:
 			pkg = HostPackage(self, pkg_yml)
 			self._host_pkgs[pkg.name] = pkg
 
-		for pkg_yml in self._root_yml['target-packages']:
+		for pkg_yml in self._root_yml['packages']:
 			pkg = TargetPackage(self, pkg_yml)
 			self._target_pkgs[pkg.name] = pkg
 
@@ -162,7 +162,7 @@ class TargetPackage:
 
 	@property
 	def host_deps(self):
-		yield from self._pkg_yml['host-deps']
+		yield from self._pkg_yml['tools_required']
 
 	@property
 	def dependencies(self):
@@ -265,6 +265,10 @@ def postprocess_libtool(cfg, pkg):
 				continue
 			print('xbstrap: Removing libtool file {}'.format(ent))
 			os.unlink(os.path.join(pkg.collect_dir, libdir, ent))
+
+# ---------------------------------------------------------------------------------------
+# Tool building.
+# ---------------------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------------------
 # Package building.
