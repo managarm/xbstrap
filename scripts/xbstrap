@@ -393,7 +393,8 @@ def install_tool(cfg, pkg):
 #			host_pkgs.append(cfg.get_host_pkg(dep_name))
 
 		def substitute(varname):
-			pass
+			if varname == 'PREFIX':
+				return pkg.prefix_dir
 
 		args = [replace_at_vars(arg, substitute) for arg in step.args]
 
