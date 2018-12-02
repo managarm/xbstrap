@@ -328,11 +328,16 @@ class Action(Enum):
 	CONFIGURE = 1
 	BUILD = 2
 	INSTALL = 3
+	ENSURE_INSTALLED = 4
+
+	def is_virtual(self):
+		return self == Action.ENSURE_INSTALLED
 
 Action.strings = {
 	Action.CONFIGURE: 'configure',
 	Action.BUILD: 'build',
-	Action.INSTALL: 'install'
+	Action.INSTALL: 'install',
+	Action.ENSURE_INSTALLED: 'install?'
 }
 
 def expand_plan(cfg, action, pkg):
@@ -342,16 +347,13 @@ def expand_plan(cfg, action, pkg):
 		# Add implict target dependencies.
 		if not pkg.is_implict_package:
 			for implicit in cfg.all_target_pkgs():
-				if not implicit.is_implict_package:
-					continue
-				if not implicit.check_if_installed():
-					links.append((action.INSTALL, implicit))
+				if implicit.is_implict_package:
+					links.append((action.ENSURE_INSTALLED, implicit))
 
 		# Add implict target dependencies.
 		for dep_name in pkg.dependencies:
 			dep_pkg = cfg.get_target_pkg(dep_name)
-			if not dep_pkg.check_if_installed():
-				links.append((action.INSTALL, dep_pkg))
+			links.append((action.ENSURE_INSTALLED, dep_pkg))
 
 	if action == Action.CONFIGURE:
 		# Configuration requires all dependencies to be present.
@@ -369,6 +371,12 @@ def expand_plan(cfg, action, pkg):
 
 		# See Action.BUILD for rationale.
 		add_target_dependencies()
+	elif action == Action.ENSURE_INSTALLED:
+		if not pkg.check_if_installed():
+			links.append((action.INSTALL, pkg))
+
+		# See Action.BUILD for rationale.
+		add_target_dependencies()
 
 	return links
 
@@ -380,6 +388,8 @@ def compute_plan(cfg, desired):
 
 	order = [ ]
 
+	# The following code does a topologic sort of the desired items.
+	# It lazily expands their dependencies using expand_plan().
 	stack = [ ]
 	state = dict()
 
@@ -403,7 +413,8 @@ def compute_plan(cfg, desired):
 				assert state[(action, pkg.name)] == State.EXPANDING
 				state[(action, pkg.name)] = State.ORDERED
 				stack.pop()
-				order.append((action, pkg))
+				if not action.is_virtual():
+					order.append((action, pkg))
 			else:
 				(link_action, link_pkg) = rem_links.pop()
 				visit(link_action, link_pkg)
