@@ -99,12 +99,35 @@ class HostPackage:
 	def __init__(self, cfg, pkg_yml):
 		self._cfg = cfg
 		self._pkg_yml = pkg_yml
+		self._configure_steps = [ ]
+		self._compile_steps = [ ]
+		self._install_steps = [ ]
+
+		if 'configure' in self._pkg_yml:
+			for step_yml in self._pkg_yml['configure']:
+				self._configure_steps.append(ScriptStep(step_yml))
+		if 'compile' in self._pkg_yml:
+			for step_yml in self._pkg_yml['compile']:
+				self._compile_steps.append(ScriptStep(step_yml))
+		if 'install' in self._pkg_yml:
+			for step_yml in self._pkg_yml['install']:
+				self._install_steps.append(ScriptStep(step_yml))
 
 	@property
 	def has_shared_libs(self):
 		if 'has_shared_libs' not in self._pkg_yml:
 			return False
 		return self._pkg_yml['has_shared_libs']
+
+	@property
+	def source_dir(self):
+		if 'source_dir' in self._pkg_yml:
+			return os.path.join(self._cfg.source_root, self._pkg_yml['source_dir'])
+		return os.path.join(self._cfg.source_root, self.name)
+
+	@property
+	def build_dir(self):
+		return os.path.join(self._cfg.build_root, 'tool-builds', self.name)
 
 	@property
 	def prefix_dir(self):
@@ -120,12 +143,36 @@ class HostPackage:
 			return []
 		yield from self._pkg_yml['dependencies']
 
+	@property
+	def configure_steps(self):
+		yield from self._configure_steps
+
+	@property
+	def compile_steps(self):
+		yield from self._compile_steps
+
+	@property
+	def install_steps(self):
+		yield from self._install_steps
+
+	def check_if_configured(self):
+		return os.access(os.path.join(self.build_dir, 'xbstrap.configured'), os.F_OK)
+
+	def mark_as_configured(self):
+		touch(os.path.join(self.build_dir, 'xbstrap.configured'))
+
+	def check_if_compiled(self):
+		return os.access(os.path.join(self.build_dir, 'xbstrap.compiled'), os.F_OK)
+
+	def mark_as_compiled(self):
+		touch(os.path.join(self.build_dir, 'xbstrap.compiled'))
+
 class TargetPackage:
 	def __init__(self, cfg, pkg_yml):
 		self._cfg = cfg
 		self._pkg_yml = pkg_yml
-		self._build_steps = [ ]
 		self._configure_steps = [ ]
+		self._build_steps = [ ]
 
 		for step_yml in self._pkg_yml['configure']:
 			self._configure_steps.append(ScriptStep(step_yml))
@@ -270,11 +317,85 @@ def postprocess_libtool(cfg, pkg):
 # Tool building.
 # ---------------------------------------------------------------------------------------
 
+def configure_tool(cfg, pkg):
+	try_mkdir(os.path.join(cfg.build_root, 'tool-builds'))
+	try_rmtree(pkg.build_dir)
+	try_mkdir(pkg.build_dir)
+
+	for step in pkg.configure_steps:
+		host_pkgs = []
+#		for dep_name in pkg.host_deps:
+#			host_pkgs.append(cfg.get_host_pkg(dep_name))
+
+		def substitute(varname):
+			if varname == 'SOURCE_ROOT':
+				return cfg.source_root
+			elif varname == 'BUILD_ROOT':
+				return cfg.build_root
+			elif varname == 'SYSROOT_DIR':
+				return cfg.sysroot_dir
+			elif varname == 'PKG_SOURCE_DIR':
+				return pkg.source_dir
+			elif varname == 'PREFIX':
+				return pkg.prefix_dir
+
+		args = [replace_at_vars(arg, substitute) for arg in step.args]
+
+		environ = dict()
+		for (key, value) in step.environ.items():
+			environ[key] = replace_at_vars(value, substitute)
+
+		run_tool(cfg, args, host_pkgs=host_pkgs, workdir=pkg.build_dir,
+				extra_environ=environ)
+
+	pkg.mark_as_configured()
+
+def compile_tool(cfg, pkg):
+	for step in pkg.compile_steps:
+		host_pkgs = []
+#		for dep_name in pkg.host_deps:
+#			host_pkgs.append(cfg.get_host_pkg(dep_name))
+
+		def substitute(varname):
+			if varname == 'PARALLELISM':
+				nthreads = len(os.sched_getaffinity(0))
+				return str(nthreads)
+
+		args = [replace_at_vars(arg, substitute) for arg in step.args]
+
+		environ = dict()
+		for (key, value) in step.environ.items():
+			environ[key] = replace_at_vars(value, substitute)
+
+		run_tool(cfg, args, host_pkgs=host_pkgs, workdir=pkg.build_dir,
+				extra_environ=environ)
+
+	pkg.mark_as_compiled()
+
+def install_tool(cfg, pkg):
+	for step in pkg.install_steps:
+		host_pkgs = []
+#		for dep_name in pkg.host_deps:
+#			host_pkgs.append(cfg.get_host_pkg(dep_name))
+
+		def substitute(varname):
+			pass
+
+		args = [replace_at_vars(arg, substitute) for arg in step.args]
+
+		environ = dict()
+		for (key, value) in step.environ.items():
+			environ[key] = replace_at_vars(value, substitute)
+
+		run_tool(cfg, args, host_pkgs=host_pkgs, workdir=pkg.build_dir,
+				extra_environ=environ)
+
 # ---------------------------------------------------------------------------------------
 # Package building.
 # ---------------------------------------------------------------------------------------
 
 def configure_pkg(cfg, pkg):
+	try_mkdir(os.path.join(cfg.build_root, 'native'))
 	try_rmtree(pkg.build_dir)
 	try_mkdir(pkg.build_dir)
 
@@ -351,19 +472,30 @@ def install_pkg(cfg, pkg):
 
 class Action(Enum):
 	NULL = 0
-	CONFIGURE = 1
-	BUILD = 2
-	INSTALL = 3
-	ENSURE_INSTALLED = 4
+	# Tool-related actions.
+	CONFIGURE_TOOL = 1
+	COMPILE_TOOL = 2
+	INSTALL_TOOL = 3
+	# Package-related actions.
+	CONFIGURE_PKG = 4
+	BUILD_PKG = 5
+	INSTALL_PKG = 6
+	# "Virtual" actions that are only used during planning.
+	ENSURE_TOOL_INSTALLED = 7
+	ENSURE_PKG_INSTALLED = 7
 
 	def is_virtual(self):
-		return self == Action.ENSURE_INSTALLED
+		return self == Action.ENSURE_PKG_INSTALLED
 
 Action.strings = {
-	Action.CONFIGURE: 'configure',
-	Action.BUILD: 'build',
-	Action.INSTALL: 'install',
-	Action.ENSURE_INSTALLED: 'install?'
+	Action.CONFIGURE_TOOL: 'configure-tool',
+	Action.COMPILE_TOOL: 'compile-tool',
+	Action.INSTALL_TOOL: 'install-tool',
+	Action.CONFIGURE_PKG: 'configure',
+	Action.BUILD_PKG: 'build',
+	Action.INSTALL_PKG: 'install',
+	Action.ENSURE_TOOL_INSTALLED: 'install-tool?',
+	Action.ENSURE_PKG_INSTALLED: 'install?'
 }
 
 def expand_plan(cfg, action, pkg):
@@ -374,34 +506,34 @@ def expand_plan(cfg, action, pkg):
 		if not pkg.is_implict_package:
 			for implicit in cfg.all_target_pkgs():
 				if implicit.is_implict_package:
-					links.append((action.ENSURE_INSTALLED, implicit))
+					links.append((action.ENSURE_PKG_INSTALLED, implicit))
 
 		# Add implict target dependencies.
 		for dep_name in pkg.dependencies:
 			dep_pkg = cfg.get_target_pkg(dep_name)
-			links.append((action.ENSURE_INSTALLED, dep_pkg))
+			links.append((action.ENSURE_PKG_INSTALLED, dep_pkg))
 
-	if action == Action.CONFIGURE:
+	if action == Action.CONFIGURE_PKG:
 		# Configuration requires all dependencies to be present.
 		add_target_dependencies()
-	elif action == Action.BUILD:
+	elif action == Action.BUILD_PKG:
 		if not pkg.check_if_configured():
-			links.append((action.CONFIGURE, pkg))
+			links.append((action.CONFIGURE_PKG, pkg))
 
 		# Usually dependencies will already be installed during the configuration phase.
 		# However, if the sysroot is removed, we might need to install again.
 		add_target_dependencies()
-	elif action == Action.INSTALL:
+	elif action == Action.INSTALL_PKG:
 		if not pkg.check_archive():
-			links.append((action.BUILD, pkg))
+			links.append((action.BUILD_PKG, pkg))
 
-		# See Action.BUILD for rationale.
+		# See Action.BUILD_PKG for rationale.
 		add_target_dependencies()
-	elif action == Action.ENSURE_INSTALLED:
+	elif action == Action.ENSURE_PKG_INSTALLED:
 		if not pkg.check_if_installed():
-			links.append((action.INSTALL, pkg))
+			links.append((action.INSTALL_PKG, pkg))
 
-		# See Action.BUILD for rationale.
+		# See Action.BUILD_PKG for rationale.
 		add_target_dependencies()
 
 	return links
@@ -452,11 +584,17 @@ def run_plan(cfg, plan):
 		print('    {:12} {}'.format(Action.strings[action], pkg.name))
 
 	for (action, pkg) in plan:
-		if action == Action.CONFIGURE:
+		if action == Action.CONFIGURE_TOOL:
+			configure_tool(cfg, pkg)
+		elif action == Action.COMPILE_TOOL:
+			compile_tool(cfg, pkg)
+		elif action == Action.INSTALL_TOOL:
+			install_tool(cfg, pkg)
+		elif action == Action.CONFIGURE_PKG:
 			configure_pkg(cfg, pkg)
-		elif action == Action.BUILD:
+		elif action == Action.BUILD_PKG:
 			build_pkg(cfg, pkg)
-		elif action == Action.INSTALL:
+		elif action == Action.INSTALL_PKG:
 			install_pkg(cfg, pkg)
 		else:
 			raise AssertionError("Unexpected action")
@@ -483,10 +621,37 @@ def do_init(args):
 do_init.parser = main_subparsers.add_parser('init')
 do_init.parser.add_argument('src_root', type=str)
 
+def do_configure_tool(args):
+	cfg = config_for_dir()
+	pkg = cfg.get_host_pkg(args.package)
+	plan = compute_plan(cfg, [(Action.CONFIGURE_TOOL, pkg)])
+	run_plan(cfg, plan)
+
+do_configure_tool.parser = main_subparsers.add_parser('configure-tool')
+do_configure_tool.parser.add_argument('package', type=str)
+
+def do_compile_tool(args):
+	cfg = config_for_dir()
+	pkg = cfg.get_host_pkg(args.package)
+	plan = compute_plan(cfg, [(Action.COMPILE_TOOL, pkg)])
+	run_plan(cfg, plan)
+
+do_compile_tool.parser = main_subparsers.add_parser('compile-tool')
+do_compile_tool.parser.add_argument('package', type=str)
+
+def do_install_tool(args):
+	cfg = config_for_dir()
+	pkg = cfg.get_host_pkg(args.package)
+	plan = compute_plan(cfg, [(Action.INSTALL_TOOL, pkg)])
+	run_plan(cfg, plan)
+
+do_install_tool.parser = main_subparsers.add_parser('install-tool')
+do_install_tool.parser.add_argument('package', type=str)
+
 def do_configure(args):
 	cfg = config_for_dir()
 	pkg = cfg.get_target_pkg(args.package)
-	plan = compute_plan(cfg, [(Action.CONFIGURE, pkg)])
+	plan = compute_plan(cfg, [(Action.CONFIGURE_PKG, pkg)])
 	run_plan(cfg, plan)
 
 do_configure.parser = main_subparsers.add_parser('configure')
@@ -495,7 +660,7 @@ do_configure.parser.add_argument('package', type=str)
 def do_build(args):
 	cfg = config_for_dir()
 	pkg = cfg.get_target_pkg(args.package)
-	plan = compute_plan(cfg, [(Action.BUILD, pkg)])
+	plan = compute_plan(cfg, [(Action.BUILD_PKG, pkg)])
 	run_plan(cfg, plan)
 
 do_build.parser = main_subparsers.add_parser('build')
@@ -504,7 +669,7 @@ do_build.parser.add_argument('package', type=str)
 def do_install(args):
 	cfg = config_for_dir()
 	pkg = cfg.get_target_pkg(args.package)
-	plan = compute_plan(cfg, [(Action.INSTALL, pkg)])
+	plan = compute_plan(cfg, [(Action.INSTALL_PKG, pkg)])
 	run_plan(cfg, plan)
 
 do_install.parser = main_subparsers.add_parser('install')
@@ -516,6 +681,12 @@ if args.command == 'init':
 	do_init(args)
 elif args.command == 'run':
 	do_run(args)
+elif args.command == 'configure-tool':
+	do_configure_tool(args)
+elif args.command == 'compile-tool':
+	do_compile_tool(args)
+elif args.command == 'install-tool':
+	do_install_tool(args)
 elif args.command == 'configure':
 	do_configure(args)
 elif args.command == 'build':
