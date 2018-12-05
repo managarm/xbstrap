@@ -99,59 +99,59 @@ class ScriptStep:
 class RequirementsMixin:
 	@property
 	def tools_required(self):
-		if 'tools_required' in self._pkg_yml:
-			for yml in self._pkg_yml['tools_required']:
-				if isinstance(yml, str):
-					yield yml
-				else:
-					assert isinstance(yml, dict)
+		if 'tools_required' in self._this_yml:
+			for yml in self._this_yml['tools_required']:
+				if isinstance(yml, dict):
 					yield yml['tool']
+				else:
+					assert isinstance(yml, str)
+					yield yml
 
 	@property
 	def tool_dependencies(self):
 		# First, return automatic dependencies induced by 'tools_required'.
-		if 'tools_required' in self._pkg_yml:
-			for yml in self._pkg_yml['tools_required']:
+		if 'tools_required' in self._this_yml:
+			for yml in self._this_yml['tools_required']:
 				if isinstance(yml, dict):
 					# 'auto_dependency' can disable the automatic dependency
 					if 'auto_dependency' in yml and not yml['auto_dependency']:
 						continue
-					yield (yml['name'], None) # TODO: Depend on _all_ tool stages.
+					yield (yml['tool'], None)
 				else:
 					assert isinstance(yml, str)
-					yield (yml, None) # TODO: Depend on _all_ tool stages.
+					yield (yml, None)
 
 		# Secondly, return explicit dependencies.
-		if 'tool_dependencies' in self._pkg_yml:
-			for yml in self._pkg_yml['tool_dependencies']:
+		if 'tool_dependencies' in self._this_yml:
+			for yml in self._this_yml['tool_dependencies']:
 				if isinstance(yml, dict):
 					yield (yml['tool'], yml['stage'])
 				else:
 					assert isinstance(yml, str)
-					yield (yml, None) # TODO: Depend on _all_ tool stages.
+					yield (yml, None)
 
 	@property
 	def pkg_dependencies(self):
 		# First, return automatic dependencies induced by 'pkgs_required'.
-		if 'pkgs_required' in self._pkg_yml:
-			yield from self._pkg_yml['pkgs_required']
+		if 'pkgs_required' in self._this_yml:
+			yield from self._this_yml['pkgs_required']
 
 		# TODO: Secondly, return explicit dependencies.
 
-class HostStage:
-	def __init__(self, cfg, pkg, inherited, pkg_yml):
+class HostStage(RequirementsMixin):
+	def __init__(self, cfg, pkg, inherited, stage_yml):
 		self._cfg = cfg
 		self._pkg = pkg
 		self._inherited = inherited
-		self._stage_yml = pkg_yml
+		self._this_yml = stage_yml
 		self._compile_steps = [ ]
 		self._install_steps = [ ]
 
-		if 'compile' in self._stage_yml:
-			for step_yml in self._stage_yml['compile']:
+		if 'compile' in self._this_yml:
+			for step_yml in self._this_yml['compile']:
 				self._compile_steps.append(ScriptStep(step_yml))
-		if 'install' in self._stage_yml:
-			for step_yml in self._stage_yml['install']:
+		if 'install' in self._this_yml:
+			for step_yml in self._this_yml['install']:
 				self._install_steps.append(ScriptStep(step_yml))
 
 	@property
@@ -162,7 +162,7 @@ class HostStage:
 	def stage_name(self):
 		if self._inherited:
 			return None
-		return self._stage_yml['name']
+		return self._this_yml['name']
 
 	@property
 	def subject_id(self):
@@ -170,17 +170,9 @@ class HostStage:
 
 	@property
 	def self_required(self):
-		if 'self_required' not in self._stage_yml:
+		if 'self_required' not in self._this_yml:
 			return False
-		return self._stage_yml['self_required']
-
-	@property
-	def pkg_dependencies(self):
-		# First, return automatic dependencies induced by 'pkgs_required'.
-		if 'pkgs_required' in self._stage_yml:
-			yield from self._stage_yml['pkgs_required']
-
-		# TODO: Secondly, return explicit dependencies.
+		return self._this_yml['self_required']
 
 	@property
 	def compile_steps(self):
@@ -225,32 +217,32 @@ class HostStage:
 class HostPackage(RequirementsMixin):
 	def __init__(self, cfg, pkg_yml):
 		self._cfg = cfg
-		self._pkg_yml = pkg_yml
+		self._this_yml = pkg_yml
 		self._configure_steps = [ ]
 		self._stages = dict()
 
-		if 'stages' in self._pkg_yml:
-			for stage_yml in self._pkg_yml['stages']:
+		if 'stages' in self._this_yml:
+			for stage_yml in self._this_yml['stages']:
 				stage = HostStage(self._cfg, self, False, stage_yml)
 				self._stages[stage.stage_name] = stage
 		else:
-			stage = HostStage(self._cfg, self, True, self._pkg_yml)
+			stage = HostStage(self._cfg, self, True, self._this_yml)
 			self._stages[stage.stage_name] = stage
 
-		if 'configure' in self._pkg_yml:
-			for step_yml in self._pkg_yml['configure']:
+		if 'configure' in self._this_yml:
+			for step_yml in self._this_yml['configure']:
 				self._configure_steps.append(ScriptStep(step_yml))
 
 	@property
 	def has_shared_libs(self):
-		if 'has_shared_libs' not in self._pkg_yml:
+		if 'has_shared_libs' not in self._this_yml:
 			return False
-		return self._pkg_yml['has_shared_libs']
+		return self._this_yml['has_shared_libs']
 
 	@property
 	def source_dir(self):
-		if 'source_dir' in self._pkg_yml:
-			return os.path.join(self._cfg.source_root, self._pkg_yml['source_dir'])
+		if 'source_dir' in self._this_yml:
+			return os.path.join(self._cfg.source_root, self._this_yml['source_dir'])
 		return os.path.join(self._cfg.source_root, self.name)
 
 	@property
@@ -263,7 +255,7 @@ class HostPackage(RequirementsMixin):
 
 	@property
 	def name(self):
-		return self._pkg_yml['name']
+		return self._this_yml['name']
 
 	@property
 	def subject_id(self):
@@ -288,19 +280,19 @@ class HostPackage(RequirementsMixin):
 class TargetPackage(RequirementsMixin):
 	def __init__(self, cfg, pkg_yml):
 		self._cfg = cfg
-		self._pkg_yml = pkg_yml
+		self._this_yml = pkg_yml
 		self._configure_steps = [ ]
 		self._build_steps = [ ]
 
-		for step_yml in self._pkg_yml['configure']:
+		for step_yml in self._this_yml['configure']:
 			self._configure_steps.append(ScriptStep(step_yml))
-		for step_yml in self._pkg_yml['build']:
+		for step_yml in self._this_yml['build']:
 			self._build_steps.append(ScriptStep(step_yml))
 
 	@property
 	def source_dir(self):
-		if 'source_dir' in self._pkg_yml:
-			return os.path.join(self._cfg.source_root, self._pkg_yml['source_dir'])
+		if 'source_dir' in self._this_yml:
+			return os.path.join(self._cfg.source_root, self._this_yml['source_dir'])
 		return os.path.join(self._cfg.source_root, self.name)
 
 	@property
@@ -317,7 +309,7 @@ class TargetPackage(RequirementsMixin):
 
 	@property
 	def name(self):
-		return self._pkg_yml['name']
+		return self._this_yml['name']
 
 	@property
 	def subject_id(self):
@@ -325,9 +317,9 @@ class TargetPackage(RequirementsMixin):
 
 	@property
 	def is_implict_package(self):
-		if 'implict_package' not in self._pkg_yml:
+		if 'implict_package' not in self._this_yml:
 			return False
-		return self._pkg_yml['implict_package']
+		return self._this_yml['implict_package']
 
 	@property
 	def configure_steps(self):
@@ -646,17 +638,23 @@ def expand_plan(cfg, action, subject):
 	def add_tool_dependencies(s):
 		for (pkg_name, stage_name) in s.tool_dependencies:
 			tool_pkg = cfg.get_tool_pkg(pkg_name)
-			tool_stage = tool_pkg.get_stage(stage_name)
-			links.append((action.ENSURE_TOOL_STAGE_INSTALLED, tool_stage))
+			if stage_name is None:
+				links.extend([(action.ENSURE_TOOL_STAGE_INSTALLED, stage)
+						for stage in tool_pkg.all_stages()])
+			else:
+				tool_stage = tool_pkg.get_stage(stage_name)
+				links.append((action.ENSURE_TOOL_STAGE_INSTALLED, tool_stage))
 
 	if action == Action.CONFIGURE_TOOL:
-		pass
+		add_tool_dependencies(subject)
+		add_pkg_dependencies(subject)
 
 	elif action == Action.COMPILE_TOOL_STAGE:
 		if not subject.pkg.check_if_configured():
 			links.append((action.CONFIGURE_TOOL, subject.pkg))
 		
 		add_tool_dependencies(subject.pkg)
+		add_tool_dependencies(subject)
 		add_pkg_dependencies(subject)
 
 	elif action == Action.INSTALL_TOOL_STAGE:
@@ -664,6 +662,7 @@ def expand_plan(cfg, action, subject):
 			links.append((action.COMPILE_TOOL_STAGE, subject))
 		
 		add_tool_dependencies(subject.pkg)
+		add_tool_dependencies(subject)
 		add_pkg_dependencies(subject)
 
 	elif action == Action.ENSURE_TOOL_STAGE_INSTALLED:
@@ -671,6 +670,7 @@ def expand_plan(cfg, action, subject):
 			links.append((action.INSTALL_TOOL_STAGE, subject))
 		
 		add_tool_dependencies(subject.pkg)
+		add_tool_dependencies(subject)
 		add_pkg_dependencies(subject)
 
 	elif action == Action.CONFIGURE_PKG:
@@ -726,6 +726,8 @@ def compute_plan(cfg, desired):
 			state[(action, subject.subject_id)] = State.EXPANDING
 			stack.append((action, subject, links))
 		elif state[(action, subject.subject_id)] == State.EXPANDING:
+			for (circ_action, circ_subject, _) in stack:
+				print(Action.strings[circ_action], circ_subject.subject_id)
 			raise RuntimeError("Package has circular dependencies")
 		else:
 			# Packages that are already ordered do not need to be considered again.
