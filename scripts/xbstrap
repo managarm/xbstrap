@@ -96,6 +96,48 @@ class ScriptStep:
 			return dict()
 		return self._step_yml['environ']
 
+class RequirementsMixin:
+	@property
+	def tools_required(self):
+		if 'tools_required' in self._pkg_yml:
+			for yml in self._pkg_yml['tools_required']:
+				if isinstance(yml, str):
+					yield yml
+				else:
+					assert isinstance(yml, dict)
+					yield yml['tool']
+
+	@property
+	def tool_dependencies(self):
+		# First, return automatic dependencies induced by 'tools_required'.
+		if 'tools_required' in self._pkg_yml:
+			for yml in self._pkg_yml['tools_required']:
+				if isinstance(yml, dict):
+					# 'auto_dependency' can disable the automatic dependency
+					if 'auto_dependency' in yml and not yml['auto_dependency']:
+						continue
+					yield (yml['name'], None) # TODO: Depend on _all_ tool stages.
+				else:
+					assert isinstance(yml, str)
+					yield (yml, None) # TODO: Depend on _all_ tool stages.
+
+		# Secondly, return explicit dependencies.
+		if 'tool_dependencies' in self._pkg_yml:
+			for yml in self._pkg_yml['tool_dependencies']:
+				if isinstance(yml, dict):
+					yield (yml['tool'], yml['stage'])
+				else:
+					assert isinstance(yml, str)
+					yield (yml, None) # TODO: Depend on _all_ tool stages.
+
+	@property
+	def pkg_dependencies(self):
+		# First, return automatic dependencies induced by 'pkgs_required'.
+		if 'pkgs_required' in self._pkg_yml:
+			yield from self._pkg_yml['pkgs_required']
+
+		# TODO: Secondly, return explicit dependencies.
+
 class HostStage:
 	def __init__(self, cfg, pkg, inherited, pkg_yml):
 		self._cfg = cfg
@@ -180,7 +222,7 @@ class HostStage:
 		touch(path)
 
 
-class HostPackage:
+class HostPackage(RequirementsMixin):
 	def __init__(self, cfg, pkg_yml):
 		self._cfg = cfg
 		self._pkg_yml = pkg_yml
@@ -234,12 +276,6 @@ class HostPackage:
 		return self._stages[name]
 
 	@property
-	def tools_required(self):
-		if 'tools_required' not in self._pkg_yml:
-			return []
-		yield from self._pkg_yml['tools_required']
-
-	@property
 	def configure_steps(self):
 		yield from self._configure_steps
 
@@ -249,7 +285,7 @@ class HostPackage:
 	def mark_as_configured(self):
 		touch(os.path.join(self.build_dir, 'xbstrap.tool-configured'))
 
-class TargetPackage:
+class TargetPackage(RequirementsMixin):
 	def __init__(self, cfg, pkg_yml):
 		self._cfg = cfg
 		self._pkg_yml = pkg_yml
@@ -292,44 +328,6 @@ class TargetPackage:
 		if 'implict_package' not in self._pkg_yml:
 			return False
 		return self._pkg_yml['implict_package']
-
-	@property
-	def tools_required(self):
-		for yml in self._pkg_yml['tools_required']:
-			if isinstance(yml, str):
-				yield yml
-			else:
-				assert isinstance(yml, dict)
-				yield yml['tool']
-
-	@property
-	def tool_dependencies(self):
-		# First, return automatic dependencies induced by 'tools_required'.
-		for yml in self._pkg_yml['tools_required']:
-			if isinstance(yml, dict):
-				# 'auto_dependency' can disable the automatic dependency
-				if 'auto_dependency' in yml and not yml['auto_dependency']:
-					continue
-				yield (yml['name'], None) # TODO: Depend on _all_ tool stages.
-			else:
-				assert isinstance(yml, str)
-				yield (yml, None) # TODO: Depend on _all_ tool stages.
-
-		# Secondly, return explicit dependencies.
-		for yml in self._pkg_yml['tool_dependencies']:
-			if isinstance(yml, dict):
-				yield (yml['tool'], yml['stage'])
-			else:
-				assert isinstance(yml, str)
-				yield (yml, None) # TODO: Depend on _all_ tool stages.
-
-	@property
-	def pkg_dependencies(self):
-		# First, return automatic dependencies induced by 'pkgs_required'.
-		if 'pkgs_required' in self._pkg_yml:
-			yield from self._pkg_yml['pkgs_required']
-
-		# TODO: Secondly, return explicit dependencies.
 
 	@property
 	def configure_steps(self):
@@ -658,19 +656,21 @@ def expand_plan(cfg, action, subject):
 		if not subject.pkg.check_if_configured():
 			links.append((action.CONFIGURE_TOOL, subject.pkg))
 		
+		add_tool_dependencies(subject.pkg)
 		add_pkg_dependencies(subject)
 
 	elif action == Action.INSTALL_TOOL_STAGE:
-		print(subject.name)
 		if not subject.check_if_compiled():
 			links.append((action.COMPILE_TOOL_STAGE, subject))
 		
+		add_tool_dependencies(subject.pkg)
 		add_pkg_dependencies(subject)
 
 	elif action == Action.ENSURE_TOOL_STAGE_INSTALLED:
 		if not subject.check_if_installed():
 			links.append((action.INSTALL_TOOL_STAGE, subject))
 		
+		add_tool_dependencies(subject.pkg)
 		add_pkg_dependencies(subject)
 
 	elif action == Action.CONFIGURE_PKG:
