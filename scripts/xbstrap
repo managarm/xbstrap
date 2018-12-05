@@ -125,6 +125,12 @@ class HostStage:
 	@property
 	def subject_id(self):
 		return (self._pkg.name, self.stage_name)
+	
+	@property
+	def self_required(self):
+		if 'self_required' not in self._stage_yml:
+			return False
+		return self._stage_yml['self_required']
 
 	@property
 	def compile_steps(self):
@@ -220,10 +226,10 @@ class HostPackage:
 		return self._stages[name]
 
 	@property
-	def dependencies(self):
-		if 'dependencies' not in self._pkg_yml:
+	def tools_required(self):
+		if 'tools_required' not in self._pkg_yml:
 			return []
-		yield from self._pkg_yml['dependencies']
+		yield from self._pkg_yml['tools_required']
 
 	@property
 	def configure_steps(self):
@@ -298,10 +304,10 @@ class TargetPackage:
 				yield (yml['tool'], yml['stage'])
 
 	@property
-	def dependencies(self):
-		if 'dependencies' not in self._pkg_yml:
+	def pkg_dependencies(self):
+		if 'pkgs_required' not in self._pkg_yml:
 			return []
-		yield from self._pkg_yml['dependencies']
+		yield from self._pkg_yml['pkgs_required']
 
 	@property
 	def configure_steps(self):
@@ -366,7 +372,7 @@ def run_tool(cfg, args, tool_pkgs=[], workdir=None, extra_environ=dict()):
 	i = 0 # Need index-based loop as pkg_queue is mutated in the loop.
 	while i < len(pkg_queue):
 		pkg = pkg_queue[i]
-		for dep_name in pkg.dependencies:
+		for dep_name in pkg.tools_required:
 			if dep_name in pkg_visited:
 				continue
 			dep_pkg = cfg.get_tool_pkg(dep_name)
@@ -410,8 +416,8 @@ def configure_tool(cfg, pkg):
 
 	for step in pkg.configure_steps:
 		tool_pkgs = []
-#		for dep_name in pkg.tools_required:
-#			tool_pkgs.append(cfg.get_tool_pkg(dep_name))
+		for dep_name in pkg.tools_required:
+			tool_pkgs.append(cfg.get_tool_pkg(dep_name))
 
 		def substitute(varname):
 			if varname == 'SOURCE_ROOT':
@@ -441,8 +447,10 @@ def compile_tool_stage(cfg, stage):
 
 	for step in stage.compile_steps:
 		tool_pkgs = []
-#		for dep_name in stage.tools_required:
-#			tool_pkgs.append(cfg.get_tool_pkg(dep_name))
+		for dep_name in pkg.tools_required:
+			tool_pkgs.append(cfg.get_tool_pkg(dep_name))
+		if stage.self_required:
+			tool_pkgs.append(pkg)
 
 		def substitute(varname):
 			if varname == 'PARALLELISM':
@@ -469,8 +477,10 @@ def install_tool_stage(cfg, stage):
 
 	for step in stage.install_steps:
 		tool_pkgs = []
-#		for dep_name in stage.tools_required:
-#			tool_pkgs.append(cfg.get_tool_pkg(dep_name))
+		for dep_name in pkg.tools_required:
+			tool_pkgs.append(cfg.get_tool_pkg(dep_name))
+		if stage.self_required:
+			tool_pkgs.append(pkg)
 
 		def substitute(varname):
 			if varname == 'PREFIX':
@@ -602,19 +612,18 @@ Action.strings = {
 def expand_plan(cfg, action, subject):
 	links = [ ]
 
-	def add_target_dependencies():
+	def add_target_pkg_dependencies():
 		# Add implict target dependencies.
 		if not subject.is_implict_package:
 			for implicit in cfg.all_target_pkgs():
 				if implicit.is_implict_package:
 					links.append((action.ENSURE_PKG_INSTALLED, implicit))
 
-		# Add implict target dependencies.
-		for dep_name in subject.dependencies:
+		for dep_name in subject.pkg_dependencies:
 			dep_pkg = cfg.get_target_pkg(dep_name)
 			links.append((action.ENSURE_PKG_INSTALLED, dep_pkg))
 
-	def add_target_tool_stages():
+	def add_target_tool_dependencies():
 		for (pkg_name, stage_name) in subject.tool_stages_required:
 			tool_pkg = cfg.get_tool_pkg(pkg_name)
 			tool_stage = tool_pkg.get_stage(stage_name)
@@ -630,22 +639,22 @@ def expand_plan(cfg, action, subject):
 			links.append((action.COMPILE_TOOL_STAGE, subject))
 	if action == Action.CONFIGURE_PKG:
 		# Configuration requires all dependencies to be present.
-		add_target_dependencies()
-		add_target_tool_stages()
+		add_target_pkg_dependencies()
+		add_target_tool_dependencies()
 	elif action == Action.BUILD_PKG:
 		if not subject.check_if_configured():
 			links.append((action.CONFIGURE_PKG, subject))
 
 		# Usually dependencies will already be installed during the configuration phase.
 		# However, if the sysroot is removed, we might need to install again.
-		add_target_dependencies()
-		add_target_tool_stages()
+		add_target_pkg_dependencies()
+		add_target_tool_dependencies()
 	elif action == Action.INSTALL_PKG:
 		if not subject.check_archive():
 			links.append((action.BUILD_PKG, subject))
 
 		# See Action.BUILD_PKG for rationale.
-		add_target_dependencies()
+		add_target_pkg_dependencies()
 	elif action == Action.ENSURE_TOOL_INSTALLED:
 		if not subject.check_if_installed():
 			links.append((action.INSTALL_TOOL_STAGE, subject))
@@ -654,7 +663,7 @@ def expand_plan(cfg, action, subject):
 			links.append((action.INSTALL_PKG, subject))
 
 		# See Action.BUILD_PKG for rationale.
-		add_target_dependencies()
+		add_target_pkg_dependencies()
 
 	return links
 
