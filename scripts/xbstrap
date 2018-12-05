@@ -125,7 +125,7 @@ class HostStage:
 	@property
 	def subject_id(self):
 		return (self._pkg.name, self.stage_name)
-	
+
 	@property
 	def self_required(self):
 		if 'self_required' not in self._stage_yml:
@@ -295,19 +295,33 @@ class TargetPackage:
 				yield yml['tool']
 
 	@property
-	def tool_stages_required(self):
+	def tool_dependencies(self):
+		# First, return automatic dependencies induced by 'tools_required'.
 		for yml in self._pkg_yml['tools_required']:
-			if isinstance(yml, str):
-				yield (yml, None)
+			if isinstance(yml, dict):
+				# 'auto_dependency' can disable the automatic dependency
+				if 'auto_dependency' in yml and not yml['auto_dependency']:
+					continue
+				yield (yml['name'], None) # TODO: Depend on _all_ tool stages.
 			else:
-				assert isinstance(yml, dict)
+				assert isinstance(yml, str)
+				yield (yml, None) # TODO: Depend on _all_ tool stages.
+
+		# Secondly, return explicit dependencies.
+		for yml in self._pkg_yml['tool_dependencies']:
+			if isinstance(yml, dict):
 				yield (yml['tool'], yml['stage'])
+			else:
+				assert isinstance(yml, str)
+				yield (yml, None) # TODO: Depend on _all_ tool stages.
 
 	@property
 	def pkg_dependencies(self):
-		if 'pkgs_required' not in self._pkg_yml:
-			return []
-		yield from self._pkg_yml['pkgs_required']
+		# First, return automatic dependencies induced by 'pkgs_required'.
+		if 'pkgs_required' in self._pkg_yml:
+			yield from self._pkg_yml['pkgs_required']
+
+		# TODO: Secondly, return explicit dependencies.
 
 	@property
 	def configure_steps(self):
@@ -624,7 +638,7 @@ def expand_plan(cfg, action, subject):
 			links.append((action.ENSURE_PKG_INSTALLED, dep_pkg))
 
 	def add_target_tool_dependencies():
-		for (pkg_name, stage_name) in subject.tool_stages_required:
+		for (pkg_name, stage_name) in subject.tool_dependencies:
 			tool_pkg = cfg.get_tool_pkg(pkg_name)
 			tool_stage = tool_pkg.get_stage(stage_name)
 			links.append((action.ENSURE_TOOL_INSTALLED, tool_stage))
