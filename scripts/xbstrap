@@ -133,6 +133,14 @@ class HostStage:
 		return self._stage_yml['self_required']
 
 	@property
+	def pkg_dependencies(self):
+		# First, return automatic dependencies induced by 'pkgs_required'.
+		if 'pkgs_required' in self._stage_yml:
+			yield from self._stage_yml['pkgs_required']
+
+		# TODO: Secondly, return explicit dependencies.
+
+	@property
 	def compile_steps(self):
 		yield from self._compile_steps
 
@@ -606,11 +614,11 @@ class Action(Enum):
 	# They only expand to INSTALL_X if the given package is not installed.
 	# This way, recursive installation dependencies are handed correctly,
 	# even if users delete packages from the sysroot.
-	ENSURE_TOOL_INSTALLED = 7
-	ENSURE_PKG_INSTALLED = 7
+	ENSURE_TOOL_STAGE_INSTALLED = 7
+	ENSURE_PKG_INSTALLED = 8
 
 	def is_virtual(self):
-		return self == Action.ENSURE_PKG_INSTALLED
+		return self == Action.ENSURE_TOOL_STAGE_INSTALLED or self == Action.ENSURE_PKG_INSTALLED
 
 Action.strings = {
 	Action.CONFIGURE_TOOL: 'configure-tool',
@@ -619,65 +627,83 @@ Action.strings = {
 	Action.CONFIGURE_PKG: 'configure',
 	Action.BUILD_PKG: 'build',
 	Action.INSTALL_PKG: 'install',
-	Action.ENSURE_TOOL_INSTALLED: 'install-tool?',
+	Action.ENSURE_TOOL_STAGE_INSTALLED: 'install-tool?',
 	Action.ENSURE_PKG_INSTALLED: 'install?'
 }
 
 def expand_plan(cfg, action, subject):
 	links = [ ]
 
-	def add_target_pkg_dependencies():
-		# Add implict target dependencies.
+	def add_implicit_pkgs():
 		if not subject.is_implict_package:
 			for implicit in cfg.all_target_pkgs():
 				if implicit.is_implict_package:
 					links.append((action.ENSURE_PKG_INSTALLED, implicit))
 
-		for dep_name in subject.pkg_dependencies:
+	def add_pkg_dependencies(s):
+		for dep_name in s.pkg_dependencies:
 			dep_pkg = cfg.get_target_pkg(dep_name)
 			links.append((action.ENSURE_PKG_INSTALLED, dep_pkg))
 
-	def add_target_tool_dependencies():
-		for (pkg_name, stage_name) in subject.tool_dependencies:
+	def add_tool_dependencies(s):
+		for (pkg_name, stage_name) in s.tool_dependencies:
 			tool_pkg = cfg.get_tool_pkg(pkg_name)
 			tool_stage = tool_pkg.get_stage(stage_name)
-			links.append((action.ENSURE_TOOL_INSTALLED, tool_stage))
+			links.append((action.ENSURE_TOOL_STAGE_INSTALLED, tool_stage))
 
 	if action == Action.CONFIGURE_TOOL:
 		pass
+
 	elif action == Action.COMPILE_TOOL_STAGE:
 		if not subject.pkg.check_if_configured():
 			links.append((action.CONFIGURE_TOOL, subject.pkg))
+		
+		add_pkg_dependencies(subject)
+
 	elif action == Action.INSTALL_TOOL_STAGE:
+		print(subject.name)
 		if not subject.check_if_compiled():
 			links.append((action.COMPILE_TOOL_STAGE, subject))
-	if action == Action.CONFIGURE_PKG:
+		
+		add_pkg_dependencies(subject)
+
+	elif action == Action.ENSURE_TOOL_STAGE_INSTALLED:
+		if not subject.check_if_installed():
+			links.append((action.INSTALL_TOOL_STAGE, subject))
+		
+		add_pkg_dependencies(subject)
+
+	elif action == Action.CONFIGURE_PKG:
 		# Configuration requires all dependencies to be present.
-		add_target_pkg_dependencies()
-		add_target_tool_dependencies()
+		add_implicit_pkgs()
+		add_pkg_dependencies(subject)
+		add_tool_dependencies(subject)
+
 	elif action == Action.BUILD_PKG:
 		if not subject.check_if_configured():
 			links.append((action.CONFIGURE_PKG, subject))
 
 		# Usually dependencies will already be installed during the configuration phase.
 		# However, if the sysroot is removed, we might need to install again.
-		add_target_pkg_dependencies()
-		add_target_tool_dependencies()
+		add_implicit_pkgs()
+		add_pkg_dependencies(subject)
+		add_tool_dependencies(subject)
+
 	elif action == Action.INSTALL_PKG:
 		if not subject.check_archive():
 			links.append((action.BUILD_PKG, subject))
 
 		# See Action.BUILD_PKG for rationale.
-		add_target_pkg_dependencies()
-	elif action == Action.ENSURE_TOOL_INSTALLED:
-		if not subject.check_if_installed():
-			links.append((action.INSTALL_TOOL_STAGE, subject))
+		add_implicit_pkgs()
+		add_pkg_dependencies(subject)
+
 	elif action == Action.ENSURE_PKG_INSTALLED:
 		if not subject.check_if_installed():
 			links.append((action.INSTALL_PKG, subject))
 
 		# See Action.BUILD_PKG for rationale.
-		add_target_pkg_dependencies()
+		add_implicit_pkgs()
+		add_pkg_dependencies(subject)
 
 	return links
 
