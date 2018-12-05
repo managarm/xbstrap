@@ -354,11 +354,11 @@ class EnvironmentComposer:
 		else:
 			environ[varname] = joined
 
-def run_tool(cfg, args, host_pkgs=[], workdir=None, extra_environ=dict()):
+def run_tool(cfg, args, tool_pkgs=[], workdir=None, extra_environ=dict()):
 	pkg_queue = []
 	pkg_visited = set()
 
-	for pkg in host_pkgs:
+	for pkg in tool_pkgs:
 		assert pkg.name not in pkg_visited
 		pkg_queue.append(pkg)
 		pkg_visited.add(pkg.name)
@@ -409,9 +409,9 @@ def configure_tool(cfg, pkg):
 	try_mkdir(pkg.build_dir)
 
 	for step in pkg.configure_steps:
-		host_pkgs = []
+		tool_pkgs = []
 #		for dep_name in pkg.tools_required:
-#			host_pkgs.append(cfg.get_tool_pkg(dep_name))
+#			tool_pkgs.append(cfg.get_tool_pkg(dep_name))
 
 		def substitute(varname):
 			if varname == 'SOURCE_ROOT':
@@ -431,18 +431,18 @@ def configure_tool(cfg, pkg):
 		for (key, value) in step.environ.items():
 			environ[key] = replace_at_vars(value, substitute)
 
-		run_tool(cfg, args, host_pkgs=host_pkgs, workdir=pkg.build_dir,
+		run_tool(cfg, args, tool_pkgs=tool_pkgs, workdir=pkg.build_dir,
 				extra_environ=environ)
 
 	pkg.mark_as_configured()
 
 def compile_tool_stage(cfg, stage):
-	pkg = state.pkg
+	pkg = stage.pkg
 
 	for step in stage.compile_steps:
-		host_pkgs = []
+		tool_pkgs = []
 #		for dep_name in stage.tools_required:
-#			host_pkgs.append(cfg.get_tool_pkg(dep_name))
+#			tool_pkgs.append(cfg.get_tool_pkg(dep_name))
 
 		def substitute(varname):
 			if varname == 'PARALLELISM':
@@ -455,7 +455,7 @@ def compile_tool_stage(cfg, stage):
 		for (key, value) in step.environ.items():
 			environ[key] = replace_at_vars(value, substitute)
 
-		run_tool(cfg, args, host_pkgs=host_pkgs, workdir=pkg.build_dir,
+		run_tool(cfg, args, tool_pkgs=tool_pkgs, workdir=pkg.build_dir,
 				extra_environ=environ)
 
 	stage.mark_as_compiled()
@@ -468,9 +468,9 @@ def install_tool_stage(cfg, stage):
 	try_mkdir(pkg.prefix_dir)
 
 	for step in stage.install_steps:
-		host_pkgs = []
+		tool_pkgs = []
 #		for dep_name in stage.tools_required:
-#			host_pkgs.append(cfg.get_tool_pkg(dep_name))
+#			tool_pkgs.append(cfg.get_tool_pkg(dep_name))
 
 		def substitute(varname):
 			if varname == 'PREFIX':
@@ -482,7 +482,7 @@ def install_tool_stage(cfg, stage):
 		for (key, value) in step.environ.items():
 			environ[key] = replace_at_vars(value, substitute)
 
-		run_tool(cfg, args, host_pkgs=host_pkgs, workdir=pkg.build_dir,
+		run_tool(cfg, args, tool_pkgs=tool_pkgs, workdir=pkg.build_dir,
 				extra_environ=environ)
 
 	stage.mark_as_installed()
@@ -497,9 +497,9 @@ def configure_pkg(cfg, pkg):
 	try_mkdir(pkg.build_dir)
 
 	for step in pkg.configure_steps:
-		host_pkgs = []
+		tool_pkgs = []
 		for dep_name in pkg.tools_required:
-			host_pkgs.append(cfg.get_tool_pkg(dep_name))
+			tool_pkgs.append(cfg.get_tool_pkg(dep_name))
 
 		def substitute(varname):
 			if varname == 'SOURCE_ROOT':
@@ -515,7 +515,7 @@ def configure_pkg(cfg, pkg):
 		for (key, value) in step.environ.items():
 			environ[key] = replace_at_vars(value, substitute)
 
-		run_tool(cfg, args, host_pkgs=host_pkgs, workdir=pkg.build_dir,
+		run_tool(cfg, args, tool_pkgs=tool_pkgs, workdir=pkg.build_dir,
 				extra_environ=environ)
 
 	pkg.mark_as_configured()
@@ -526,9 +526,9 @@ def build_pkg(cfg, pkg):
 	os.mkdir(pkg.collect_dir)
 
 	for step in pkg.build_steps:
-		host_pkgs = []
+		tool_pkgs = []
 		for dep_name in pkg.tools_required:
-			host_pkgs.append(cfg.get_tool_pkg(dep_name))
+			tool_pkgs.append(cfg.get_tool_pkg(dep_name))
 
 		def substitute(varname):
 			if varname == 'PARALLELISM':
@@ -543,7 +543,7 @@ def build_pkg(cfg, pkg):
 		for (key, value) in step.environ.items():
 			environ[key] = replace_at_vars(value, substitute)
 
-		run_tool(cfg, args, host_pkgs=host_pkgs, workdir=pkg.build_dir,
+		run_tool(cfg, args, tool_pkgs=tool_pkgs, workdir=pkg.build_dir,
 				extra_environ=environ)
 
 	postprocess_libtool(cfg, pkg)
@@ -735,9 +735,15 @@ main_subparsers = main_parser.add_subparsers(dest='command')
 
 def do_run(args):
 	cfg = config_for_dir()
-	run_tool(cfg, args.args)
+
+	tool_pkgs = []
+	for name in args.t:
+		tool_pkgs.append(cfg.get_tool_pkg(name))
+
+	run_tool(cfg, args.args, tool_pkgs=tool_pkgs)
 
 do_run.parser = main_subparsers.add_parser('run')
+do_run.parser.add_argument('-t', action='append')
 do_run.parser.add_argument('args', nargs=argparse.REMAINDER)
 
 def do_init(args):
