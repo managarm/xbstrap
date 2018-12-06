@@ -113,10 +113,11 @@ class RequirementsMixin:
 		if 'tools_required' in self._this_yml:
 			for yml in self._this_yml['tools_required']:
 				if isinstance(yml, dict):
-					# 'auto_dependency' can disable the automatic dependency
-					if 'auto_dependency' in yml and not yml['auto_dependency']:
-						continue
-					yield (yml['tool'], None)
+					if 'stage_dependencies' in yml:
+						for stage_name in yml['stage_dependencies']:
+							yield (yml['tool'], stage_name)
+					else:
+						yield (yml, None)
 				else:
 					assert isinstance(yml, str)
 					yield (yml, None)
@@ -167,12 +168,6 @@ class HostStage(RequirementsMixin):
 	@property
 	def subject_id(self):
 		return (self._pkg.name, self.stage_name)
-
-	@property
-	def self_required(self):
-		if 'self_required' not in self._this_yml:
-			return False
-		return self._this_yml['self_required']
 
 	@property
 	def compile_steps(self):
@@ -461,8 +456,6 @@ def compile_tool_stage(cfg, stage):
 		tool_pkgs = []
 		for dep_name in pkg.tools_required:
 			tool_pkgs.append(cfg.get_tool_pkg(dep_name))
-		if stage.self_required:
-			tool_pkgs.append(pkg)
 
 		def substitute(varname):
 			if varname == 'PARALLELISM':
@@ -491,8 +484,6 @@ def install_tool_stage(cfg, stage):
 		tool_pkgs = []
 		for dep_name in pkg.tools_required:
 			tool_pkgs.append(cfg.get_tool_pkg(dep_name))
-		if stage.self_required:
-			tool_pkgs.append(pkg)
 
 		def substitute(varname):
 			if varname == 'PREFIX':
