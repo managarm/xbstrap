@@ -48,9 +48,15 @@ def replace_at_vars(string, resolve):
 class Config:
 	def __init__(self, root_yml):
 		self._root_yml = root_yml
+		self._sources = dict()
 		self._tool_pkgs = dict()
 		self._tool_stages = dict()
 		self._target_pkgs = dict()
+
+		for pkg_yml in self._root_yml['tools']:
+			if 'source' in pkg_yml:
+				src = Source(self, pkg_yml['name'], pkg_yml['source'])
+				self._sources[src.name] = src
 
 		for pkg_yml in self._root_yml['tools']:
 			pkg = HostPackage(self, pkg_yml)
@@ -72,6 +78,9 @@ class Config:
 	@property
 	def sysroot_dir(self):
 		return os.path.join(self.build_root, 'system-root')
+
+	def get_source(self, name):
+		return self._sources[name]
 
 	def get_tool_pkg(self, name):
 		return self._tool_pkgs[name]
@@ -95,6 +104,12 @@ class ScriptStep:
 		if 'environ' not in self._step_yml:
 			return dict()
 		return self._step_yml['environ']
+
+	@property
+	def workdir(self):
+		if 'workdir' not in self._step_yml:
+			return None
+		return self._step_yml['workdir']
 
 class RequirementsMixin:
 	@property
@@ -138,6 +153,54 @@ class RequirementsMixin:
 			yield from self._this_yml['pkgs_required']
 
 		# TODO: Secondly, return explicit dependencies.
+
+class Source:
+	def __init__(self, cfg, induced_name, yml):
+		self._cfg = cfg
+		self._name = None
+		self._src_yml = yml
+		self._regenerate_steps = [ ]
+
+		if 'name' in self._src_yml:
+			self._name = self._src_yml['name']
+		else:
+			self._name = induced_name
+
+		if 'regenerate' in self._src_yml:
+			for step_yml in self._src_yml['regenerate']:
+				self._regenerate_steps.append(ScriptStep(step_yml))
+
+	@property
+	def name(self):
+		return self._name
+
+	@property
+	def subject_id(self):
+		return self._name
+
+	@property
+	def source_dir(self):
+		if 'subdir' in self._src_yml:
+			return os.path.join(self._cfg.source_root, self._src_yml['subdir'], self._name)
+		return os.path.join(self._cfg.source_root, self._name)
+
+	@property
+	def patch_dir(self):
+		return os.path.join(self._cfg.source_root, 'patches', self._name)
+
+	@property
+	def tools_required(self):
+		if 'tools_required' in self._src_yml:
+			for yml in self._src_yml['tools_required']:
+				if isinstance(yml, dict):
+					yield yml['tool']
+				else:
+					assert isinstance(yml, str)
+					yield yml
+
+	@property
+	def regenerate_steps(self):
+		yield from self._regenerate_steps
 
 class HostStage(RequirementsMixin):
 	def __init__(self, cfg, pkg, inherited, stage_yml):
@@ -235,10 +298,10 @@ class HostPackage(RequirementsMixin):
 		return self._this_yml['has_shared_libs']
 
 	@property
-	def source_dir(self):
-		if 'source_dir' in self._this_yml:
-			return os.path.join(self._cfg.source_root, self._this_yml['source_dir'])
-		return os.path.join(self._cfg.source_root, self.name)
+	def source(self):
+		if 'name' in self._this_yml['source']:
+			return self._this_yml['source']['name']
+		return self.name
 
 	@property
 	def build_dir(self):
@@ -285,10 +348,10 @@ class TargetPackage(RequirementsMixin):
 			self._build_steps.append(ScriptStep(step_yml))
 
 	@property
-	def source_dir(self):
-		if 'source_dir' in self._this_yml:
-			return os.path.join(self._cfg.source_root, self._this_yml['source_dir'])
-		return os.path.join(self._cfg.source_root, self.name)
+	def source(self):
+		if 'name' in self['source']:
+			return self['source']['name']
+		return self.name
 
 	@property
 	def build_dir(self):
@@ -354,9 +417,18 @@ class EnvironmentComposer:
 
 	def compose(self):
 		environ = os.environ.copy()
-		self._append_dirs(environ, 'PATH', self.path_dirs)
-		self._append_dirs(environ, 'LD_LIBRARY_PATH', self.shared_lib_dirs)
+		self._prepend_dirs(environ, 'PATH', self.path_dirs)
+		self._prepend_dirs(environ, 'LD_LIBRARY_PATH', self.shared_lib_dirs)
 		return environ
+
+	def _prepend_dirs(self, environ, varname, dirs):
+		if not dirs:
+			return
+		joined = ':'.join(dirs)
+		if varname in environ and environ[varname]:
+			environ[varname] = joined + ':' + environ[varname]
+		else:
+			environ[varname] = joined
 
 	def _append_dirs(self, environ, varname, dirs):
 		if not dirs:
@@ -395,6 +467,7 @@ def run_tool(cfg, args, tool_pkgs=[], workdir=None, extra_environ=dict()):
 	environ = composer.compose()
 	environ.update(extra_environ)
 
+	print("Running", args, "(tools:", [tool.name for tool in pkg_queue], ")")
 	subprocess.check_call(args, env=environ, cwd=workdir)
 
 def postprocess_libtool(cfg, pkg):
@@ -413,10 +486,62 @@ def postprocess_libtool(cfg, pkg):
 			os.unlink(os.path.join(pkg.collect_dir, libdir, ent))
 
 # ---------------------------------------------------------------------------------------
+# Source management.
+# ---------------------------------------------------------------------------------------
+
+def fetch_src(cfg, src):
+	try_mkdir(src.source_dir)
+	source = src._src_yml
+
+	subprocess.check_call(['git', 'init'], cwd=src.source_dir)
+	subprocess.check_call(['git', 'fetch', '--depth=1', source['git'], 'tag', source['tag']],
+			cwd=src.source_dir)
+
+def checkout_src(cfg, src):
+	source = src._src_yml
+
+	subprocess.check_call(['git', 'checkout', '--detach', source['tag']],
+			cwd=src.source_dir)
+
+def patch_src(cfg, src):
+	# Patches need to be applied in a sorted order.
+	patches = os.listdir(src.patch_dir)
+	patches.sort()
+	for patch in patches:
+		if not patch.endswith('.patch'):
+			continue
+		subprocess.check_call(['git', 'am', os.path.join(src.patch_dir, patch)],
+				cwd=src.source_dir)
+
+def regenerate_src(cfg, src):
+	for step in src.regenerate_steps:
+		tool_pkgs = []
+		for dep_name in src.tools_required:
+			tool_pkgs.append(cfg.get_tool_pkg(dep_name))
+
+		def substitute(varname):
+			if varname == 'SOURCE_DIR':
+				return src.source_dir
+
+		args = [replace_at_vars(arg, substitute) for arg in step.args]
+
+		environ = dict()
+		for (key, value) in step.environ.items():
+			environ[key] = replace_at_vars(value, substitute)
+
+		workdir = replace_at_vars(step.workdir, substitute)
+		if workdir is None:
+			workdir = src.source_dir
+		run_tool(cfg, args, tool_pkgs=tool_pkgs, workdir=workdir,
+				extra_environ=environ)
+
+# ---------------------------------------------------------------------------------------
 # Tool building.
 # ---------------------------------------------------------------------------------------
 
 def configure_tool(cfg, pkg):
+	src = cfg.get_source(pkg.source)
+
 	try_mkdir(os.path.join(cfg.build_root, 'tool-builds'))
 	try_rmtree(pkg.build_dir)
 	try_mkdir(pkg.build_dir)
@@ -434,7 +559,7 @@ def configure_tool(cfg, pkg):
 			elif varname == 'SYSROOT_DIR':
 				return cfg.sysroot_dir
 			elif varname == 'PKG_SOURCE_DIR':
-				return pkg.source_dir
+				return src.source_dir
 			elif varname == 'PREFIX':
 				return pkg.prefix_dir
 
@@ -505,6 +630,8 @@ def install_tool_stage(cfg, stage):
 # ---------------------------------------------------------------------------------------
 
 def configure_pkg(cfg, pkg):
+	src = cfg.get_source(pkg.source)
+
 	try_mkdir(os.path.join(cfg.build_root, 'native'))
 	try_rmtree(pkg.build_dir)
 	try_mkdir(pkg.build_dir)
@@ -520,7 +647,7 @@ def configure_pkg(cfg, pkg):
 			elif varname == 'BUILD_ROOT':
 				return cfg.build_root
 			elif varname == 'PKG_SOURCE_DIR':
-				return pkg.source_dir
+				return src.source_dir
 
 		args = [replace_at_vars(arg, substitute) for arg in step.args]
 
@@ -582,26 +709,35 @@ def install_pkg(cfg, pkg):
 
 class Action(Enum):
 	NULL = 0
+	# Source-related actions.
+	FETCH_SRC = 1
+	CHECKOUT_SRC = 2
+	PATCH_SRC = 3
+	REGENERATE_SRC = 4
 	# Tool-related actions.
-	CONFIGURE_TOOL = 1
-	COMPILE_TOOL_STAGE = 2
-	INSTALL_TOOL_STAGE = 3
+	CONFIGURE_TOOL = 5
+	COMPILE_TOOL_STAGE = 6
+	INSTALL_TOOL_STAGE = 7
 	# Package-related actions.
-	CONFIGURE_PKG = 4
-	BUILD_PKG = 5
-	INSTALL_PKG = 6
+	CONFIGURE_PKG = 8
+	BUILD_PKG = 9
+	INSTALL_PKG = 10
 	# "Virtual" actions that are only used during planning.
 	# The ENSURE_X_INSTALLED action recursively expand to ENSURE_X_INSTALLED of dependencies.
 	# They only expand to INSTALL_X if the given package is not installed.
 	# This way, recursive installation dependencies are handed correctly,
 	# even if users delete packages from the sysroot.
-	ENSURE_TOOL_STAGE_INSTALLED = 7
-	ENSURE_PKG_INSTALLED = 8
+	ENSURE_TOOL_STAGE_INSTALLED = 11
+	ENSURE_PKG_INSTALLED = 12
 
 	def is_virtual(self):
 		return self == Action.ENSURE_TOOL_STAGE_INSTALLED or self == Action.ENSURE_PKG_INSTALLED
 
 Action.strings = {
+	Action.FETCH_SRC: 'fetch',
+	Action.CHECKOUT_SRC: 'checkout',
+	Action.PATCH_SRC: 'patch',
+	Action.REGENERATE_SRC: 'regenerate',
 	Action.CONFIGURE_TOOL: 'configure-tool',
 	Action.COMPILE_TOOL_STAGE: 'compile-tool',
 	Action.INSTALL_TOOL_STAGE: 'install-tool',
@@ -636,14 +772,23 @@ def expand_plan(cfg, action, subject):
 				tool_stage = tool_pkg.get_stage(stage_name)
 				links.append((action.ENSURE_TOOL_STAGE_INSTALLED, tool_stage))
 
-	if action == Action.CONFIGURE_TOOL:
+	if action == Action.FETCH_SRC:
+		pass
+	elif action == Action.CHECKOUT_SRC:
+		pass
+	elif action == Action.PATCH_SRC:
+		pass
+	elif action == Action.REGENERATE_SRC:
+		pass
+
+	elif action == Action.CONFIGURE_TOOL:
 		add_tool_dependencies(subject)
 		add_pkg_dependencies(subject)
 
 	elif action == Action.COMPILE_TOOL_STAGE:
 		if not subject.pkg.check_if_configured():
 			links.append((action.CONFIGURE_TOOL, subject.pkg))
-		
+
 		add_tool_dependencies(subject.pkg)
 		add_tool_dependencies(subject)
 		add_pkg_dependencies(subject)
@@ -651,7 +796,7 @@ def expand_plan(cfg, action, subject):
 	elif action == Action.INSTALL_TOOL_STAGE:
 		if not subject.check_if_compiled():
 			links.append((action.COMPILE_TOOL_STAGE, subject))
-		
+
 		add_tool_dependencies(subject.pkg)
 		add_tool_dependencies(subject)
 		add_pkg_dependencies(subject)
@@ -659,7 +804,7 @@ def expand_plan(cfg, action, subject):
 	elif action == Action.ENSURE_TOOL_STAGE_INSTALLED:
 		if not subject.check_if_installed():
 			links.append((action.INSTALL_TOOL_STAGE, subject))
-		
+
 		add_tool_dependencies(subject.pkg)
 		add_tool_dependencies(subject)
 		add_pkg_dependencies(subject)
@@ -753,7 +898,15 @@ def run_plan(cfg, plan):
 			print('    {:12} {}'.format(Action.strings[action], subject.name))
 
 	for (action, subject) in plan:
-		if action == Action.CONFIGURE_TOOL:
+		if action == Action.FETCH_SRC:
+			fetch_src(cfg, subject)
+		elif action == Action.CHECKOUT_SRC:
+			checkout_src(cfg, subject)
+		elif action == Action.PATCH_SRC:
+			patch_src(cfg, subject)
+		elif action == Action.REGENERATE_SRC:
+			regenerate_src(cfg, subject)
+		elif action == Action.CONFIGURE_TOOL:
 			configure_tool(cfg, subject)
 		elif action == Action.COMPILE_TOOL_STAGE:
 			compile_tool_stage(cfg, subject)
@@ -795,6 +948,42 @@ def do_init(args):
 
 do_init.parser = main_subparsers.add_parser('init')
 do_init.parser.add_argument('src_root', type=str)
+
+def do_fetch(args):
+	cfg = config_for_dir()
+	src = cfg.get_source(args.source)
+	plan = compute_plan(cfg, [(Action.FETCH_SRC, src)])
+	run_plan(cfg, plan)
+
+do_fetch.parser = main_subparsers.add_parser('fetch')
+do_fetch.parser.add_argument('source', type=str)
+
+def do_checkout(args):
+	cfg = config_for_dir()
+	src = cfg.get_source(args.source)
+	plan = compute_plan(cfg, [(Action.CHECKOUT_SRC, src)])
+	run_plan(cfg, plan)
+
+do_checkout.parser = main_subparsers.add_parser('checkout')
+do_checkout.parser.add_argument('source', type=str)
+
+def do_patch(args):
+	cfg = config_for_dir()
+	src = cfg.get_source(args.source)
+	plan = compute_plan(cfg, [(Action.PATCH_SRC, src)])
+	run_plan(cfg, plan)
+
+do_patch.parser = main_subparsers.add_parser('patch')
+do_patch.parser.add_argument('source', type=str)
+
+def do_regenerate(args):
+	cfg = config_for_dir()
+	src = cfg.get_source(args.source)
+	plan = compute_plan(cfg, [(Action.REGENERATE_SRC, src)])
+	run_plan(cfg, plan)
+
+do_regenerate.parser = main_subparsers.add_parser('regenerate')
+do_regenerate.parser.add_argument('source', type=str)
 
 def do_configure_tool(args):
 	cfg = config_for_dir()
@@ -856,6 +1045,14 @@ if args.command == 'init':
 	do_init(args)
 elif args.command == 'run':
 	do_run(args)
+elif args.command == 'fetch':
+	do_fetch(args)
+elif args.command == 'checkout':
+	do_checkout(args)
+elif args.command == 'patch':
+	do_patch(args)
+elif args.command == 'regenerate':
+	do_regenerate(args)
 elif args.command == 'configure-tool':
 	do_configure_tool(args)
 elif args.command == 'compile-tool':
