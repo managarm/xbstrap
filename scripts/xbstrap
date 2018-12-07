@@ -541,7 +541,12 @@ def checkout_src(cfg, src):
 
 def patch_src(cfg, src):
 	# Patches need to be applied in a sorted order.
-	patches = os.listdir(src.patch_dir)
+	patches = []
+	try:
+		patches = os.listdir(src.patch_dir)
+	except OSError as e:
+		if e.errno != errno.ENOENT:
+			raise
 	patches.sort()
 	for patch in patches:
 		if not patch.endswith('.patch'):
@@ -567,8 +572,10 @@ def regenerate_src(cfg, src):
 		for (key, value) in step.environ.items():
 			environ[key] = replace_at_vars(value, substitute)
 
-		workdir = replace_at_vars(step.workdir, substitute)
-		if workdir is None:
+		workdir = step.workdir
+		if workdir is not None:
+			workdir = replace_at_vars(workdir, substitute)
+		else:
 			workdir = src.source_dir
 		run_tool(cfg, args, tool_pkgs=tool_pkgs, workdir=workdir,
 				extra_environ=environ)
