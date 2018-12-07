@@ -1087,12 +1087,16 @@ do_configure.parser.add_argument('package', type=str)
 
 def do_build(args):
 	cfg = config_for_dir()
-	pkg = cfg.get_target_pkg(args.package)
-	plan = compute_plan(cfg, [(Action.BUILD_PKG, pkg)])
+	if args.all:
+		sel = cfg.all_target_pkgs()
+	else:
+		sel = [cfg.get_target_pkg(name) for name in args.packages]
+	plan = compute_plan(cfg, [(Action.BUILD_PKG, pkg) for pkg in sel])
 	run_plan(cfg, plan)
 
 do_build.parser = main_subparsers.add_parser('build')
-do_build.parser.add_argument('package', type=str)
+do_build.parser.add_argument('--all', action='store_true')
+do_build.parser.add_argument('packages', nargs='*', type=str)
 
 def do_install(args):
 	cfg = config_for_dir()
