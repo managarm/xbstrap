@@ -318,10 +318,16 @@ class HostPackage(RequirementsMixin):
 				self._configure_steps.append(ScriptStep(step_yml))
 
 	@property
-	def has_shared_libs(self):
-		if 'has_shared_libs' not in self._this_yml:
+	def exports_shared_libs(self):
+		if 'exports_shared_libs' not in self._this_yml:
 			return False
-		return self._this_yml['has_shared_libs']
+		return self._this_yml['exports_shared_libs']
+
+	@property
+	def exports_aclocal(self):
+		if 'exports_aclocal' not in self._this_yml:
+			return False
+		return self._this_yml['exports_aclocal']
 
 	@property
 	def source(self):
@@ -440,11 +446,13 @@ class EnvironmentComposer:
 	def __init__(self):
 		self.path_dirs = [ ]
 		self.shared_lib_dirs = [ ]
+		self.aclocal_dirs = [ ]
 
 	def compose(self):
 		environ = os.environ.copy()
 		self._prepend_dirs(environ, 'PATH', self.path_dirs)
 		self._prepend_dirs(environ, 'LD_LIBRARY_PATH', self.shared_lib_dirs)
+		self._prepend_dirs(environ, 'ACLOCAL_PATH', self.aclocal_dirs)
 		return environ
 
 	def _prepend_dirs(self, environ, varname, dirs):
@@ -488,8 +496,10 @@ def run_tool(cfg, args, tool_pkgs=[], workdir=None, extra_environ=dict()):
 	composer = EnvironmentComposer()
 	for pkg in pkg_queue:
 		composer.path_dirs.append(os.path.join(pkg.prefix_dir, 'bin'))
-		if pkg.has_shared_libs:
+		if pkg.exports_shared_libs:
 			composer.shared_lib_dirs.append(os.path.join(pkg.prefix_dir, 'lib'))
+		if pkg.exports_aclocal:
+			composer.aclocal_dirs.append(os.path.join(pkg.prefix_dir, 'share/aclocal'))
 	environ = composer.compose()
 	environ.update(extra_environ)
 
