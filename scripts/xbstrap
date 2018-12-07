@@ -200,7 +200,11 @@ class Source(RequirementsMixin):
 		# There is a TOCTOU here; we assume that users do not concurrently delete directories.
 		if not os.path.isdir(self.source_dir):
 			return False
-		args = ['git', 'show-ref', '-q', '--verify', 'refs/tags/' + self._this_yml['tag']]
+		args = ['git', 'show-ref', '-q', '--verify']
+		if 'tag' in self._this_yml:
+			args.append('refs/tags/' + self._this_yml['tag'])
+		else:
+			args.append('refs/heads/' + self._this_yml['branch'])
 		return subprocess.call(args, cwd=self.source_dir) == 0
 
 	def check_if_checkedout(self):
@@ -516,14 +520,22 @@ def fetch_src(cfg, src):
 	source = src._this_yml
 
 	subprocess.check_call(['git', 'init'], cwd=src.source_dir)
-	subprocess.check_call(['git', 'fetch', '--depth=1', source['git'], 'tag', source['tag']],
-			cwd=src.source_dir)
+	args = ['git', 'fetch', '--depth=1', source['git']]
+	if 'tag' in source:
+		args.extend(['tag', source['tag']])
+	else:
+		args.append(source['branch'] + ':' + source['branch'])
+	subprocess.check_call(args, cwd=src.source_dir)
 
 def checkout_src(cfg, src):
 	source = src._this_yml
 
-	subprocess.check_call(['git', 'checkout', '--detach', source['tag']],
-			cwd=src.source_dir)
+	args = ['git', 'checkout']
+	if 'tag' in source:
+		args.append('refs/tags/' + source['tag'])
+	else:
+		args.append(source['branch'])
+	subprocess.check_call(args, cwd=src.source_dir)
 
 	src.mark_as_checkedout()
 
