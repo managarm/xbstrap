@@ -154,20 +154,20 @@ class RequirementsMixin:
 
 		# TODO: Secondly, return explicit dependencies.
 
-class Source:
+class Source(RequirementsMixin):
 	def __init__(self, cfg, induced_name, yml):
 		self._cfg = cfg
 		self._name = None
-		self._src_yml = yml
+		self._this_yml = yml
 		self._regenerate_steps = [ ]
 
-		if 'name' in self._src_yml:
-			self._name = self._src_yml['name']
+		if 'name' in self._this_yml:
+			self._name = self._this_yml['name']
 		else:
 			self._name = induced_name
 
-		if 'regenerate' in self._src_yml:
-			for step_yml in self._src_yml['regenerate']:
+		if 'regenerate' in self._this_yml:
+			for step_yml in self._this_yml['regenerate']:
 				self._regenerate_steps.append(ScriptStep(step_yml))
 
 	@property
@@ -180,8 +180,8 @@ class Source:
 
 	@property
 	def source_dir(self):
-		if 'subdir' in self._src_yml:
-			return os.path.join(self._cfg.source_root, self._src_yml['subdir'], self._name)
+		if 'subdir' in self._this_yml:
+			return os.path.join(self._cfg.source_root, self._this_yml['subdir'], self._name)
 		return os.path.join(self._cfg.source_root, self._name)
 
 	@property
@@ -189,18 +189,36 @@ class Source:
 		return os.path.join(self._cfg.source_root, 'patches', self._name)
 
 	@property
-	def tools_required(self):
-		if 'tools_required' in self._src_yml:
-			for yml in self._src_yml['tools_required']:
-				if isinstance(yml, dict):
-					yield yml['tool']
-				else:
-					assert isinstance(yml, str)
-					yield yml
-
-	@property
 	def regenerate_steps(self):
 		yield from self._regenerate_steps
+
+	def check_if_fetched(self):
+		# There is a TOCTOU here; we assume that users do not concurrently delete directories.
+		if not os.path.isdir(self.source_dir):
+			return False
+		args = ['git', 'show-ref', '-q', '--verify', 'refs/tags/' + self._this_yml['tag']]
+		return subprocess.call(args, cwd=self.source_dir) == 0
+
+	def check_if_checkedout(self):
+		path = os.path.join(self.source_dir, 'xbstrap.checkedout')
+		return os.access(path, os.F_OK)
+
+	def mark_as_checkedout(self):
+		touch(os.path.join(self.source_dir, 'xbstrap.checkedout'))
+
+	def check_if_patched(self):
+		path = os.path.join(self.source_dir, 'xbstrap.patched')
+		return os.access(path, os.F_OK)
+
+	def mark_as_patched(self):
+		touch(os.path.join(self.source_dir, 'xbstrap.patched'))
+
+	def check_if_regenerated(self):
+		path = os.path.join(self.source_dir, 'xbstrap.regenerated')
+		return os.access(path, os.F_OK)
+
+	def mark_as_regenerated(self):
+		touch(os.path.join(self.source_dir, 'xbstrap.regenerated'))
 
 class HostStage(RequirementsMixin):
 	def __init__(self, cfg, pkg, inherited, stage_yml):
@@ -491,17 +509,19 @@ def postprocess_libtool(cfg, pkg):
 
 def fetch_src(cfg, src):
 	try_mkdir(src.source_dir)
-	source = src._src_yml
+	source = src._this_yml
 
 	subprocess.check_call(['git', 'init'], cwd=src.source_dir)
 	subprocess.check_call(['git', 'fetch', '--depth=1', source['git'], 'tag', source['tag']],
 			cwd=src.source_dir)
 
 def checkout_src(cfg, src):
-	source = src._src_yml
+	source = src._this_yml
 
 	subprocess.check_call(['git', 'checkout', '--detach', source['tag']],
 			cwd=src.source_dir)
+
+	src.mark_as_checkedout()
 
 def patch_src(cfg, src):
 	# Patches need to be applied in a sorted order.
@@ -512,6 +532,8 @@ def patch_src(cfg, src):
 			continue
 		subprocess.check_call(['git', 'am', os.path.join(src.patch_dir, patch)],
 				cwd=src.source_dir)
+
+	src.mark_as_patched()
 
 def regenerate_src(cfg, src):
 	for step in src.regenerate_steps:
@@ -534,6 +556,8 @@ def regenerate_src(cfg, src):
 			workdir = src.source_dir
 		run_tool(cfg, args, tool_pkgs=tool_pkgs, workdir=workdir,
 				extra_environ=environ)
+
+	src.mark_as_regenerated()
 
 # ---------------------------------------------------------------------------------------
 # Tool building.
@@ -773,15 +797,28 @@ def expand_plan(cfg, action, subject):
 				links.append((action.ENSURE_TOOL_STAGE_INSTALLED, tool_stage))
 
 	if action == Action.FETCH_SRC:
-		pass
-	elif action == Action.CHECKOUT_SRC:
-		pass
-	elif action == Action.PATCH_SRC:
-		pass
-	elif action == Action.REGENERATE_SRC:
+		# FETCH_SRC has no dependencies.
 		pass
 
+	elif action == Action.CHECKOUT_SRC:
+		if not subject.check_if_fetched():
+			links.append((action.FETCH_SRC, subject))
+
+	elif action == Action.PATCH_SRC:
+		if not subject.check_if_checkedout():
+			links.append((action.CHECKOUT_SRC, subject))
+
+	elif action == Action.REGENERATE_SRC:
+		if not subject.check_if_patched():
+			links.append((action.PATCH_SRC, subject))
+
+		add_tool_dependencies(subject)
+
 	elif action == Action.CONFIGURE_TOOL:
+		src = cfg.get_source(subject.source)
+		if not src.check_if_regenerated():
+			links.append((action.REGENERATE_SRC, src))
+
 		add_tool_dependencies(subject)
 		add_pkg_dependencies(subject)
 
@@ -810,6 +847,10 @@ def expand_plan(cfg, action, subject):
 		add_pkg_dependencies(subject)
 
 	elif action == Action.CONFIGURE_PKG:
+		src = cfg.get_source(subject.source)
+		if not src.check_if_regenerated():
+			links.append((action.REGENERATE_SRC, src))
+
 		# Configuration requires all dependencies to be present.
 		add_implicit_pkgs()
 		add_pkg_dependencies(subject)
