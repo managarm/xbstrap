@@ -183,10 +183,24 @@ class Source(RequirementsMixin):
 		return self._name
 
 	@property
-	def source_dir(self):
+	def sub_dir(self):
 		if 'subdir' in self._this_yml:
-			return os.path.join(self._cfg.source_root, self._this_yml['subdir'], self._name)
-		return os.path.join(self._cfg.source_root, self._name)
+			return os.path.join(self._cfg.source_root, self._this_yml['subdir'])
+		return self._cfg.source_root
+
+	@property
+	def source_dir(self):
+		return os.path.join(self.sub_dir, self._name)
+
+	@property
+	def source_archive_format(self):
+		assert 'url' in self._this_yml
+		return self._this_yml['format']
+
+	@property
+	def source_archive_file(self):
+		assert 'url' in self._this_yml
+		return os.path.join(self.sub_dir, self._name + '.' + self.source_archive_format)
 
 	@property
 	def patch_dir(self):
@@ -197,15 +211,19 @@ class Source(RequirementsMixin):
 		yield from self._regenerate_steps
 
 	def check_if_fetched(self):
-		# There is a TOCTOU here; we assume that users do not concurrently delete directories.
-		if not os.path.isdir(self.source_dir):
-			return False
-		args = ['git', 'show-ref', '-q', '--verify']
-		if 'tag' in self._this_yml:
-			args.append('refs/tags/' + self._this_yml['tag'])
+		if 'git' in self._this_yml:
+			# There is a TOCTOU here; we assume that users do not concurrently delete directories.
+			if not os.path.isdir(self.source_dir):
+				return False
+			args = ['git', 'show-ref', '-q', '--verify']
+			if 'tag' in self._this_yml:
+				args.append('refs/tags/' + self._this_yml['tag'])
+			else:
+				args.append('refs/heads/' + self._this_yml['branch'])
+			return subprocess.call(args, cwd=self.source_dir) == 0
 		else:
-			args.append('refs/heads/' + self._this_yml['branch'])
-		return subprocess.call(args, cwd=self.source_dir) == 0
+			assert 'url' in self._this_yml
+			return os.access(self.source_archive_file, os.F_OK)
 
 	def check_if_checkedout(self):
 		path = os.path.join(self.source_dir, 'xbstrap.checkedout')
@@ -529,26 +547,49 @@ def fetch_src(cfg, src):
 	try_mkdir(src.source_dir)
 	source = src._this_yml
 
-	subprocess.check_call(['git', 'init'], cwd=src.source_dir)
-	args = ['git', 'fetch']
-	if 'disable_shallow_fetch' not in source or not source['disable_shallow_fetch']:
-		args.append('--depth=1')
-	if 'tag' in source:
-		args.extend([source['git'], 'tag', source['tag']])
+	if 'git' in source:
+		subprocess.check_call(['git', 'init'], cwd=src.source_dir)
+		args = ['git', 'fetch']
+		if 'disable_shallow_fetch' not in source or not source['disable_shallow_fetch']:
+			args.append('--depth=1')
+		if 'tag' in source:
+			args.extend([source['git'], 'tag', source['tag']])
+		else:
+			args.extend(['--update-head-ok', source['git'],
+					source['branch'] + ':' + source['branch']])
+		subprocess.check_call(args, cwd=src.source_dir)
 	else:
-		args.extend(['--update-head-ok', source['git'],
-				source['branch'] + ':' + source['branch']])
-	subprocess.check_call(args, cwd=src.source_dir)
+		assert 'url' in source
+		import urllib.request
+
+		with urllib.request.urlopen(source['url']) as req:
+			with open(src.source_archive_file, 'wb') as f:
+				shutil.copyfileobj(req, f)
 
 def checkout_src(cfg, src):
 	source = src._this_yml
 
-	args = ['git', 'checkout']
-	if 'tag' in source:
-		args.append('refs/tags/' + source['tag'])
+	if 'git' in source:
+		args = ['git', 'checkout']
+		if 'tag' in source:
+			args.append('refs/tags/' + source['tag'])
+		else:
+			args.append(source['branch'])
+		subprocess.check_call(args, cwd=src.source_dir)
 	else:
-		args.append(source['branch'])
-	subprocess.check_call(args, cwd=src.source_dir)
+		assert src.source_archive_format.startswith('tar.')
+
+		compression = {
+			'tar.gz': 'gz',
+			'tar.xz': 'xz'
+		}
+		with tarfile.open(src.source_archive_file,
+				'r|' + compression[src.source_archive_format]) as tar:
+			for info in tar:
+				prefix = source['extract_path'] + '/'
+				if info.name.startswith(prefix):
+					info.name = src.name + '/' + info.name[len(prefix):]
+					tar.extract(info, src.sub_dir)
 
 	src.mark_as_checkedout()
 
@@ -561,6 +602,7 @@ def patch_src(cfg, src):
 		if e.errno != errno.ENOENT:
 			raise
 	patches.sort()
+
 	for patch in patches:
 		if not patch.endswith('.patch'):
 			continue
@@ -662,7 +704,7 @@ def install_tool_stage(cfg, stage):
 	pkg = stage.pkg
 
 	try_mkdir(os.path.join(cfg.build_root, 'prefixes'))
-	try_rmtree(pkg.prefix_dir)
+#	try_rmtree(pkg.prefix_dir)
 	try_mkdir(pkg.prefix_dir)
 
 	for step in stage.install_steps:
