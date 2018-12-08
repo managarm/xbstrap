@@ -530,11 +530,14 @@ def fetch_src(cfg, src):
 	source = src._this_yml
 
 	subprocess.check_call(['git', 'init'], cwd=src.source_dir)
-	args = ['git', 'fetch', '--depth=1', source['git']]
+	args = ['git', 'fetch']
+	if 'disable_shallow_fetch' not in source or not source['disable_shallow_fetch']:
+		args.append('--depth=1')
 	if 'tag' in source:
-		args.extend(['tag', source['tag']])
+		args.extend([source['git'], 'tag', source['tag']])
 	else:
-		args.append(source['branch'] + ':' + source['branch'])
+		args.extend(['--update-head-ok', source['git'],
+				source['branch'] + ':' + source['branch']])
 	subprocess.check_call(args, cwd=src.source_dir)
 
 def checkout_src(cfg, src):
