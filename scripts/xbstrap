@@ -53,13 +53,22 @@ class Config:
 		self._tool_stages = dict()
 		self._target_pkgs = dict()
 
+		for src_yml in self._root_yml['sources']:
+			src = Source(self, None, src_yml)
+			if src.name in self._sources:
+				raise RuntimeError("Duplicate source")
+			self._sources[src.name] = src
 		for pkg_yml in self._root_yml['tools']:
 			if 'source' in pkg_yml:
 				src = Source(self, pkg_yml['name'], pkg_yml['source'])
+				if src.name in self._sources:
+					raise RuntimeError("Duplicate source")
 				self._sources[src.name] = src
 		for pkg_yml in self._root_yml['packages']:
 			if 'source' in pkg_yml:
 				src = Source(self, pkg_yml['name'], pkg_yml['source'])
+				if src.name in self._sources:
+					raise RuntimeError("Duplicate source")
 				self._sources[src.name] = src
 
 		for pkg_yml in self._root_yml['tools']:
@@ -349,6 +358,8 @@ class HostPackage(RequirementsMixin):
 
 	@property
 	def source(self):
+		if 'from_source' in self._this_yml:
+			return self._this_yml['from_source']
 		if 'name' in self._this_yml['source']:
 			return self._this_yml['source']['name']
 		return self.name
@@ -399,6 +410,8 @@ class TargetPackage(RequirementsMixin):
 
 	@property
 	def source(self):
+		if 'from_source' in self._this_yml:
+			return self._this_yml['from_source']
 		if 'name' in self._this_yml['source']:
 			return self._this_yml['source']['name']
 		return self.name
