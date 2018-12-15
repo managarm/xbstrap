@@ -537,6 +537,20 @@ def run_tool(cfg, args, tool_pkgs=[], workdir=None, extra_environ=dict()):
 	print("Running", args, "(tools:", [tool.name for tool in pkg_queue], ")")
 	subprocess.check_call(args, env=environ, cwd=workdir)
 
+def run_step(cfg, step, default_workdir, substitute, tool_pkgs):
+	args = [replace_at_vars(arg, substitute) for arg in step.args]
+
+	environ = dict()
+	for (key, value) in step.environ.items():
+		environ[key] = replace_at_vars(value, substitute)
+
+	if step.workdir is not None:
+		workdir = replace_at_vars(step.workdir, substitute)
+	else:
+		workdir = default_workdir
+	run_tool(cfg, args, tool_pkgs=tool_pkgs, workdir=workdir,
+			extra_environ=environ)
+
 def postprocess_libtool(cfg, pkg):
 	for libdir in ['lib', 'usr/lib']:
 		filelist = []
@@ -634,19 +648,7 @@ def regenerate_src(cfg, src):
 			if varname == 'SOURCE_DIR':
 				return src.source_dir
 
-		args = [replace_at_vars(arg, substitute) for arg in step.args]
-
-		environ = dict()
-		for (key, value) in step.environ.items():
-			environ[key] = replace_at_vars(value, substitute)
-
-		workdir = step.workdir
-		if workdir is not None:
-			workdir = replace_at_vars(workdir, substitute)
-		else:
-			workdir = src.source_dir
-		run_tool(cfg, args, tool_pkgs=tool_pkgs, workdir=workdir,
-				extra_environ=environ)
+		run_step(cfg, step, src.source_dir, substitute, tool_pkgs)
 
 	src.mark_as_regenerated()
 
@@ -678,14 +680,7 @@ def configure_tool(cfg, pkg):
 			elif varname == 'PREFIX':
 				return pkg.prefix_dir
 
-		args = [replace_at_vars(arg, substitute) for arg in step.args]
-
-		environ = dict()
-		for (key, value) in step.environ.items():
-			environ[key] = replace_at_vars(value, substitute)
-
-		run_tool(cfg, args, tool_pkgs=tool_pkgs, workdir=pkg.build_dir,
-				extra_environ=environ)
+		run_step(cfg, step, pkg.build_dir, substitute, tool_pkgs)
 
 	pkg.mark_as_configured()
 
@@ -706,14 +701,7 @@ def compile_tool_stage(cfg, stage):
 				nthreads = len(os.sched_getaffinity(0))
 				return str(nthreads)
 
-		args = [replace_at_vars(arg, substitute) for arg in step.args]
-
-		environ = dict()
-		for (key, value) in step.environ.items():
-			environ[key] = replace_at_vars(value, substitute)
-
-		run_tool(cfg, args, tool_pkgs=tool_pkgs, workdir=pkg.build_dir,
-				extra_environ=environ)
+		run_step(cfg, step, pkg.build_dir, substitute, tool_pkgs)
 
 	stage.mark_as_compiled()
 
@@ -737,14 +725,7 @@ def install_tool_stage(cfg, stage):
 			elif varname == 'PREFIX':
 				return pkg.prefix_dir
 
-		args = [replace_at_vars(arg, substitute) for arg in step.args]
-
-		environ = dict()
-		for (key, value) in step.environ.items():
-			environ[key] = replace_at_vars(value, substitute)
-
-		run_tool(cfg, args, tool_pkgs=tool_pkgs, workdir=pkg.build_dir,
-				extra_environ=environ)
+		run_step(cfg, step, pkg.build_dir, substitute, tool_pkgs)
 
 	stage.mark_as_installed()
 
@@ -774,14 +755,7 @@ def configure_pkg(cfg, pkg):
 			elif varname == 'PKG_SOURCE_DIR':
 				return src.source_dir
 
-		args = [replace_at_vars(arg, substitute) for arg in step.args]
-
-		environ = dict()
-		for (key, value) in step.environ.items():
-			environ[key] = replace_at_vars(value, substitute)
-
-		run_tool(cfg, args, tool_pkgs=tool_pkgs, workdir=pkg.build_dir,
-				extra_environ=environ)
+		run_step(cfg, step, pkg.build_dir, substitute, tool_pkgs)
 
 	pkg.mark_as_configured()
 
@@ -812,14 +786,7 @@ def build_pkg(cfg, pkg):
 				nthreads = len(os.sched_getaffinity(0))
 				return str(nthreads)
 
-		args = [replace_at_vars(arg, substitute) for arg in step.args]
-
-		environ = dict()
-		for (key, value) in step.environ.items():
-			environ[key] = replace_at_vars(value, substitute)
-
-		run_tool(cfg, args, tool_pkgs=tool_pkgs, workdir=pkg.build_dir,
-				extra_environ=environ)
+		run_step(cfg, step, pkg.build_dir, substitute, tool_pkgs)
 
 	postprocess_libtool(cfg, pkg)
 
