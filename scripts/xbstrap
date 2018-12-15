@@ -538,7 +538,11 @@ def run_tool(cfg, args, tool_pkgs=[], workdir=None, extra_environ=dict()):
 	subprocess.check_call(args, env=environ, cwd=workdir)
 
 def run_step(cfg, step, default_workdir, substitute, tool_pkgs):
-	args = [replace_at_vars(arg, substitute) for arg in step.args]
+	if isinstance(step.args, list):
+		args = [replace_at_vars(arg, substitute) for arg in step.args]
+	else:
+		assert isinstance(step.args, str)
+		args = ['/bin/bash', '-c', replace_at_vars(step.args, substitute)]
 
 	environ = dict()
 	for (key, value) in step.environ.items():
