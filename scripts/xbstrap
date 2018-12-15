@@ -679,7 +679,7 @@ def configure_tool(cfg, pkg):
 				return cfg.build_root
 			elif varname == 'SYSROOT_DIR':
 				return cfg.sysroot_dir
-			elif varname == 'PKG_SOURCE_DIR':
+			elif varname == 'THIS_SOURCE_DIR':
 				return src.source_dir
 			elif varname == 'PREFIX':
 				return pkg.prefix_dir
@@ -756,7 +756,7 @@ def configure_pkg(cfg, pkg):
 				return cfg.build_root
 			elif varname == 'SYSROOT_DIR':
 				return cfg.sysroot_dir
-			elif varname == 'PKG_SOURCE_DIR':
+			elif varname == 'THIS_SOURCE_DIR':
 				return src.source_dir
 
 		run_step(cfg, step, pkg.build_dir, substitute, tool_pkgs)
@@ -782,9 +782,9 @@ def build_pkg(cfg, pkg):
 				return cfg.build_root
 			elif varname == 'SYSROOT_DIR':
 				return cfg.sysroot_dir
-			elif varname == 'PKG_SOURCE_DIR':
+			elif varname == 'THIS_SOURCE_DIR':
 				return src.source_dir
-			elif varname == 'PKG_COLLECT_DIR':
+			elif varname == 'THIS_COLLECT_DIR':
 				return pkg.collect_dir
 			elif varname == 'PARALLELISM':
 				nthreads = len(os.sched_getaffinity(0))
