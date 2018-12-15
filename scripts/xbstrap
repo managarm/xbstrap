@@ -698,7 +698,11 @@ def compile_tool_stage(cfg, stage):
 			tool_pkgs.append(cfg.get_tool_pkg(dep_name))
 
 		def substitute(varname):
-			if varname == 'PARALLELISM':
+			if varname == 'SOURCE_ROOT':
+				return cfg.source_root
+			elif varname == 'BUILD_ROOT':
+				return cfg.build_root
+			elif varname == 'PARALLELISM':
 				nthreads = len(os.sched_getaffinity(0))
 				return str(nthreads)
 
@@ -726,7 +730,11 @@ def install_tool_stage(cfg, stage):
 			tool_pkgs.append(cfg.get_tool_pkg(dep_name))
 
 		def substitute(varname):
-			if varname == 'PREFIX':
+			if varname == 'SOURCE_ROOT':
+				return cfg.source_root
+			elif varname == 'BUILD_ROOT':
+				return cfg.build_root
+			elif varname == 'PREFIX':
 				return pkg.prefix_dir
 
 		args = [replace_at_vars(arg, substitute) for arg in step.args]
@@ -761,6 +769,8 @@ def configure_pkg(cfg, pkg):
 				return cfg.source_root
 			elif varname == 'BUILD_ROOT':
 				return cfg.build_root
+			elif varname == 'SYSROOT_DIR':
+				return cfg.sysroot_dir
 			elif varname == 'PKG_SOURCE_DIR':
 				return src.source_dir
 
@@ -776,6 +786,8 @@ def configure_pkg(cfg, pkg):
 	pkg.mark_as_configured()
 
 def build_pkg(cfg, pkg):
+	src = cfg.get_source(pkg.source)
+
 	try_mkdir('packages')
 	try_rmtree(pkg.collect_dir)
 	os.mkdir(pkg.collect_dir)
@@ -786,11 +798,19 @@ def build_pkg(cfg, pkg):
 			tool_pkgs.append(cfg.get_tool_pkg(dep_name))
 
 		def substitute(varname):
-			if varname == 'PARALLELISM':
+			if varname == 'SOURCE_ROOT':
+				return cfg.source_root
+			elif varname == 'BUILD_ROOT':
+				return cfg.build_root
+			elif varname == 'SYSROOT_DIR':
+				return cfg.sysroot_dir
+			elif varname == 'PKG_SOURCE_DIR':
+				return src.source_dir
+			elif varname == 'PKG_COLLECT_DIR':
+				return pkg.collect_dir
+			elif varname == 'PARALLELISM':
 				nthreads = len(os.sched_getaffinity(0))
 				return str(nthreads)
-			if varname == 'PKG_COLLECT_DIR':
-				return pkg.collect_dir
 
 		args = [replace_at_vars(arg, substitute) for arg in step.args]
 
