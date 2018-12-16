@@ -864,6 +864,8 @@ class Plan:
 	def __init__(self, cfg):
 		self._cfg = cfg
 		self._order = [ ]
+		self.reconfigure_pkgs = set()
+		self.rebuild_pkgs = set()
 
 	def expand_plan(self, action, subject):
 		links = [ ]
@@ -888,6 +890,18 @@ class Plan:
 				else:
 					tool_stage = tool_pkg.get_stage(stage_name)
 					links.append((action.ENSURE_TOOL_STAGE_INSTALLED, tool_stage))
+		
+		sid = subject.subject_id
+		
+		def check_reconfigure():
+			if sid in self.reconfigure_pkgs:
+				return True
+			return False
+
+		def check_rebuild():
+			if sid in self.rebuild_pkgs:
+				return True
+			return check_reconfigure()
 
 		if action == Action.FETCH_SRC:
 			# FETCH_SRC has no dependencies.
@@ -950,7 +964,7 @@ class Plan:
 			add_tool_dependencies(subject)
 
 		elif action == Action.BUILD_PKG:
-			if not subject.check_if_configured():
+			if not subject.check_if_configured() or check_reconfigure():
 				links.append((action.CONFIGURE_PKG, subject))
 
 			# Usually dependencies will already be installed during the configuration phase.
@@ -960,7 +974,7 @@ class Plan:
 			add_tool_dependencies(subject)
 
 		elif action == Action.INSTALL_PKG:
-			if not subject.check_archive():
+			if not subject.check_archive() or check_rebuild():
 				links.append((action.BUILD_PKG, subject))
 
 			# See Action.BUILD_PKG for rationale.
@@ -968,7 +982,7 @@ class Plan:
 			add_pkg_dependencies(subject)
 
 		elif action == Action.ENSURE_PKG_INSTALLED:
-			if not subject.check_if_installed():
+			if not subject.check_if_installed() or check_rebuild():
 				links.append((action.INSTALL_PKG, subject))
 
 			# See Action.BUILD_PKG for rationale.
@@ -1160,13 +1174,13 @@ select_pkgs.parser = argparse.ArgumentParser(add_help=False)
 select_pkgs.parser.add_argument('--all', action='store_true')
 select_pkgs.parser.add_argument('packages', nargs='*', type=str)
 
-def reconfigure_and_rebuild_pkgs(args, sel):
+def reconfigure_and_rebuild_pkgs(plan, args, sel):
 	if args.reconfigure:
 		for pkg in sel:
-			pkg.mark_as_configured(False)
+			plan.reconfigure_pkgs.add(pkg.subject_id)
 	elif args.rebuild:
-		# TODO: Implement --rebuild.
-		pass
+		for pkg in sel:
+			plan.reconfigure_pkgs.add(pkg.subject_id)
 
 reconfigure_and_rebuild_pkgs.parser = argparse.ArgumentParser(add_help=False)
 reconfigure_and_rebuild_pkgs.parser.add_argument('--reconfigure', action='store_true')
@@ -1175,8 +1189,8 @@ reconfigure_and_rebuild_pkgs.parser.add_argument('--rebuild', action='store_true
 def do_configure(args):
 	cfg = config_for_dir()
 	sel = select_pkgs(cfg, args)
-	reconfigure_and_rebuild_pkgs(args, sel)
 	plan = Plan(cfg)
+	reconfigure_and_rebuild_pkgs(plan, args, sel)
 	plan.compute_plan([(Action.CONFIGURE_PKG, pkg) for pkg in sel])
 	plan.run_plan()
 
@@ -1186,8 +1200,8 @@ do_configure.parser = main_subparsers.add_parser('configure',
 def do_build(args):
 	cfg = config_for_dir()
 	sel = select_pkgs(cfg, args)
-	reconfigure_and_rebuild_pkgs(args, sel)
 	plan = Plan(cfg)
+	reconfigure_and_rebuild_pkgs(plan, args, sel)
 	plan.compute_plan([(Action.BUILD_PKG, pkg) for pkg in sel])
 	plan.run_plan()
 
@@ -1197,8 +1211,8 @@ do_build.parser = main_subparsers.add_parser('build',
 def do_install(args):
 	cfg = config_for_dir()
 	sel = select_pkgs(cfg, args)
-	reconfigure_and_rebuild_pkgs(args, sel)
 	plan = Plan(cfg)
+	reconfigure_and_rebuild_pkgs(plan, args, sel)
 	plan.compute_plan([(Action.INSTALL_PKG, pkg) for pkg in sel])
 	plan.run_plan()
 
