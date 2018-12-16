@@ -581,6 +581,7 @@ def postprocess_libtool(cfg, pkg):
 # ---------------------------------------------------------------------------------------
 
 def fetch_src(cfg, src):
+	try_mkdir(src.sub_dir)
 	try_mkdir(src.source_dir)
 	source = src._this_yml
 
