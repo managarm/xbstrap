@@ -393,8 +393,11 @@ class HostPackage(RequirementsMixin):
 	def check_if_configured(self):
 		return os.access(os.path.join(self.build_dir, 'xbstrap.tool-configured'), os.F_OK)
 
-	def mark_as_configured(self):
-		touch(os.path.join(self.build_dir, 'xbstrap.tool-configured'))
+	def mark_as_configured(self, mark=True):
+		if mark:
+			touch(os.path.join(self.build_dir, 'xbstrap.tool-configured'))
+		else:
+			os.unlink(os.path.join(self.build_dir, 'xbstrap.tool-configured'))
 
 class TargetPackage(RequirementsMixin):
 	def __init__(self, cfg, pkg_yml):
@@ -453,8 +456,11 @@ class TargetPackage(RequirementsMixin):
 	def check_if_configured(self):
 		return os.access(os.path.join(self.build_dir, 'xbstrap.configured'), os.F_OK)
 
-	def mark_as_configured(self):
-		touch(os.path.join(self.build_dir, 'xbstrap.configured'))
+	def mark_as_configured(self, mark=True):
+		if mark:
+			touch(os.path.join(self.build_dir, 'xbstrap.configured'))
+		else:
+			os.unlink(os.path.join(self.build_dir, 'xbstrap.configured'))
 
 	def check_archive(self):
 		return os.access(self.archive_file, os.F_OK)
@@ -1135,36 +1141,57 @@ def do_install_tool(args):
 do_install_tool.parser = main_subparsers.add_parser('install-tool')
 do_install_tool.parser.add_argument('package', type=str)
 
+def select_pkgs(cfg, args):
+	if args.all:
+		return cfg.all_target_pkgs()
+	else:
+		return [cfg.get_target_pkg(name) for name in args.packages]
+
+select_pkgs.parser = argparse.ArgumentParser(add_help=False)
+select_pkgs.parser.add_argument('--all', action='store_true')
+select_pkgs.parser.add_argument('packages', nargs='*', type=str)
+
+def reconfigure_and_rebuild_pkgs(args, sel):
+	if args.reconfigure:
+		for pkg in sel:
+			pkg.mark_as_configured(False)
+	elif args.rebuild:
+		# TODO: Implement --rebuild.
+		pass
+
+reconfigure_and_rebuild_pkgs.parser = argparse.ArgumentParser(add_help=False)
+reconfigure_and_rebuild_pkgs.parser.add_argument('--reconfigure', action='store_true')
+reconfigure_and_rebuild_pkgs.parser.add_argument('--rebuild', action='store_true')
+
 def do_configure(args):
 	cfg = config_for_dir()
-	pkg = cfg.get_target_pkg(args.package)
-	plan = compute_plan(cfg, [(Action.CONFIGURE_PKG, pkg)])
+	sel = select_pkgs(cfg, args)
+	reconfigure_and_rebuild_pkgs(args, sel)
+	plan = compute_plan(cfg, [(Action.CONFIGURE_PKG, pkg) for pkg in sel])
 	run_plan(cfg, plan)
 
-do_configure.parser = main_subparsers.add_parser('configure')
-do_configure.parser.add_argument('package', type=str)
+do_configure.parser = main_subparsers.add_parser('configure',
+		parents=[reconfigure_and_rebuild_pkgs.parser, select_pkgs.parser])
 
 def do_build(args):
 	cfg = config_for_dir()
-	if args.all:
-		sel = cfg.all_target_pkgs()
-	else:
-		sel = [cfg.get_target_pkg(name) for name in args.packages]
+	sel = select_pkgs(cfg, args)
+	reconfigure_and_rebuild_pkgs(args, sel)
 	plan = compute_plan(cfg, [(Action.BUILD_PKG, pkg) for pkg in sel])
 	run_plan(cfg, plan)
 
-do_build.parser = main_subparsers.add_parser('build')
-do_build.parser.add_argument('--all', action='store_true')
-do_build.parser.add_argument('packages', nargs='*', type=str)
+do_build.parser = main_subparsers.add_parser('build',
+		parents=[reconfigure_and_rebuild_pkgs.parser, select_pkgs.parser])
 
 def do_install(args):
 	cfg = config_for_dir()
-	pkg = cfg.get_target_pkg(args.package)
-	plan = compute_plan(cfg, [(Action.INSTALL_PKG, pkg)])
+	sel = select_pkgs(cfg, args)
+	reconfigure_and_rebuild_pkgs(args, sel)
+	plan = compute_plan(cfg, [(Action.INSTALL_PKG, pkg) for pkg in sel])
 	run_plan(cfg, plan)
 
-do_install.parser = main_subparsers.add_parser('install')
-do_install.parser.add_argument('package', type=str)
+do_install.parser = main_subparsers.add_parser('install',
+		parents=[reconfigure_and_rebuild_pkgs.parser, select_pkgs.parser])
 
 args = main_parser.parse_args()
 
