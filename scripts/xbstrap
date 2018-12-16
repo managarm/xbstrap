@@ -697,6 +697,7 @@ def configure_tool(cfg, pkg):
 
 def compile_tool_stage(cfg, stage):
 	pkg = stage.pkg
+	src = cfg.get_source(pkg.source)
 
 	for step in stage.compile_steps:
 		tool_pkgs = []
@@ -708,6 +709,12 @@ def compile_tool_stage(cfg, stage):
 				return cfg.source_root
 			elif varname == 'BUILD_ROOT':
 				return cfg.build_root
+			elif varname == 'SYSROOT_DIR':
+				return cfg.sysroot_dir
+			elif varname == 'THIS_SOURCE_DIR':
+				return src.source_dir
+			elif varname == 'PREFIX':
+				return pkg.prefix_dir
 			elif varname == 'PARALLELISM':
 				nthreads = len(os.sched_getaffinity(0))
 				return str(nthreads)
@@ -718,6 +725,7 @@ def compile_tool_stage(cfg, stage):
 
 def install_tool_stage(cfg, stage):
 	pkg = stage.pkg
+	src = cfg.get_source(pkg.source)
 
 	try_mkdir(os.path.join(cfg.build_root, 'prefixes'))
 #	try_rmtree(pkg.prefix_dir)
@@ -733,6 +741,10 @@ def install_tool_stage(cfg, stage):
 				return cfg.source_root
 			elif varname == 'BUILD_ROOT':
 				return cfg.build_root
+			elif varname == 'SYSROOT_DIR':
+				return cfg.sysroot_dir
+			elif varname == 'THIS_SOURCE_DIR':
+				return src.source_dir
 			elif varname == 'PREFIX':
 				return pkg.prefix_dir
 
