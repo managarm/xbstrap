@@ -126,6 +126,14 @@ class ScriptStep:
 
 class RequirementsMixin:
 	@property
+	def source_dependencies(self):
+		# First, return automatic dependencies induced by 'sources_required'.
+		if 'sources_required' in self._this_yml:
+			yield from self._this_yml['sources_required']
+
+		# TODO: Secondly, return explicit dependencies.
+
+	@property
 	def tools_required(self):
 		if 'tools_required' in self._this_yml:
 			for yml in self._this_yml['tools_required']:
@@ -656,7 +664,13 @@ def regenerate_src(cfg, src):
 			tool_pkgs.append(cfg.get_tool_pkg(dep_name))
 
 		def substitute(varname):
-			if varname == 'SOURCE_DIR':
+			if varname == 'SOURCE_ROOT':
+				return cfg.source_root
+			elif varname == 'BUILD_ROOT':
+				return cfg.build_root
+			elif varname == 'SYSROOT_DIR':
+				return cfg.sysroot_dir
+			if varname == 'THIS_SOURCE_DIR':
 				return src.source_dir
 
 		run_step(cfg, step, src.source_dir, substitute, tool_pkgs)
@@ -889,23 +903,31 @@ class Plan:
 					if implicit.is_implict_package:
 						links.append((action.ENSURE_PKG_INSTALLED, implicit))
 
-		def add_pkg_dependencies(s):
-			for dep_name in s.pkg_dependencies:
-				dep_pkg = self._cfg.get_target_pkg(dep_name)
-				links.append((action.ENSURE_PKG_INSTALLED, dep_pkg))
+		def add_source_dependencies(s):
+			for src_name in s.source_dependencies:
+				dep_source = self._cfg.get_source(src_name)
+				# In contrast to tool/pkg dependencies,
+				# source dependencies are *not* recursive for now.
+				if not dep_source.check_if_checkedout():
+					links.append((action.CHECKOUT_SRC, dep_source))
 
 		def add_tool_dependencies(s):
-			for (pkg_name, stage_name) in s.tool_dependencies:
-				tool_pkg = self._cfg.get_tool_pkg(pkg_name)
+			for (tool_name, stage_name) in s.tool_dependencies:
+				dep_tool = self._cfg.get_tool_pkg(tool_name)
 				if stage_name is None:
 					links.extend([(action.ENSURE_TOOL_STAGE_INSTALLED, stage)
-							for stage in tool_pkg.all_stages()])
+							for stage in dep_tool.all_stages()])
 				else:
-					tool_stage = tool_pkg.get_stage(stage_name)
+					tool_stage = dep_tool.get_stage(stage_name)
 					links.append((action.ENSURE_TOOL_STAGE_INSTALLED, tool_stage))
-		
+
+		def add_pkg_dependencies(s):
+			for pkg_name in s.pkg_dependencies:
+				dep_pkg = self._cfg.get_target_pkg(pkg_name)
+				links.append((action.ENSURE_PKG_INSTALLED, dep_pkg))
+
 		sid = subject.subject_id
-		
+
 		def check_reconfigure():
 			if sid in self.reconfigure_pkgs:
 				return True
@@ -932,6 +954,7 @@ class Plan:
 			if not subject.check_if_patched():
 				links.append((action.PATCH_SRC, subject))
 
+			add_source_dependencies(subject)
 			add_tool_dependencies(subject)
 
 		elif action == Action.CONFIGURE_TOOL:
