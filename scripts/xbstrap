@@ -908,8 +908,8 @@ class Plan:
 				dep_source = self._cfg.get_source(src_name)
 				# In contrast to tool/pkg dependencies,
 				# source dependencies are *not* recursive for now.
-				if not dep_source.check_if_checkedout():
-					links.append((action.CHECKOUT_SRC, dep_source))
+				if not dep_source.check_if_patched():
+					links.append((action.PATCH_SRC, dep_source))
 
 		def add_tool_dependencies(s):
 			for (tool_name, stage_name) in s.tool_dependencies:
