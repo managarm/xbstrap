@@ -1216,7 +1216,7 @@ def reconfigure_and_rebuild_pkgs(plan, args, sel):
 			plan.reconfigure_pkgs.add(pkg.subject_id)
 	elif args.rebuild:
 		for pkg in sel:
-			plan.reconfigure_pkgs.add(pkg.subject_id)
+			plan.rebuild_pkgs.add(pkg.subject_id)
 
 reconfigure_and_rebuild_pkgs.parser = argparse.ArgumentParser(add_help=False)
 reconfigure_and_rebuild_pkgs.parser.add_argument('--reconfigure', action='store_true')
