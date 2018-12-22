@@ -318,21 +318,21 @@ class HostStage(RequirementsMixin):
 		stage_spec = ''
 		if not self._inherited:
 			stage_spec = '@' + self.stage_name
-		path = os.path.join(self._pkg.build_dir, 'xbstrap' + stage_spec + '.tool-compiled')
+		path = os.path.join(self._pkg.build_dir, 'built' + stage_spec + '.xbstrap')
 		return os.access(path, os.F_OK)
 
 	def mark_as_compiled(self):
 		stage_spec = ''
 		if not self._inherited:
 			stage_spec = '@' + self.stage_name
-		touch(os.path.join(self._pkg.build_dir, 'xbstrap' + stage_spec + '.tool-compiled'))
+		touch(os.path.join(self._pkg.build_dir, 'built' + stage_spec + '.xbstrap'))
 
 	def check_if_installed(self):
 		stage_spec = ''
 		if not self._inherited:
 			stage_spec = '@' + self.stage_name
 		path = os.path.join(self._pkg.prefix_dir, 'etc', 'xbstrap',
-				self._pkg.name + stage_spec + '.tool-installed')
+				self._pkg.name + stage_spec + '.installed')
 		return os.access(path, os.F_OK)
 
 	def mark_as_installed(self):
@@ -342,7 +342,7 @@ class HostStage(RequirementsMixin):
 		try_mkdir(os.path.join(self._pkg.prefix_dir, 'etc'))
 		try_mkdir(os.path.join(self._pkg.prefix_dir, 'etc', 'xbstrap'))
 		path = os.path.join(self._pkg.prefix_dir, 'etc', 'xbstrap',
-				self._pkg.name + stage_spec + '.tool-installed')
+				self._pkg.name + stage_spec + '.installed')
 		touch(path)
 
 
@@ -432,13 +432,13 @@ class HostPackage(RequirementsMixin):
 		yield from self._configure_steps
 
 	def check_if_configured(self):
-		return os.access(os.path.join(self.build_dir, 'xbstrap.tool-configured'), os.F_OK)
+		return os.access(os.path.join(self.build_dir, 'configured.xbstrap'), os.F_OK)
 
 	def mark_as_configured(self, mark=True):
 		if mark:
-			touch(os.path.join(self.build_dir, 'xbstrap.tool-configured'))
+			touch(os.path.join(self.build_dir, 'configured.xbstrap'))
 		else:
-			os.unlink(os.path.join(self.build_dir, 'xbstrap.tool-configured'))
+			os.unlink(os.path.join(self.build_dir, 'configured.xbstrap'))
 
 class TargetPackage(RequirementsMixin):
 	def __init__(self, cfg, pkg_yml):
