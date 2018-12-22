@@ -401,7 +401,7 @@ class HostPackage(RequirementsMixin):
 
 	@property
 	def prefix_dir(self):
-		return os.path.join(self._cfg.build_root, 'prefixes', self.name)
+		return os.path.join(self._cfg.build_root, 'tools', self.name)
 
 	@property
 	def name(self):
@@ -787,7 +787,7 @@ def install_tool_stage(cfg, stage):
 	pkg = stage.pkg
 	src = cfg.get_source(pkg.source)
 
-	try_mkdir(os.path.join(cfg.build_root, 'prefixes'))
+	try_mkdir(os.path.join(cfg.build_root, 'tools'))
 #	try_rmtree(pkg.prefix_dir)
 	try_mkdir(pkg.prefix_dir)
 
