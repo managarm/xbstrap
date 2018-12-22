@@ -9,6 +9,7 @@ import re
 import shutil
 import subprocess
 import tarfile
+import colorama
 import yaml
 
 def touch(path):
@@ -201,6 +202,10 @@ class Source(RequirementsMixin):
 		return self._name
 
 	@property
+	def subject_type(self):
+		return 'source'
+
+	@property
 	def sub_dir(self):
 		if 'subdir' in self._this_yml:
 			return os.path.join(self._cfg.source_root, self._this_yml['subdir'])
@@ -293,6 +298,10 @@ class HostStage(RequirementsMixin):
 	@property
 	def subject_id(self):
 		return (self._pkg.name, self.stage_name)
+
+	@property
+	def subject_type(self):
+		return 'tool stage'
 
 	@property
 	def compile_steps(self):
@@ -389,6 +398,10 @@ class HostPackage(RequirementsMixin):
 	def subject_id(self):
 		return self.name
 
+	@property
+	def subject_type(self):
+		return 'tool'
+
 	def all_stages(self):
 		yield from self._stages.values()
 
@@ -447,6 +460,10 @@ class TargetPackage(RequirementsMixin):
 	@property
 	def subject_id(self):
 		return self.name
+
+	@property
+	def subject_type(self):
+		return 'package'
 
 	@property
 	def is_default_pkg(self):
@@ -573,6 +590,7 @@ def run_step(cfg, step, default_workdir, substitute, tool_pkgs):
 		workdir = replace_at_vars(step.workdir, substitute)
 	else:
 		workdir = default_workdir
+
 	run_tool(cfg, args, tool_pkgs=tool_pkgs, workdir=workdir,
 			extra_environ=environ)
 
@@ -894,6 +912,13 @@ Action.strings = {
 	Action.ENSURE_PKG_INSTALLED: 'install?'
 }
 
+class ExecutionFailureException(Exception):
+	def __init__(self, step, subject):
+		super().__init__("Action {} of {} {} failed".format(Action.strings[step],
+				subject.subject_type, subject.subject_id))
+		self.step = step
+		self.subject = subject
+
 class Plan:
 	def __init__(self, cfg):
 		self._cfg = cfg
@@ -1074,7 +1099,8 @@ class Plan:
 					visit(link_action, link_subject)
 
 	def run_plan(self):
-		print('Executing the following plan:')
+		print('{}xbstrap{}: Running the following plan:'.format(
+				colorama.Style.BRIGHT, colorama.Style.RESET_ALL))
 		for (action, subject) in self._order:
 			if isinstance(subject, HostStage):
 				if subject.stage_name:
@@ -1085,29 +1111,36 @@ class Plan:
 			else:
 				print('    {:12} {}'.format(Action.strings[action], subject.name))
 
-		for (action, subject) in self._order:
-			if action == Action.FETCH_SRC:
-				fetch_src(self._cfg, subject)
-			elif action == Action.CHECKOUT_SRC:
-				checkout_src(self._cfg, subject)
-			elif action == Action.PATCH_SRC:
-				patch_src(self._cfg, subject)
-			elif action == Action.REGENERATE_SRC:
-				regenerate_src(self._cfg, subject)
-			elif action == Action.CONFIGURE_TOOL:
-				configure_tool(self._cfg, subject)
-			elif action == Action.COMPILE_TOOL_STAGE:
-				compile_tool_stage(self._cfg, subject)
-			elif action == Action.INSTALL_TOOL_STAGE:
-				install_tool_stage(self._cfg, subject)
-			elif action == Action.CONFIGURE_PKG:
-				configure_pkg(self._cfg, subject)
-			elif action == Action.BUILD_PKG:
-				build_pkg(self._cfg, subject)
-			elif action == Action.INSTALL_PKG:
-				install_pkg(self._cfg, subject)
-			else:
-				raise AssertionError("Unexpected action")
+		for (n, (action, subject)) in enumerate(self._order):
+			print('{}xbstrap{}: {} {} [{}/{}]'.format(
+					colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
+					Action.strings[action], subject.subject_id,
+					n, len(self._order)))
+			try:
+				if action == Action.FETCH_SRC:
+					fetch_src(self._cfg, subject)
+				elif action == Action.CHECKOUT_SRC:
+					checkout_src(self._cfg, subject)
+				elif action == Action.PATCH_SRC:
+					patch_src(self._cfg, subject)
+				elif action == Action.REGENERATE_SRC:
+					regenerate_src(self._cfg, subject)
+				elif action == Action.CONFIGURE_TOOL:
+					configure_tool(self._cfg, subject)
+				elif action == Action.COMPILE_TOOL_STAGE:
+					compile_tool_stage(self._cfg, subject)
+				elif action == Action.INSTALL_TOOL_STAGE:
+					install_tool_stage(self._cfg, subject)
+				elif action == Action.CONFIGURE_PKG:
+					configure_pkg(self._cfg, subject)
+				elif action == Action.BUILD_PKG:
+					build_pkg(self._cfg, subject)
+				elif action == Action.INSTALL_PKG:
+					install_pkg(self._cfg, subject)
+				else:
+					raise AssertionError("Unexpected action")
+			except subprocess.CalledProcessError:
+				raise ExecutionFailureException(action, subject)
 
 # ---------------------------------------------------------------------------------------
 # Command line parsing.
@@ -1264,30 +1297,36 @@ do_install.parser = main_subparsers.add_parser('install',
 
 args = main_parser.parse_args()
 
-if args.command == 'init':
-	do_init(args)
-elif args.command == 'run':
-	do_run(args)
-elif args.command == 'fetch':
-	do_fetch(args)
-elif args.command == 'checkout':
-	do_checkout(args)
-elif args.command == 'patch':
-	do_patch(args)
-elif args.command == 'regenerate':
-	do_regenerate(args)
-elif args.command == 'configure-tool':
-	do_configure_tool(args)
-elif args.command == 'compile-tool':
-	do_compile_tool(args)
-elif args.command == 'install-tool':
-	do_install_tool(args)
-elif args.command == 'configure':
-	do_configure(args)
-elif args.command == 'build':
-	do_build(args)
-elif args.command == 'install':
-	do_install(args)
-else:
-	assert not "Unexpected command"
+colorama.init()
+
+try:
+	if args.command == 'init':
+		do_init(args)
+	elif args.command == 'run':
+		do_run(args)
+	elif args.command == 'fetch':
+		do_fetch(args)
+	elif args.command == 'checkout':
+		do_checkout(args)
+	elif args.command == 'patch':
+		do_patch(args)
+	elif args.command == 'regenerate':
+		do_regenerate(args)
+	elif args.command == 'configure-tool':
+		do_configure_tool(args)
+	elif args.command == 'compile-tool':
+		do_compile_tool(args)
+	elif args.command == 'install-tool':
+		do_install_tool(args)
+	elif args.command == 'configure':
+		do_configure(args)
+	elif args.command == 'build':
+		do_build(args)
+	elif args.command == 'install':
+		do_install(args)
+	else:
+		assert not "Unexpected command"
+except ExecutionFailureException as e:
+	print('{}xbstrap{}: {}{}{}'.format(colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
+			colorama.Fore.RED, e, colorama.Style.RESET_ALL))
 
