@@ -430,7 +430,7 @@ class TargetPackage(RequirementsMixin):
 
 	@property
 	def build_dir(self):
-		return os.path.join(self._cfg.build_root, 'native', 'native-' + self.name)
+		return os.path.join(self._cfg.build_root, 'pkg-builds', self.name)
 
 	@property
 	def collect_dir(self):
@@ -469,13 +469,13 @@ class TargetPackage(RequirementsMixin):
 		yield from self._build_steps
 
 	def check_if_configured(self):
-		return os.access(os.path.join(self.build_dir, 'xbstrap.configured'), os.F_OK)
+		return os.access(os.path.join(self.build_dir, 'configured.xbstrap'), os.F_OK)
 
 	def mark_as_configured(self, mark=True):
 		if mark:
-			touch(os.path.join(self.build_dir, 'xbstrap.configured'))
+			touch(os.path.join(self.build_dir, 'configured.xbstrap'))
 		else:
-			os.unlink(os.path.join(self.build_dir, 'xbstrap.configured'))
+			os.unlink(os.path.join(self.build_dir, 'configured.xbstrap'))
 
 	def check_archive(self):
 		return os.access(self.archive_file, os.F_OK)
@@ -780,7 +780,7 @@ def install_tool_stage(cfg, stage):
 def configure_pkg(cfg, pkg):
 	src = cfg.get_source(pkg.source)
 
-	try_mkdir(os.path.join(cfg.build_root, 'native'))
+	try_mkdir(os.path.join(cfg.build_root, 'pkg-builds'))
 	try_rmtree(pkg.build_dir)
 	try_mkdir(pkg.build_dir)
 
