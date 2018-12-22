@@ -100,7 +100,10 @@ class Config:
 	def get_tool_pkg(self, name):
 		return self._tool_pkgs[name]
 
-	def all_target_pkgs(self):
+	def all_tools(self):
+		yield from self._tool_pkgs.values()
+
+	def all_pkgs(self):
 		yield from self._target_pkgs.values()
 
 	def get_target_pkg(self, name):
@@ -412,6 +415,12 @@ class HostPackage(RequirementsMixin):
 	def subject_type(self):
 		return 'tool'
 
+	@property
+	def is_default(self):
+		if 'default' not in self._this_yml:
+			return True
+		return self._this_yml['default']
+
 	def all_stages(self):
 		yield from self._stages.values()
 
@@ -476,13 +485,13 @@ class TargetPackage(RequirementsMixin):
 		return 'package'
 
 	@property
-	def is_default_pkg(self):
+	def is_default(self):
 		if 'default' not in self._this_yml:
 			return True
 		return self._this_yml['default']
 
 	@property
-	def is_implicit_pkg(self):
+	def is_implicit(self):
 		if 'implict_package' not in self._this_yml:
 			return False
 		return self._this_yml['implict_package']
@@ -942,9 +951,9 @@ class Plan:
 		links = [ ]
 
 		def add_implicit_pkgs():
-			if not subject.is_implicit_pkg:
-				for implicit in self._cfg.all_target_pkgs():
-					if implicit.is_implicit_pkg:
+			if not subject.is_implicit:
+				for implicit in self._cfg.all_pkgs():
+					if implicit.is_implicit:
 						links.append((action.ENSURE_PKG_INSTALLED, implicit))
 
 		def add_source_dependencies(s):
@@ -1222,39 +1231,51 @@ def do_regenerate(args):
 do_regenerate.parser = main_subparsers.add_parser('regenerate')
 do_regenerate.parser.add_argument('source', type=str)
 
+def select_tools(cfg, args):
+	if args.all:
+		return [tool for tool in cfg.all_tools() if tool.is_default]
+	else:
+		return [cfg.get_tool_pkg(name) for name in args.tools]
+
+select_tools.parser = argparse.ArgumentParser(add_help=False)
+select_tools.parser.add_argument('--all', action='store_true')
+select_tools.parser.add_argument('tools', nargs='*', type=str)
+
 def do_configure_tool(args):
 	cfg = config_for_dir()
-	pkg = cfg.get_tool_pkg(args.package)
+	sel = select_tools(cfg, args)
 	plan = Plan(cfg)
-	plan.compute_plan([(Action.CONFIGURE_TOOL, pkg)])
+	plan.compute_plan([(Action.CONFIGURE_TOOL, pkg) for pkg in sel])
 	plan.run_plan()
 
-do_configure_tool.parser = main_subparsers.add_parser('configure-tool')
-do_configure_tool.parser.add_argument('package', type=str)
+do_configure_tool.parser = main_subparsers.add_parser('configure-tool',
+		parents=[select_tools.parser])
 
 def do_compile_tool(args):
 	cfg = config_for_dir()
-	pkg = cfg.get_tool_pkg(args.package)
+	sel = select_tools(cfg, args)
 	plan = Plan(cfg)
-	plan.compute_plan([(Action.COMPILE_TOOL_STAGE, stage) for stage in pkg.all_stages()])
+	plan.compute_plan([(Action.COMPILE_TOOL_STAGE, stage) for pkg in sel
+			for stage in pkg.all_stages()])
 	plan.run_plan()
 
-do_compile_tool.parser = main_subparsers.add_parser('compile-tool')
-do_compile_tool.parser.add_argument('package', type=str)
+do_compile_tool.parser = main_subparsers.add_parser('compile-tool',
+		parents=[select_tools.parser])
 
 def do_install_tool(args):
 	cfg = config_for_dir()
-	pkg = cfg.get_tool_pkg(args.package)
+	sel = select_tools(cfg, args)
 	plan = Plan(cfg)
-	plan.compute_plan([(Action.INSTALL_TOOL_STAGE, stage) for stage in pkg.all_stages()])
+	plan.compute_plan([(Action.INSTALL_TOOL_STAGE, stage) for pkg in sel
+			for stage in pkg.all_stages()])
 	plan.run_plan()
 
-do_install_tool.parser = main_subparsers.add_parser('install-tool')
-do_install_tool.parser.add_argument('package', type=str)
+do_install_tool.parser = main_subparsers.add_parser('install-tool',
+		parents=[select_tools.parser])
 
 def select_pkgs(cfg, args):
 	if args.all:
-		return [pkg for pkg in cfg.all_target_pkgs() if pkg.is_default_pkg]
+		return [pkg for pkg in cfg.all_pkgs() if pkg.is_default]
 	else:
 		return [cfg.get_target_pkg(name) for name in args.packages]
 
