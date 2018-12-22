@@ -155,7 +155,7 @@ class RequirementsMixin:
 						for stage_name in yml['stage_dependencies']:
 							yield (yml['tool'], stage_name)
 					else:
-						yield (yml, None)
+						yield (yml['tool'], None)
 				else:
 					assert isinstance(yml, str)
 					yield (yml, None)
@@ -383,6 +383,16 @@ class HostPackage(RequirementsMixin):
 		return self.name
 
 	@property
+	def recursive_tools_required(self):
+		if 'tools_required' in self._this_yml:
+			for yml in self._this_yml['tools_required']:
+				if not isinstance(yml, dict):
+					continue
+				if 'recursive' not in yml:
+					continue
+				yield yml['tool']
+
+	@property
 	def build_dir(self):
 		return os.path.join(self._cfg.build_root, 'tool-builds', self.name)
 
@@ -554,7 +564,7 @@ def run_tool(cfg, args, tool_pkgs=[], workdir=None, extra_environ=dict()):
 	i = 0 # Need index-based loop as pkg_queue is mutated in the loop.
 	while i < len(pkg_queue):
 		pkg = pkg_queue[i]
-		for dep_name in pkg.tools_required:
+		for dep_name in pkg.recursive_tools_required:
 			if dep_name in pkg_visited:
 				continue
 			dep_pkg = cfg.get_tool_pkg(dep_name)
@@ -572,7 +582,9 @@ def run_tool(cfg, args, tool_pkgs=[], workdir=None, extra_environ=dict()):
 	environ = composer.compose()
 	environ.update(extra_environ)
 
-	print("Running", args, "(tools:", [tool.name for tool in pkg_queue], ")")
+	print("{}xbstrap{}: Running {} (tools: {})".format(
+			colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
+			args, [tool.name for tool in pkg_queue]))
 	subprocess.check_call(args, env=environ, cwd=workdir)
 
 def run_step(cfg, step, default_workdir, substitute, tool_pkgs):
