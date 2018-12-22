@@ -249,25 +249,25 @@ class Source(RequirementsMixin):
 			return os.access(self.source_archive_file, os.F_OK)
 
 	def check_if_checkedout(self):
-		path = os.path.join(self.source_dir, 'xbstrap.checkedout')
+		path = os.path.join(self.source_dir, 'checkedout.xbstrap')
 		return os.access(path, os.F_OK)
 
 	def mark_as_checkedout(self):
-		touch(os.path.join(self.source_dir, 'xbstrap.checkedout'))
+		touch(os.path.join(self.source_dir, 'checkedout.xbstrap'))
 
 	def check_if_patched(self):
-		path = os.path.join(self.source_dir, 'xbstrap.patched')
+		path = os.path.join(self.source_dir, 'patched.xbstrap')
 		return os.access(path, os.F_OK)
 
 	def mark_as_patched(self):
-		touch(os.path.join(self.source_dir, 'xbstrap.patched'))
+		touch(os.path.join(self.source_dir, 'patched.xbstrap'))
 
 	def check_if_regenerated(self):
-		path = os.path.join(self.source_dir, 'xbstrap.regenerated')
+		path = os.path.join(self.source_dir, 'regenerated.xbstrap')
 		return os.access(path, os.F_OK)
 
 	def mark_as_regenerated(self):
-		touch(os.path.join(self.source_dir, 'xbstrap.regenerated'))
+		touch(os.path.join(self.source_dir, 'regenerated.xbstrap'))
 
 class HostStage(RequirementsMixin):
 	def __init__(self, cfg, pkg, inherited, stage_yml):
