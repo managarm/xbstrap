@@ -9,6 +9,8 @@ import re
 import shutil
 import subprocess
 import sys
+import urllib.parse
+import urllib.request
 import tarfile
 
 import colorama
@@ -82,6 +84,14 @@ class Config:
 		for pkg_yml in self._root_yml['packages']:
 			pkg = TargetPackage(self, pkg_yml)
 			self._target_pkgs[pkg.name] = pkg
+
+	@property
+	def repository_url(self):
+		if 'repository' not in self._root_yml:
+			return None
+		if 'url' not in self._root_yml['repository']:
+			return None
+		return self._root_yml['repository']['url']
 
 	@property
 	def source_root(self):
@@ -654,7 +664,6 @@ def fetch_src(cfg, src):
 		subprocess.check_call(args, cwd=src.source_dir)
 	else:
 		assert 'url' in source
-		import urllib.request
 
 		with urllib.request.urlopen(source['url']) as req:
 			with open(src.source_archive_file, 'wb') as f:
@@ -1319,6 +1328,35 @@ def do_build(args):
 do_build.parser = main_subparsers.add_parser('build',
 		parents=[reconfigure_and_rebuild_pkgs.parser, select_pkgs.parser])
 
+def do_download(args):
+	cfg = config_for_dir()
+	sel = select_pkgs(cfg, args)
+
+	if cfg.repository_url is None:
+		raise RuntimeError('No repository URL in bootstrap.yml')
+
+	for pkg in sel:
+		url = urllib.parse.urljoin(cfg.repository_url + '/', pkg.name + '.tar.gz')
+		temp_archive = pkg.archive_file + '.tar.gz.download'
+		print('{}xbstrap{}: Downloading package {} from {}'.format(
+				colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
+				pkg.name, url))
+
+		print('...', end='') # This will become the status line.
+
+		def show_progress(num_blocks, block_size, file_size):
+			progress = min(num_blocks * block_size, file_size)
+			print('\r\x1b[K{:8.0f} KiB / {:8.0f} KiB, {:7.2f}%'.format(progress / 1024,
+					file_size / 1024,
+					progress / file_size * 100), end='')
+
+		urllib.request.urlretrieve(url, temp_archive, show_progress)
+		os.rename(temp_archive, pkg.archive_file)
+		print()
+
+do_download.parser = main_subparsers.add_parser('download',
+		parents=[reconfigure_and_rebuild_pkgs.parser, select_pkgs.parser])
+
 def do_install(args):
 	cfg = config_for_dir()
 	sel = select_pkgs(cfg, args)
@@ -1357,6 +1395,8 @@ try:
 		do_configure(args)
 	elif args.command == 'build':
 		do_build(args)
+	elif args.command == 'download':
+		do_download(args)
 	elif args.command == 'install':
 		do_install(args)
 	else:
