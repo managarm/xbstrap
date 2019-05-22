@@ -540,7 +540,7 @@ class TargetPackage(RequirementsMixin):
 
 def config_for_dir():
 	with open('bootstrap.link', 'r') as f:
-		return Config(yaml.load(f))
+		return Config(yaml.load(f, Loader=yaml.BaseLoader))
 
 class EnvironmentComposer:
 	def __init__(self):
