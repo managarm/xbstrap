@@ -1147,7 +1147,7 @@ class Plan:
 			print('{}xbstrap{}: {} {} [{}/{}]'.format(
 					colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
 					Action.strings[action], subject.subject_id,
-					n, len(self._order)))
+					n + 1, len(self._order)))
 			try:
 				if action == Action.FETCH_SRC:
 					fetch_src(self._cfg, subject)
