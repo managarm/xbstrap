@@ -16,6 +16,8 @@ import tarfile
 import colorama
 import yaml
 
+verbosity = False
+
 def touch(path):
 	with open(path, 'a') as f:
 		pass
@@ -140,6 +142,12 @@ class ScriptStep:
 		if 'workdir' not in self._step_yml:
 			return None
 		return self._step_yml['workdir']
+
+	@property
+	def quiet(self):
+		if 'quiet' not in self._step_yml:
+			return False
+		return self._step_yml['quiet']
 
 class RequirementsMixin:
 	@property
@@ -584,7 +592,7 @@ class EnvironmentComposer:
 			environ[varname] = joined
 
 def run_tool(cfg, args, tool_pkgs=[], workdir=None, extra_environ=dict(),
-		for_package=False):
+		for_package=False, quiet=False):
 	pkg_queue = []
 	pkg_visited = set()
 
@@ -614,10 +622,15 @@ def run_tool(cfg, args, tool_pkgs=[], workdir=None, extra_environ=dict(),
 	environ = composer.compose(for_package=for_package)
 	environ.update(extra_environ)
 
+	output = None # Default: Do not redirect output.
+	if quiet:
+		output = subprocess.DEVNULL
+
 	print("{}xbstrap{}: Running {} (tools: {})".format(
 			colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
 			args, [tool.name for tool in pkg_queue]))
-	subprocess.check_call(args, env=environ, cwd=workdir)
+	subprocess.check_call(args, env=environ, cwd=workdir,
+			stdout=output, stderr=output)
 
 def run_step(cfg, step, default_workdir, substitute, tool_pkgs,
 		for_package=False):
@@ -636,8 +649,11 @@ def run_step(cfg, step, default_workdir, substitute, tool_pkgs,
 	else:
 		workdir = default_workdir
 
+	quiet = step.quiet and not verbosity
+
 	run_tool(cfg, args, tool_pkgs=tool_pkgs, workdir=workdir,
-			extra_environ=environ, for_package=for_package)
+			extra_environ=environ, for_package=for_package,
+			quiet=quiet)
 
 def postprocess_libtool(cfg, pkg):
 	for libdir in ['lib', 'usr/lib']:
@@ -1193,6 +1209,8 @@ class Plan:
 # ---------------------------------------------------------------------------------------
 
 main_parser = argparse.ArgumentParser()
+main_parser.add_argument('-v', dest='verbose', action='store_true',
+		help="verbose")
 main_subparsers = main_parser.add_subparsers(dest='command')
 
 def do_run(args):
@@ -1385,6 +1403,9 @@ do_install.parser = main_subparsers.add_parser('install',
 args = main_parser.parse_args()
 
 colorama.init()
+
+if args.verbose:
+	verbosity = True
 
 try:
 	if args.command == 'init':
