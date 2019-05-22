@@ -543,13 +543,23 @@ def config_for_dir():
 		return Config(yaml.load(f, Loader=yaml.BaseLoader))
 
 class EnvironmentComposer:
-	def __init__(self):
+	def __init__(self, cfg):
+		self.cfg = cfg
 		self.path_dirs = [ ]
 		self.shared_lib_dirs = [ ]
 		self.aclocal_dirs = [ ]
 
-	def compose(self):
+	def compose(self, for_package=False):
 		environ = os.environ.copy()
+
+		if for_package:
+			pkgcfg_libdir = os.path.join(self.cfg.sysroot_dir, 'usr', 'lib', 'pkgconfig')
+			pkgcfg_libdir += ':' + os.path.join(self.cfg.sysroot_dir, 'usr', 'share', 'pkgconfig')
+
+			environ.pop('PKG_CONFIG_PATH', None)
+			environ['PKG_CONFIG_SYSROOT_DIR'] = self.cfg.sysroot_dir
+			environ['PKG_CONFIG_LIBDIR'] = pkgcfg_libdir
+
 		self._prepend_dirs(environ, 'PATH', self.path_dirs)
 		self._prepend_dirs(environ, 'LD_LIBRARY_PATH', self.shared_lib_dirs)
 		self._prepend_dirs(environ, 'ACLOCAL_PATH', self.aclocal_dirs)
@@ -573,7 +583,8 @@ class EnvironmentComposer:
 		else:
 			environ[varname] = joined
 
-def run_tool(cfg, args, tool_pkgs=[], workdir=None, extra_environ=dict()):
+def run_tool(cfg, args, tool_pkgs=[], workdir=None, extra_environ=dict(),
+		for_package=False):
 	pkg_queue = []
 	pkg_visited = set()
 
@@ -593,14 +604,14 @@ def run_tool(cfg, args, tool_pkgs=[], workdir=None, extra_environ=dict()):
 			pkg_visited.add(dep_name)
 		i += 1
 
-	composer = EnvironmentComposer()
+	composer = EnvironmentComposer(cfg)
 	for pkg in pkg_queue:
 		composer.path_dirs.append(os.path.join(pkg.prefix_dir, 'bin'))
 		if pkg.exports_shared_libs:
 			composer.shared_lib_dirs.append(os.path.join(pkg.prefix_dir, 'lib'))
 		if pkg.exports_aclocal:
 			composer.aclocal_dirs.append(os.path.join(pkg.prefix_dir, 'share/aclocal'))
-	environ = composer.compose()
+	environ = composer.compose(for_package=for_package)
 	environ.update(extra_environ)
 
 	print("{}xbstrap{}: Running {} (tools: {})".format(
@@ -608,7 +619,8 @@ def run_tool(cfg, args, tool_pkgs=[], workdir=None, extra_environ=dict()):
 			args, [tool.name for tool in pkg_queue]))
 	subprocess.check_call(args, env=environ, cwd=workdir)
 
-def run_step(cfg, step, default_workdir, substitute, tool_pkgs):
+def run_step(cfg, step, default_workdir, substitute, tool_pkgs,
+		for_package=False):
 	if isinstance(step.args, list):
 		args = [replace_at_vars(arg, substitute) for arg in step.args]
 	else:
@@ -625,7 +637,7 @@ def run_step(cfg, step, default_workdir, substitute, tool_pkgs):
 		workdir = default_workdir
 
 	run_tool(cfg, args, tool_pkgs=tool_pkgs, workdir=workdir,
-			extra_environ=environ)
+			extra_environ=environ, for_package=for_package)
 
 def postprocess_libtool(cfg, pkg):
 	for libdir in ['lib', 'usr/lib']:
@@ -849,7 +861,8 @@ def configure_pkg(cfg, pkg):
 			elif varname == 'THIS_SOURCE_DIR':
 				return src.source_dir
 
-		run_step(cfg, step, pkg.build_dir, substitute, tool_pkgs)
+		run_step(cfg, step, pkg.build_dir, substitute, tool_pkgs,
+				for_package=True)
 
 	pkg.mark_as_configured()
 
@@ -880,7 +893,8 @@ def build_pkg(cfg, pkg):
 				nthreads = len(os.sched_getaffinity(0))
 				return str(nthreads)
 
-		run_step(cfg, step, pkg.build_dir, substitute, tool_pkgs)
+		run_step(cfg, step, pkg.build_dir, substitute, tool_pkgs,
+				for_package=True)
 
 	postprocess_libtool(cfg, pkg)
 
