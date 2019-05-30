@@ -1388,7 +1388,7 @@ def do_download(args):
 
 	for pkg in sel:
 		url = urllib.parse.urljoin(cfg.repository_url + '/', pkg.name + '.tar.gz')
-		temp_archive = pkg.archive_file + '.tar.gz.download'
+		temp_archive = pkg.archive_file + '.download'
 		print('{}xbstrap{}: Downloading package {} from {}'.format(
 				colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
 				pkg.name, url))
