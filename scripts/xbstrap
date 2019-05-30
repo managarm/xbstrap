@@ -53,6 +53,26 @@ def replace_at_vars(string, resolve):
 
 	return re.sub(r'@(\w+)@', do_substitute, string)
 
+def installtree(src_root, dest_root):
+	for name in os.listdir(src_root):
+		src_path = os.path.join(src_root, name)
+		dest_path = os.path.join(dest_root, name)
+
+		if os.path.isdir(src_path):
+			if not os.access(dest_path, os.F_OK):
+				# We only copy attributes when the directory is first created.
+				os.mkdir(dest_path)
+				shutil.copystat(src_path, dest_path)
+
+			installtree(src_path, dest_path)
+		else:
+			try_unlink(dest_path)
+			if os.path.islink(src_path):
+				# Do not preserve attributes
+				os.symlink(os.readlink(src_path), dest_path)
+			else:
+				shutil.copy2(src_path, dest_path)
+
 class Config:
 	def __init__(self, root_yml):
 		self._root_yml = root_yml
@@ -918,21 +938,13 @@ def build_pkg(cfg, pkg):
 
 	postprocess_libtool(cfg, pkg)
 
-	with tarfile.open(pkg.archive_file, 'w|gz') as tar:
-		for ent in os.listdir(pkg.collect_dir):
-			tar.add(os.path.join(pkg.collect_dir, ent), arcname=ent)
-
 	try_rmtree(pkg.staging_dir)
 	os.rename(pkg.collect_dir, pkg.staging_dir)
 
 def install_pkg(cfg, pkg):
 	try_mkdir(cfg.sysroot_dir)
 
-	with tarfile.open(pkg.archive_file, 'r|gz') as tar:
-		for info in tar:
-			if not info.isdir():
-				try_unlink(os.path.join(cfg.sysroot_dir, info.name))
-			tar.extract(info, cfg.sysroot_dir)
+	installtree(pkg.staging_dir, cfg.sysroot_dir)
 
 	pkg.mark_as_installed()
 
