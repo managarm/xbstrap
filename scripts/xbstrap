@@ -1389,6 +1389,18 @@ def do_download(args):
 do_download.parser = main_subparsers.add_parser('download',
 		parents=[reconfigure_and_rebuild_pkgs.parser, select_pkgs.parser])
 
+def do_archive(args):
+	cfg = config_for_dir()
+	sel = select_pkgs(cfg, args)
+
+	for pkg in sel:
+		with tarfile.open(pkg.archive_file, 'w|gz') as tar:
+			for ent in os.listdir(pkg.collect_dir):
+				tar.add(os.path.join(pkg.collect_dir, ent), arcname=ent)
+
+do_archive.parser = main_subparsers.add_parser('archive',
+		parents=[select_pkgs.parser])
+
 def do_install(args):
 	cfg = config_for_dir()
 	sel = select_pkgs(cfg, args)
@@ -1430,6 +1442,8 @@ try:
 		do_configure(args)
 	elif args.command == 'build':
 		do_build(args)
+	elif args.command == 'archive':
+		do_archive(args)
 	elif args.command == 'download':
 		do_download(args)
 	elif args.command == 'install':
