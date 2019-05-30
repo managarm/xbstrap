@@ -485,6 +485,10 @@ class TargetPackage(RequirementsMixin):
 		return os.path.join(self._cfg.build_root, 'pkg-builds', self.name)
 
 	@property
+	def staging_dir(self):
+		return os.path.join(self._cfg.build_root, 'packages', self.name)
+
+	@property
 	def collect_dir(self):
 		return os.path.join(self._cfg.build_root, 'packages', self.name + '.collect')
 
@@ -917,6 +921,9 @@ def build_pkg(cfg, pkg):
 	with tarfile.open(pkg.archive_file, 'w|gz') as tar:
 		for ent in os.listdir(pkg.collect_dir):
 			tar.add(os.path.join(pkg.collect_dir, ent), arcname=ent)
+
+	try_rmtree(pkg.staging_dir)
+	os.rename(pkg.collect_dir, pkg.staging_dir)
 
 def install_pkg(cfg, pkg):
 	try_mkdir(cfg.sysroot_dir)
@@ -1386,6 +1393,12 @@ def do_download(args):
 		os.rename(temp_archive, pkg.archive_file)
 		print()
 
+		try_rmtree(pkg.staging_dir)
+		os.mkdir(pkg.staging_dir)
+		with tarfile.open(pkg.archive_file, 'r|gz') as tar:
+			for info in tar:
+				tar.extract(info, pkg.staging_dir)
+
 do_download.parser = main_subparsers.add_parser('download',
 		parents=[reconfigure_and_rebuild_pkgs.parser, select_pkgs.parser])
 
@@ -1395,8 +1408,8 @@ def do_archive(args):
 
 	for pkg in sel:
 		with tarfile.open(pkg.archive_file, 'w|gz') as tar:
-			for ent in os.listdir(pkg.collect_dir):
-				tar.add(os.path.join(pkg.collect_dir, ent), arcname=ent)
+			for ent in os.listdir(pkg.staging_dir):
+				tar.add(os.path.join(pkg.staging_dir, ent), arcname=ent)
 
 do_archive.parser = main_subparsers.add_parser('archive',
 		parents=[select_pkgs.parser])
