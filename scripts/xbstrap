@@ -1345,6 +1345,33 @@ select_pkgs.parser = argparse.ArgumentParser(add_help=False)
 select_pkgs.parser.add_argument('--all', action='store_true')
 select_pkgs.parser.add_argument('packages', nargs='*', type=str)
 
+def update_pkg_sources(cfg, plan, args, sel):
+	if not args.update:
+		return
+
+	if not args.overwrite:
+		raise RuntimeError("--update without --overwrite is not implemented")
+
+	if args.reconfigure or args.rebuild:
+		raise RuntimeError("--update cannot be combined with --reconfigure/--rebuild")
+
+	sources = set()
+	for pkg in sel:
+		sources.add(cfg.get_source(pkg.source))
+
+	for src in sources:
+		subprocess.check_call(['git', 'clean', '-xf'], cwd=src.source_dir)
+		subprocess.check_call(['git', 'reset', '--hard'], cwd=src.source_dir)
+
+	# Short cut: If we reconfigure the package, the source will be regenerated.
+	# In turn, this will do everything else automatically.
+	for pkg in sel:
+		plan.reconfigure_pkgs.add(pkg.subject_id)
+
+update_pkg_sources.parser = argparse.ArgumentParser(add_help=False)
+update_pkg_sources.parser.add_argument('--update', action='store_true')
+update_pkg_sources.parser.add_argument('--overwrite', action='store_true')
+
 def reconfigure_and_rebuild_pkgs(plan, args, sel):
 	if args.reconfigure:
 		for pkg in sel:
@@ -1361,23 +1388,27 @@ def do_configure(args):
 	cfg = config_for_dir()
 	sel = select_pkgs(cfg, args)
 	plan = Plan(cfg)
+	update_pkg_sources(cfg, plan, args, sel)
 	reconfigure_and_rebuild_pkgs(plan, args, sel)
 	plan.compute_plan([(Action.CONFIGURE_PKG, pkg) for pkg in sel])
 	plan.run_plan()
 
 do_configure.parser = main_subparsers.add_parser('configure',
-		parents=[reconfigure_and_rebuild_pkgs.parser, select_pkgs.parser])
+		parents=[update_pkg_sources.parser,
+			reconfigure_and_rebuild_pkgs.parser, select_pkgs.parser])
 
 def do_build(args):
 	cfg = config_for_dir()
 	sel = select_pkgs(cfg, args)
 	plan = Plan(cfg)
+	update_pkg_sources(cfg, plan, args, sel)
 	reconfigure_and_rebuild_pkgs(plan, args, sel)
 	plan.compute_plan([(Action.BUILD_PKG, pkg) for pkg in sel])
 	plan.run_plan()
 
 do_build.parser = main_subparsers.add_parser('build',
-		parents=[reconfigure_and_rebuild_pkgs.parser, select_pkgs.parser])
+		parents=[update_pkg_sources.parser,
+			reconfigure_and_rebuild_pkgs.parser, select_pkgs.parser])
 
 def do_download(args):
 	cfg = config_for_dir()
@@ -1432,12 +1463,14 @@ def do_install(args):
 	cfg = config_for_dir()
 	sel = select_pkgs(cfg, args)
 	plan = Plan(cfg)
+	update_pkg_sources(cfg, plan, args, sel)
 	reconfigure_and_rebuild_pkgs(plan, args, sel)
 	plan.compute_plan([(Action.INSTALL_PKG, pkg) for pkg in sel])
 	plan.run_plan()
 
 do_install.parser = main_subparsers.add_parser('install',
-		parents=[reconfigure_and_rebuild_pkgs.parser, select_pkgs.parser])
+		parents=[update_pkg_sources.parser,
+			reconfigure_and_rebuild_pkgs.parser, select_pkgs.parser])
 
 args = main_parser.parse_args()
 
