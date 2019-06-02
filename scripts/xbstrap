@@ -1445,7 +1445,7 @@ def do_download(args):
 				tar.extract(info, pkg.staging_dir)
 
 do_download.parser = main_subparsers.add_parser('download',
-		parents=[reconfigure_and_rebuild_pkgs.parser, select_pkgs.parser])
+		parents=[select_pkgs.parser])
 
 def do_archive(args):
 	cfg = config_for_dir()
