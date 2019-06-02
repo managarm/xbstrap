@@ -1380,9 +1380,13 @@ def reconfigure_and_rebuild_pkgs(plan, args, sel):
 		for pkg in sel:
 			plan.rebuild_pkgs.add(pkg.subject_id)
 
-reconfigure_and_rebuild_pkgs.parser = argparse.ArgumentParser(add_help=False)
-reconfigure_and_rebuild_pkgs.parser.add_argument('--reconfigure', action='store_true')
-reconfigure_and_rebuild_pkgs.parser.add_argument('--rebuild', action='store_true')
+reconfigure_pkgs_parser = argparse.ArgumentParser(add_help=False)
+reconfigure_pkgs_parser.add_argument('--reconfigure', action='store_true')
+reconfigure_pkgs_parser.set_defaults(reconfigure=False, rebuild=False)
+
+rebuild_pkgs_parser = argparse.ArgumentParser(add_help=False)
+rebuild_pkgs_parser.add_argument('--rebuild', action='store_true')
+rebuild_pkgs_parser.set_defaults(reconfigure=False, rebuild=False)
 
 def do_configure(args):
 	cfg = config_for_dir()
@@ -1394,8 +1398,7 @@ def do_configure(args):
 	plan.run_plan()
 
 do_configure.parser = main_subparsers.add_parser('configure',
-		parents=[update_pkg_sources.parser,
-			reconfigure_and_rebuild_pkgs.parser, select_pkgs.parser])
+		parents=[update_pkg_sources.parser, select_pkgs.parser])
 
 def do_build(args):
 	cfg = config_for_dir()
@@ -1408,7 +1411,7 @@ def do_build(args):
 
 do_build.parser = main_subparsers.add_parser('build',
 		parents=[update_pkg_sources.parser,
-			reconfigure_and_rebuild_pkgs.parser, select_pkgs.parser])
+			reconfigure_pkgs_parser, select_pkgs.parser])
 
 def do_download(args):
 	cfg = config_for_dir()
@@ -1470,7 +1473,7 @@ def do_install(args):
 
 do_install.parser = main_subparsers.add_parser('install',
 		parents=[update_pkg_sources.parser,
-			reconfigure_and_rebuild_pkgs.parser, select_pkgs.parser])
+			reconfigure_pkgs_parser, rebuild_pkgs_parser, select_pkgs.parser])
 
 args = main_parser.parse_args()
 
