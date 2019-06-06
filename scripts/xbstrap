@@ -584,6 +584,10 @@ class EnvironmentComposer:
 	def compose(self, for_package=False):
 		environ = os.environ.copy()
 
+		environ['XBSTRAP_SOURCE_ROOT'] = self.cfg.source_root
+		environ['XBSTRAP_BUILD_ROOT'] = self.cfg.build_root
+		environ['XBSTRAP_SYSROOT_DIR'] = self.cfg.sysroot_dir
+
 		if for_package:
 			pkgcfg_libdir = os.path.join(self.cfg.sysroot_dir, 'usr', 'lib', 'pkgconfig')
 			pkgcfg_libdir += ':' + os.path.join(self.cfg.sysroot_dir, 'usr', 'share', 'pkgconfig')
