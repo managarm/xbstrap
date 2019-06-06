@@ -817,6 +817,9 @@ def configure_tool(cfg, pkg):
 				return src.source_dir
 			elif varname == 'PREFIX':
 				return pkg.prefix_dir
+			elif varname == 'PARALLELISM':
+				nthreads = len(os.sched_getaffinity(0))
+				return str(nthreads)
 
 		run_step(cfg, step, pkg.build_dir, substitute, tool_pkgs)
 
