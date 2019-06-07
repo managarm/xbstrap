@@ -557,8 +557,8 @@ class TargetPackage(RequirementsMixin):
 		else:
 			os.unlink(os.path.join(self.build_dir, 'configured.xbstrap'))
 
-	def check_archive(self):
-		return os.access(self.archive_file, os.F_OK)
+	def check_staging(self):
+		return os.access(self.staging_dir, os.F_OK)
 
 	def check_if_installed(self):
 		path = os.path.join(self._cfg.sysroot_dir, 'etc', 'xbstrap', self.name + '.installed')
@@ -1130,7 +1130,7 @@ class Plan:
 			add_tool_dependencies(subject)
 
 		elif action == Action.INSTALL_PKG:
-			if not subject.check_archive() or check_rebuild():
+			if not subject.check_staging() or check_rebuild():
 				links.append((action.BUILD_PKG, subject))
 
 			# See Action.BUILD_PKG for rationale.
