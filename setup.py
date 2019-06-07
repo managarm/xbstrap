@@ -3,7 +3,7 @@
 from setuptools import setup
 
 setup(name='xbstrap',
-	version='0.5',
+	version='0.6',
 	scripts=['scripts/xbstrap'],
 	install_requires=[
 		'colorama',
