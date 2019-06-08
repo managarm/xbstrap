@@ -1026,9 +1026,8 @@ class ExecutionFailureException(Exception):
 class Plan:
 	def __init__(self, cfg):
 		self._cfg = cfg
-		self._order = [ ]
-		self.reconfigure_pkgs = set()
-		self.rebuild_pkgs = set()
+		self._order = []
+		self.wanted = set()
 
 	def expand_plan(self, action, subject):
 		item = PlanItem(action, subject)
@@ -1063,16 +1062,6 @@ class Plan:
 				item.require_edges.add((action.ENSURE_PKG_INSTALLED, dep_pkg))
 
 		sid = subject.subject_id
-
-		def check_reconfigure():
-			if sid in self.reconfigure_pkgs:
-				return True
-			return False
-
-		def check_rebuild():
-			if sid in self.rebuild_pkgs:
-				return True
-			return check_reconfigure()
 
 		if action == Action.FETCH_SRC:
 			# FETCH_SRC has no dependencies.
@@ -1136,8 +1125,10 @@ class Plan:
 			add_tool_dependencies(subject)
 
 		elif action == Action.BUILD_PKG:
-			if not subject.check_if_configured() or check_reconfigure():
+			if not subject.check_if_configured():
 				item.require_edges.add((action.CONFIGURE_PKG, subject))
+			else:
+				item.order_before_edges.add((action.CONFIGURE_PKG, subject))
 
 			# Usually dependencies will already be installed during the configuration phase.
 			# However, if the sysroot is removed, we might need to install again.
@@ -1146,16 +1137,20 @@ class Plan:
 			add_tool_dependencies(subject)
 
 		elif action == Action.INSTALL_PKG:
-			if not subject.check_staging() or check_rebuild():
+			if not subject.check_staging():
 				item.require_edges.add((action.BUILD_PKG, subject))
+			else:
+				item.order_before_edges.add((action.BUILD_PKG, subject))
 
 			# See Action.BUILD_PKG for rationale.
 			add_implicit_pkgs()
 			add_pkg_dependencies(subject)
 
 		elif action == Action.ENSURE_PKG_INSTALLED:
-			if not subject.check_if_installed() or check_rebuild():
+			if not subject.check_if_installed():
 				item.require_edges.add((action.INSTALL_PKG, subject))
+			else:
+				item.order_before_edges.add((action.INSTALL_PKG, subject))
 
 			# See Action.BUILD_PKG for rationale.
 			add_implicit_pkgs()
@@ -1163,9 +1158,9 @@ class Plan:
 
 		return item
 
-	def compute_plan(self, desired):
+	def compute_plan(self):
 		# First, call expand_plan() on all (action, subject) pairs.
-		to_expand = set(desired)
+		to_expand = set(self.wanted)
 		stack = list(to_expand)
 		items = dict()
 		while stack:
@@ -1178,6 +1173,7 @@ class Plan:
 				to_expand.add(dep_pair)
 				stack.append(dep_pair)
 
+			# TODO: Store the subject.subject_id instead of the subject object (= the package)?
 			items[(action, subject)] = item
 
 		# Resolve ordering edges.
@@ -1187,13 +1183,13 @@ class Plan:
 			for pair in item.order_before_edges:
 				if pair not in items:
 					continue
-				item.edge_stack.add(pair)
+				item.edge_stack.append(pair)
 
 			for pair in item.order_after_edges:
 				target_item = items[pair]
 				if not target_item:
 					continue
-				target_item.edge_stack.add((item.action, item.subject))
+				target_item.edge_stack.append((item.action, item.subject))
 
 		# The following code does a topologic sort of the desired items.
 		stack = []
@@ -1228,6 +1224,8 @@ class Plan:
 					visit(edge_item)
 
 	def run_plan(self):
+		self.compute_plan()
+
 		print('{}xbstrap{}: Running the following plan:'.format(
 				colorama.Style.BRIGHT, colorama.Style.RESET_ALL))
 		for (action, subject) in self._order:
@@ -1305,7 +1303,7 @@ def do_fetch(args):
 	cfg = config_for_dir()
 	src = cfg.get_source(args.source)
 	plan = Plan(cfg)
-	plan.compute_plan([(Action.FETCH_SRC, src)])
+	plan.wanted.add((Action.FETCH_SRC, src))
 	plan.run_plan()
 
 do_fetch.parser = main_subparsers.add_parser('fetch')
@@ -1315,7 +1313,7 @@ def do_checkout(args):
 	cfg = config_for_dir()
 	src = cfg.get_source(args.source)
 	plan = Plan(cfg)
-	plan.compute_plan([(Action.CHECKOUT_SRC, src)])
+	plan.wanted.add((Action.CHECKOUT_SRC, src))
 	plan.run_plan()
 
 do_checkout.parser = main_subparsers.add_parser('checkout')
@@ -1325,7 +1323,7 @@ def do_patch(args):
 	cfg = config_for_dir()
 	src = cfg.get_source(args.source)
 	plan = Plan(cfg)
-	plan.compute_plan([(Action.PATCH_SRC, src)])
+	plan.wanted.add((Action.PATCH_SRC, src))
 	plan.run_plan()
 
 do_patch.parser = main_subparsers.add_parser('patch')
@@ -1335,7 +1333,7 @@ def do_regenerate(args):
 	cfg = config_for_dir()
 	src = cfg.get_source(args.source)
 	plan = Plan(cfg)
-	plan.compute_plan([(Action.REGENERATE_SRC, src)])
+	plan.wanted.add((Action.REGENERATE_SRC, src))
 	plan.run_plan()
 
 do_regenerate.parser = main_subparsers.add_parser('regenerate')
@@ -1355,7 +1353,7 @@ def do_configure_tool(args):
 	cfg = config_for_dir()
 	sel = select_tools(cfg, args)
 	plan = Plan(cfg)
-	plan.compute_plan([(Action.CONFIGURE_TOOL, pkg) for pkg in sel])
+	plan.wanted.update([(Action.CONFIGURE_TOOL, pkg) for pkg in sel])
 	plan.run_plan()
 
 do_configure_tool.parser = main_subparsers.add_parser('configure-tool',
@@ -1365,7 +1363,7 @@ def do_compile_tool(args):
 	cfg = config_for_dir()
 	sel = select_tools(cfg, args)
 	plan = Plan(cfg)
-	plan.compute_plan([(Action.COMPILE_TOOL_STAGE, stage) for pkg in sel
+	plan.wanted.update([(Action.COMPILE_TOOL_STAGE, stage) for pkg in sel
 			for stage in pkg.all_stages()])
 	plan.run_plan()
 
@@ -1376,7 +1374,7 @@ def do_install_tool(args):
 	cfg = config_for_dir()
 	sel = select_tools(cfg, args)
 	plan = Plan(cfg)
-	plan.compute_plan([(Action.INSTALL_TOOL_STAGE, stage) for pkg in sel
+	plan.wanted.update([(Action.INSTALL_TOOL_STAGE, stage) for pkg in sel
 			for stage in pkg.all_stages()])
 	plan.run_plan()
 
@@ -1414,7 +1412,7 @@ def update_pkg_sources(cfg, plan, args, sel):
 	# Short cut: If we reconfigure the package, the source will be regenerated.
 	# In turn, this will do everything else automatically.
 	for pkg in sel:
-		plan.reconfigure_pkgs.add(pkg.subject_id)
+		plan.wanted.add((Action.CONFIGURE_PKG, pkg))
 
 update_pkg_sources.parser = argparse.ArgumentParser(add_help=False)
 update_pkg_sources.parser.add_argument('--update', action='store_true')
@@ -1423,10 +1421,11 @@ update_pkg_sources.parser.add_argument('--overwrite', action='store_true')
 def reconfigure_and_rebuild_pkgs(plan, args, sel):
 	if args.reconfigure:
 		for pkg in sel:
-			plan.reconfigure_pkgs.add(pkg.subject_id)
+			plan.wanted.add((Action.CONFIGURE_PKG, pkg))
+			plan.wanted.add((Action.BUILD_PKG, pkg))
 	elif args.rebuild:
 		for pkg in sel:
-			plan.rebuild_pkgs.add(pkg.subject_id)
+			plan.wanted.add((Action.BUILD_PKG, pkg))
 
 reconfigure_pkgs_parser = argparse.ArgumentParser(add_help=False)
 reconfigure_pkgs_parser.add_argument('--reconfigure', action='store_true')
@@ -1442,7 +1441,7 @@ def do_configure(args):
 	plan = Plan(cfg)
 	update_pkg_sources(cfg, plan, args, sel)
 	reconfigure_and_rebuild_pkgs(plan, args, sel)
-	plan.compute_plan([(Action.CONFIGURE_PKG, pkg) for pkg in sel])
+	plan.wanted.update([(Action.CONFIGURE_PKG, pkg) for pkg in sel])
 	plan.run_plan()
 
 do_configure.parser = main_subparsers.add_parser('configure',
@@ -1454,7 +1453,7 @@ def do_build(args):
 	plan = Plan(cfg)
 	update_pkg_sources(cfg, plan, args, sel)
 	reconfigure_and_rebuild_pkgs(plan, args, sel)
-	plan.compute_plan([(Action.BUILD_PKG, pkg) for pkg in sel])
+	plan.wanted.update([(Action.BUILD_PKG, pkg) for pkg in sel])
 	plan.run_plan()
 
 do_build.parser = main_subparsers.add_parser('build',
@@ -1516,7 +1515,7 @@ def do_install(args):
 	plan = Plan(cfg)
 	update_pkg_sources(cfg, plan, args, sel)
 	reconfigure_and_rebuild_pkgs(plan, args, sel)
-	plan.compute_plan([(Action.INSTALL_PKG, pkg) for pkg in sel])
+	plan.wanted.update([(Action.INSTALL_PKG, pkg) for pkg in sel])
 	plan.run_plan()
 
 do_install.parser = main_subparsers.add_parser('install',
