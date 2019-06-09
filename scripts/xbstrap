@@ -1376,7 +1376,6 @@ def do_configure_tool(args):
 	cfg = config_for_dir()
 	sel = select_tools(cfg, args)
 	plan = Plan(cfg)
-	reconfigure_and_recompile_tools(plan, args, sel)
 	plan.wanted.update([(Action.CONFIGURE_TOOL, pkg) for pkg in sel])
 	plan.run_plan()
 
@@ -1399,6 +1398,7 @@ def do_install_tool(args):
 	cfg = config_for_dir()
 	sel = select_tools(cfg, args)
 	plan = Plan(cfg)
+	reconfigure_and_recompile_tools(plan, args, sel)
 	plan.wanted.update([(Action.INSTALL_TOOL_STAGE, stage) for pkg in sel
 			for stage in pkg.all_stages()])
 	plan.run_plan()
