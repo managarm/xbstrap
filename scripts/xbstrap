@@ -684,7 +684,7 @@ def run_step(cfg, step, default_workdir, substitute, tool_pkgs,
 			quiet=quiet)
 
 def postprocess_libtool(cfg, pkg):
-	for libdir in ['lib', 'usr/lib']:
+	for libdir in ['lib', 'lib64', 'lib32', 'usr/lib', 'usr/lib64', 'usr/lib32']:
 		filelist = []
 		try:
 			filelist = os.listdir(os.path.join(pkg.collect_dir, libdir))
