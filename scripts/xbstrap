@@ -17,6 +17,7 @@ import colorama
 import yaml
 
 verbosity = False
+use_xbps = False
 
 def touch(path):
 	with open(path, 'a') as f:
@@ -128,6 +129,10 @@ class Config:
 	def sysroot_dir(self):
 		return os.path.join(self.build_root, 'system-root')
 
+	@property
+	def xbps_repository_dir(self):
+		return os.path.join(self.build_root, 'xbps-repo')
+
 	def get_source(self, name):
 		return self._sources[name]
 
@@ -219,6 +224,12 @@ class RequirementsMixin:
 			yield from self._this_yml['pkgs_required']
 
 		# TODO: Secondly, return explicit dependencies.
+
+	def xbps_dependency_string(self):
+		deps = ''
+		for dep in self.pkg_dependencies:
+			deps += ' {}>=0'.format(dep)
+		return deps[1:]
 
 class Source(RequirementsMixin):
 	def __init__(self, cfg, induced_name, yml):
@@ -548,6 +559,10 @@ class TargetPackage(RequirementsMixin):
 	def build_steps(self):
 		yield from self._build_steps
 
+	@property
+	def version(self):
+		return "0.0_0"
+
 	def check_if_configured(self):
 		return os.access(os.path.join(self.build_dir, 'configured.xbstrap'), os.F_OK)
 
@@ -561,8 +576,18 @@ class TargetPackage(RequirementsMixin):
 		return os.access(self.staging_dir, os.F_OK)
 
 	def check_if_installed(self):
-		path = os.path.join(self._cfg.sysroot_dir, 'etc', 'xbstrap', self.name + '.installed')
-		return os.access(path, os.F_OK)
+		if use_xbps:
+			try:
+				out = subprocess.check_output(['xbps-query',
+					'-r', self._cfg.sysroot_dir,
+					self.name
+					])
+				return b'state: installed' in out.splitlines()
+			except subprocess.CalledProcessError:
+				return False
+		else:
+			path = os.path.join(self._cfg.sysroot_dir, 'etc', 'xbstrap', self.name + '.installed')
+			return os.access(path, os.F_OK)
 
 	def mark_as_installed(self):
 		try_mkdir(os.path.join(self._cfg.sysroot_dir, 'etc'))
@@ -951,9 +976,15 @@ def build_pkg(cfg, pkg):
 def install_pkg(cfg, pkg):
 	try_mkdir(cfg.sysroot_dir)
 
-	installtree(pkg.staging_dir, cfg.sysroot_dir)
-
-	pkg.mark_as_installed()
+	if use_xbps:
+		if subprocess.call(['xbps-install', '-y',
+				'-r', cfg.sysroot_dir,
+				'--repository', cfg.xbps_repository_dir,
+				pkg.name]) != 0:
+			raise RuntimeError('package installation failed');
+	else:
+		installtree(pkg.staging_dir, cfg.sysroot_dir)
+		pkg.mark_as_installed()
 
 # ---------------------------------------------------------------------------------------
 # Build planning.
@@ -1280,6 +1311,8 @@ class Plan:
 main_parser = argparse.ArgumentParser()
 main_parser.add_argument('-v', dest='verbose', action='store_true',
 		help="verbose")
+main_parser.add_argument('--xbps', dest='use_xbps', action='store_true',
+		help="use xbps")
 main_subparsers = main_parser.add_subparsers(dest='command')
 
 def do_run(args):
@@ -1527,9 +1560,28 @@ def do_archive(args):
 	sel = select_pkgs(cfg, args)
 
 	for pkg in sel:
+		if use_xbps:
+			print(pkg.xbps_dependency_string())
+			try_mkdir(cfg.xbps_repository_dir)
+			print(['xbps-create', '-A', 'x86_64',
+				'-s', pkg.name,
+				'-n', '{}-{}'.format(pkg.name, pkg.version),
+				'-D', pkg.xbps_dependency_string(),
+				pkg.staging_dir])
+			subprocess.call(['xbps-create', '-A', 'x86_64',
+						'-s', pkg.name,
+						'-n', '{}-{}'.format(pkg.name, pkg.version),
+						'-D', pkg.xbps_dependency_string(),
+						pkg.staging_dir],
+						cwd=cfg.xbps_repository_dir)
+			subprocess.call(['xbps-rindex', '-fa',
+						os.path.join(cfg.xbps_repository_dir,
+							'{}-{}.x86_64.xbps'.format(pkg.name, pkg.version))])
+	else:
 		with tarfile.open(pkg.archive_file, 'w|gz') as tar:
 			for ent in os.listdir(pkg.staging_dir):
 				tar.add(os.path.join(pkg.staging_dir, ent), arcname=ent)
+
 
 do_archive.parser = main_subparsers.add_parser('archive',
 		parents=[select_pkgs.parser])
@@ -1553,6 +1605,8 @@ colorama.init()
 
 if args.verbose:
 	verbosity = True
+if args.use_xbps:
+	use_xbps = True
 
 try:
 	if args.command == 'init':
