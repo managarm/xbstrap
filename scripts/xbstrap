@@ -986,6 +986,29 @@ def install_pkg(cfg, pkg):
 		installtree(pkg.staging_dir, cfg.sysroot_dir)
 		pkg.mark_as_installed()
 
+def archive_pkg(cfg, pkg):
+	if use_xbps:
+		print(pkg.xbps_dependency_string())
+		try_mkdir(cfg.xbps_repository_dir)
+		print(['xbps-create', '-A', 'x86_64',
+			'-s', pkg.name,
+			'-n', '{}-{}'.format(pkg.name, pkg.version),
+			'-D', pkg.xbps_dependency_string(),
+			pkg.staging_dir])
+		subprocess.call(['xbps-create', '-A', 'x86_64',
+					'-s', pkg.name,
+					'-n', '{}-{}'.format(pkg.name, pkg.version),
+					'-D', pkg.xbps_dependency_string(),
+					pkg.staging_dir],
+					cwd=cfg.xbps_repository_dir)
+		subprocess.call(['xbps-rindex', '-fa',
+					os.path.join(cfg.xbps_repository_dir,
+						'{}-{}.x86_64.xbps'.format(pkg.name, pkg.version))])
+	else:
+		with tarfile.open(pkg.archive_file, 'w|gz') as tar:
+			for ent in os.listdir(pkg.staging_dir):
+				tar.add(os.path.join(pkg.staging_dir, ent), arcname=ent)
+
 # ---------------------------------------------------------------------------------------
 # Build planning.
 # ---------------------------------------------------------------------------------------
@@ -1005,13 +1028,14 @@ class Action(Enum):
 	CONFIGURE_PKG = 8
 	BUILD_PKG = 9
 	INSTALL_PKG = 10
+	ARCHIVE_PKG = 11
 	# "Virtual" actions that are only used during planning.
 	# The ENSURE_X_INSTALLED action recursively expand to ENSURE_X_INSTALLED of dependencies.
 	# They only expand to INSTALL_X if the given package is not installed.
 	# This way, recursive installation dependencies are handed correctly,
 	# even if users delete packages from the sysroot.
-	ENSURE_TOOL_STAGE_INSTALLED = 11
-	ENSURE_PKG_INSTALLED = 12
+	ENSURE_TOOL_STAGE_INSTALLED = 12
+	ENSURE_PKG_INSTALLED = 13
 
 	def is_virtual(self):
 		return self == Action.ENSURE_TOOL_STAGE_INSTALLED or self == Action.ENSURE_PKG_INSTALLED
@@ -1027,6 +1051,7 @@ Action.strings = {
 	Action.CONFIGURE_PKG: 'configure',
 	Action.BUILD_PKG: 'build',
 	Action.INSTALL_PKG: 'install',
+	Action.ARCHIVE_PKG: 'archive',
 	Action.ENSURE_TOOL_STAGE_INSTALLED: 'install-tool?',
 	Action.ENSURE_PKG_INSTALLED: 'install?'
 }
@@ -1181,6 +1206,10 @@ class Plan:
 			add_implicit_pkgs()
 			add_pkg_dependencies(subject)
 
+		elif action == Action.ARCHIVE_PKG:
+			if not subject.check_staging():
+				item.require_edges.add((action.BUILD_PKG, subject))
+
 		elif action == Action.ENSURE_PKG_INSTALLED:
 			if not subject.check_if_installed():
 				item.require_edges.add((action.INSTALL_PKG, subject))
@@ -1299,6 +1328,8 @@ class Plan:
 					build_pkg(self._cfg, subject)
 				elif action == Action.INSTALL_PKG:
 					install_pkg(self._cfg, subject)
+				elif action == Action.ARCHIVE_PKG:
+					archive_pkg(self._cfg, subject)
 				else:
 					raise AssertionError("Unexpected action")
 			except subprocess.CalledProcessError:
@@ -1558,30 +1589,9 @@ do_download.parser = main_subparsers.add_parser('download',
 def do_archive(args):
 	cfg = config_for_dir()
 	sel = select_pkgs(cfg, args)
-
-	for pkg in sel:
-		if use_xbps:
-			print(pkg.xbps_dependency_string())
-			try_mkdir(cfg.xbps_repository_dir)
-			print(['xbps-create', '-A', 'x86_64',
-				'-s', pkg.name,
-				'-n', '{}-{}'.format(pkg.name, pkg.version),
-				'-D', pkg.xbps_dependency_string(),
-				pkg.staging_dir])
-			subprocess.call(['xbps-create', '-A', 'x86_64',
-						'-s', pkg.name,
-						'-n', '{}-{}'.format(pkg.name, pkg.version),
-						'-D', pkg.xbps_dependency_string(),
-						pkg.staging_dir],
-						cwd=cfg.xbps_repository_dir)
-			subprocess.call(['xbps-rindex', '-fa',
-						os.path.join(cfg.xbps_repository_dir,
-							'{}-{}.x86_64.xbps'.format(pkg.name, pkg.version))])
-	else:
-		with tarfile.open(pkg.archive_file, 'w|gz') as tar:
-			for ent in os.listdir(pkg.staging_dir):
-				tar.add(os.path.join(pkg.staging_dir, ent), arcname=ent)
-
+	plan = Plan(cfg)
+	plan.wanted.update([(Action.ARCHIVE_PKG, pkg) for pkg in sel])
+	plan.run_plan()
 
 do_archive.parser = main_subparsers.add_parser('archive',
 		parents=[select_pkgs.parser])
