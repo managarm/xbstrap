@@ -840,6 +840,8 @@ def configure_tool(cfg, pkg):
 				return cfg.sysroot_dir
 			elif varname == 'THIS_SOURCE_DIR':
 				return src.source_dir
+			elif varname == 'THIS_BUILD_DIR':
+				return pkg.build_dir
 			elif varname == 'PREFIX':
 				return pkg.prefix_dir
 			elif varname == 'PARALLELISM':
@@ -868,6 +870,8 @@ def compile_tool_stage(cfg, stage):
 				return cfg.sysroot_dir
 			elif varname == 'THIS_SOURCE_DIR':
 				return src.source_dir
+			elif varname == 'THIS_BUILD_DIR':
+				return pkg.build_dir
 			elif varname == 'PREFIX':
 				return pkg.prefix_dir
 			elif varname == 'PARALLELISM':
@@ -900,6 +904,8 @@ def install_tool_stage(cfg, stage):
 				return cfg.sysroot_dir
 			elif varname == 'THIS_SOURCE_DIR':
 				return src.source_dir
+			elif varname == 'THIS_BUILD_DIR':
+				return pkg.build_dir
 			elif varname == 'PREFIX':
 				return pkg.prefix_dir
 
@@ -932,6 +938,8 @@ def configure_pkg(cfg, pkg):
 				return cfg.sysroot_dir
 			elif varname == 'THIS_SOURCE_DIR':
 				return src.source_dir
+			elif varname == 'THIS_BUILD_DIR':
+				return pkg.build_dir
 
 		run_step(cfg, step, pkg.build_dir, substitute, tool_pkgs,
 				for_package=True)
@@ -959,6 +967,8 @@ def build_pkg(cfg, pkg):
 				return cfg.sysroot_dir
 			elif varname == 'THIS_SOURCE_DIR':
 				return src.source_dir
+			elif varname == 'THIS_BUILD_DIR':
+				return pkg.build_dir
 			elif varname == 'THIS_COLLECT_DIR':
 				return pkg.collect_dir
 			elif varname == 'PARALLELISM':
