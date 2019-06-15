@@ -1539,7 +1539,6 @@ def do_configure(args):
 	sel = select_pkgs(cfg, args)
 	plan = Plan(cfg)
 	update_pkg_sources(cfg, plan, args, sel)
-	reconfigure_and_rebuild_pkgs(plan, args, sel)
 	plan.wanted.update([(Action.CONFIGURE_PKG, pkg) for pkg in sel])
 	plan.run_plan()
 
