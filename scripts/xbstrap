@@ -1371,18 +1371,27 @@ main_parser.add_argument('--xbps', dest='use_xbps', action='store_true',
 		help="use xbps")
 main_subparsers = main_parser.add_subparsers(dest='command')
 
-def do_run(args):
+def do_runtool(args):
 	cfg = config_for_dir()
 
+	if '--' not in args.opts:
+		main_parser.error('tools and arguments must be separated by --')
+
+	d = args.opts.index('--')
+	tools = args.opts[:d]
+	args = args.opts[(d + 1):]
+
+	if not args:
+		main_parser.error('no command given')
+
 	tool_pkgs = []
-	for name in args.t:
+	for name in tools:
 		tool_pkgs.append(cfg.get_tool_pkg(name))
 
-	run_tool(cfg, args.args, tool_pkgs=tool_pkgs)
+	run_tool(cfg, args, tool_pkgs=tool_pkgs)
 
-do_run.parser = main_subparsers.add_parser('run')
-do_run.parser.add_argument('-t', action='append')
-do_run.parser.add_argument('args', nargs=argparse.REMAINDER)
+do_runtool.parser = main_subparsers.add_parser('runtool')
+do_runtool.parser.add_argument('opts', nargs=argparse.REMAINDER)
 
 def do_init(args):
 	if not os.access(os.path.join(args.src_root, 'bootstrap.yml'), os.F_OK):
@@ -1645,8 +1654,8 @@ if args.use_xbps:
 try:
 	if args.command == 'init':
 		do_init(args)
-	elif args.command == 'run':
-		do_run(args)
+	elif args.command == 'runtool':
+		do_runtool(args)
 	elif args.command == 'fetch':
 		do_fetch(args)
 	elif args.command == 'checkout':
