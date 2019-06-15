@@ -44,6 +44,21 @@ def try_rmtree(path):
 		if e.errno != errno.ENOENT:
 			raise
 
+def num_allocated_cpus():
+	try:
+		cpuset = os.sched_getaffinity(0)
+	except AttributeError:
+		# MacOS does not have CPU affinity.
+		return None
+	return len(cpuset)
+
+def get_concurrency():
+	n = num_allocated_cpus()
+	if n is None:
+		# The best that we can do is returning the number of all CPUs.
+		n = os.cpu_count()
+	return n
+
 def replace_at_vars(string, resolve):
 	def do_substitute(m):
 		varname = m.group(1)
@@ -845,7 +860,7 @@ def configure_tool(cfg, pkg):
 			elif varname == 'PREFIX':
 				return pkg.prefix_dir
 			elif varname == 'PARALLELISM':
-				nthreads = len(os.sched_getaffinity(0))
+				nthreads = get_concurrency()
 				return str(nthreads)
 
 		run_step(cfg, step, pkg.build_dir, substitute, tool_pkgs)
@@ -875,7 +890,7 @@ def compile_tool_stage(cfg, stage):
 			elif varname == 'PREFIX':
 				return pkg.prefix_dir
 			elif varname == 'PARALLELISM':
-				nthreads = len(os.sched_getaffinity(0))
+				nthreads = get_concurrency()
 				return str(nthreads)
 
 		run_step(cfg, step, pkg.build_dir, substitute, tool_pkgs)
@@ -972,7 +987,7 @@ def build_pkg(cfg, pkg):
 			elif varname == 'THIS_COLLECT_DIR':
 				return pkg.collect_dir
 			elif varname == 'PARALLELISM':
-				nthreads = len(os.sched_getaffinity(0))
+				nthreads = get_concurrency()
 				return str(nthreads)
 
 		run_step(cfg, step, pkg.build_dir, substitute, tool_pkgs,
