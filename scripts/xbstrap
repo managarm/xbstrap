@@ -1374,23 +1374,36 @@ main_subparsers = main_parser.add_subparsers(dest='command')
 def do_runtool(args):
 	cfg = config_for_dir()
 
-	if '--' not in args.opts:
-		main_parser.error('tools and arguments must be separated by --')
-
-	d = args.opts.index('--')
-	tools = args.opts[:d]
-	args = args.opts[(d + 1):]
-
-	if not args:
-		main_parser.error('no command given')
-
 	tool_pkgs = []
-	for name in tools:
-		tool_pkgs.append(cfg.get_tool_pkg(name))
+	workdir = None
+	for_package=False
 
-	run_tool(cfg, args, tool_pkgs=tool_pkgs)
+	if args.build is not None:
+		pkg = cfg.get_target_pkg(args.build)
+
+		workdir = pkg.build_dir
+		tool_pkgs.extend(cfg.get_tool_pkg(name) for name in pkg.tools_required)
+		args = args.opts
+		for_package = True
+	else:
+		if '--' not in args.opts:
+			main_parser.error('tools and arguments must be separated by --')
+
+		d = args.opts.index('--')
+		tools = args.opts[:d]
+		args = args.opts[(d + 1):]
+
+		if not args:
+			main_parser.error('no command given')
+
+		for name in tools:
+			tool_pkgs.append(cfg.get_tool_pkg(name))
+
+	run_tool(cfg, args, tool_pkgs=tool_pkgs, workdir=workdir,
+			for_package=for_package)
 
 do_runtool.parser = main_subparsers.add_parser('runtool')
+do_runtool.parser.add_argument('--build', type=str)
 do_runtool.parser.add_argument('opts', nargs=argparse.REMAINDER)
 
 def do_init(args):
