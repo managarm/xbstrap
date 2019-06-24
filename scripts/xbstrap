@@ -101,7 +101,7 @@ class Config:
 			for src_yml in self._root_yml['sources']:
 				src = Source(self, None, src_yml)
 				if src.name in self._sources:
-					raise RuntimeError("Duplicate source")
+					raise RuntimeError("Duplicate source {}".format(src.name))
 				self._sources[src.name] = src
 
 		if 'tools' in self._root_yml and isinstance(self._root_yml['tools'], list):
@@ -109,7 +109,7 @@ class Config:
 				if 'source' in pkg_yml:
 					src = Source(self, pkg_yml['name'], pkg_yml['source'])
 					if src.name in self._sources:
-						raise RuntimeError("Duplicate source")
+						raise RuntimeError("Duplicate source {}".format(src.name))
 					self._sources[src.name] = src
 				pkg = HostPackage(self, pkg_yml)
 				self._tool_pkgs[pkg.name] = pkg
@@ -119,7 +119,7 @@ class Config:
 				if 'source' in pkg_yml:
 					src = Source(self, pkg_yml['name'], pkg_yml['source'])
 					if src.name in self._sources:
-						raise RuntimeError("Duplicate source")
+						raise RuntimeError("Duplicate source {}".format(src.name))
 					self._sources[src.name] = src
 				pkg = TargetPackage(self, pkg_yml)
 				self._target_pkgs[pkg.name] = pkg
