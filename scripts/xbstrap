@@ -97,31 +97,32 @@ class Config:
 		self._tool_stages = dict()
 		self._target_pkgs = dict()
 
-		for src_yml in self._root_yml['sources']:
-			src = Source(self, None, src_yml)
-			if src.name in self._sources:
-				raise RuntimeError("Duplicate source")
-			self._sources[src.name] = src
-		for pkg_yml in self._root_yml['tools']:
-			if 'source' in pkg_yml:
-				src = Source(self, pkg_yml['name'], pkg_yml['source'])
-				if src.name in self._sources:
-					raise RuntimeError("Duplicate source")
-				self._sources[src.name] = src
-		for pkg_yml in self._root_yml['packages']:
-			if 'source' in pkg_yml:
-				src = Source(self, pkg_yml['name'], pkg_yml['source'])
+		if 'sources' in self._root_yml and isinstance(self._root_yml['sources'], list):
+			for src_yml in self._root_yml['sources']:
+				src = Source(self, None, src_yml)
 				if src.name in self._sources:
 					raise RuntimeError("Duplicate source")
 				self._sources[src.name] = src
 
-		for pkg_yml in self._root_yml['tools']:
-			pkg = HostPackage(self, pkg_yml)
-			self._tool_pkgs[pkg.name] = pkg
+		if 'tools' in self._root_yml and isinstance(self._root_yml['tools'], list):
+			for pkg_yml in self._root_yml['tools']:
+				if 'source' in pkg_yml:
+					src = Source(self, pkg_yml['name'], pkg_yml['source'])
+					if src.name in self._sources:
+						raise RuntimeError("Duplicate source")
+					self._sources[src.name] = src
+				pkg = HostPackage(self, pkg_yml)
+				self._tool_pkgs[pkg.name] = pkg
 
-		for pkg_yml in self._root_yml['packages']:
-			pkg = TargetPackage(self, pkg_yml)
-			self._target_pkgs[pkg.name] = pkg
+		if 'packages' in self._root_yml and isinstance(self._root_yml['packages'], list):
+			for pkg_yml in self._root_yml['packages']:
+				if 'source' in pkg_yml:
+					src = Source(self, pkg_yml['name'], pkg_yml['source'])
+					if src.name in self._sources:
+						raise RuntimeError("Duplicate source")
+					self._sources[src.name] = src
+				pkg = TargetPackage(self, pkg_yml)
+				self._target_pkgs[pkg.name] = pkg
 
 	@property
 	def repository_url(self):
@@ -513,10 +514,13 @@ class TargetPackage(RequirementsMixin):
 		self._configure_steps = [ ]
 		self._build_steps = [ ]
 
-		for step_yml in self._this_yml['configure']:
-			self._configure_steps.append(ScriptStep(step_yml))
-		for step_yml in self._this_yml['build']:
-			self._build_steps.append(ScriptStep(step_yml))
+		if 'configure' in self._this_yml:
+			for step_yml in self._this_yml['configure']:
+				self._configure_steps.append(ScriptStep(step_yml))
+
+		if 'build' in self._this_yml:
+			for step_yml in self._this_yml['build']:
+				self._build_steps.append(ScriptStep(step_yml))
 
 	@property
 	def source(self):
