@@ -514,10 +514,13 @@ class TargetPackage(RequirementsMixin):
 		self._configure_steps = [ ]
 		self._build_steps = [ ]
 
-		for step_yml in self._this_yml['configure']:
-			self._configure_steps.append(ScriptStep(step_yml))
-		for step_yml in self._this_yml['build']:
-			self._build_steps.append(ScriptStep(step_yml))
+		if 'configure' in self._this_yml:
+			for step_yml in self._this_yml['configure']:
+				self._configure_steps.append(ScriptStep(step_yml))
+
+		if 'build' in self._this_yml:
+			for step_yml in self._this_yml['build']:
+				self._build_steps.append(ScriptStep(step_yml))
 
 	@property
 	def source(self):
