@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: MIT
 
 import argparse
+from collections.abc import Iterable
 from enum import Enum
 import errno
 import os
@@ -97,11 +98,12 @@ class Config:
 		self._tool_stages = dict()
 		self._target_pkgs = dict()
 
-		for src_yml in self._root_yml['sources']:
-			src = Source(self, None, src_yml)
-			if src.name in self._sources:
-				raise RuntimeError("Duplicate source")
-			self._sources[src.name] = src
+		if 'sources' in self._root_yml and isinstance(self._root_yml['sources'], Iterable):
+			for src_yml in self._root_yml['sources']:
+				src = Source(self, None, src_yml)
+				if src.name in self._sources:
+					raise RuntimeError("Duplicate source")
+				self._sources[src.name] = src
 		for pkg_yml in self._root_yml['tools']:
 			if 'source' in pkg_yml:
 				src = Source(self, pkg_yml['name'], pkg_yml['source'])
