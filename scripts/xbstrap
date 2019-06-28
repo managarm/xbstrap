@@ -25,7 +25,7 @@ def touch(path):
 
 def try_mkdir(path):
 	try:
-		os.mkdir(path)
+		os.makedirs(path)
 	except OSError as e:
 		if e.errno != errno.EEXIST:
 			raise
@@ -111,7 +111,7 @@ class Config:
 					if src.name in self._sources:
 						raise RuntimeError("Duplicate source {}".format(src.name))
 					self._sources[src.name] = src
-				pkg = HostPackage(self, pkg_yml)
+				pkg = HostPackage(self, pkg_yml, self._root_yml)
 				self._tool_pkgs[pkg.name] = pkg
 
 		if 'packages' in self._root_yml and isinstance(self._root_yml['packages'], list):
@@ -121,7 +121,7 @@ class Config:
 					if src.name in self._sources:
 						raise RuntimeError("Duplicate source {}".format(src.name))
 					self._sources[src.name] = src
-				pkg = TargetPackage(self, pkg_yml)
+				pkg = TargetPackage(self, pkg_yml, self._root_yml)
 				self._target_pkgs[pkg.name] = pkg
 
 	@property
@@ -143,7 +143,10 @@ class Config:
 
 	@property
 	def sysroot_dir(self):
-		return os.path.join(self.build_root, 'system-root')
+		if 'directories' not in self._root_yml or 'system_root' not in self._root_yml['directories']:
+			return os.path.join(self.build_root, 'system-root')
+		else:
+			return os.path.join(self.build_root, self._root_yml['directories']['system_root'])
 
 	@property
 	def xbps_repository_dir(self):
@@ -414,9 +417,10 @@ class HostStage(RequirementsMixin):
 
 
 class HostPackage(RequirementsMixin):
-	def __init__(self, cfg, pkg_yml):
+	def __init__(self, cfg, pkg_yml, root_yml):
 		self._cfg = cfg
 		self._this_yml = pkg_yml
+		self._root_yml = root_yml
 		self._configure_steps = [ ]
 		self._stages = dict()
 
@@ -464,7 +468,10 @@ class HostPackage(RequirementsMixin):
 
 	@property
 	def build_dir(self):
-		return os.path.join(self._cfg.build_root, 'tool-builds', self.name)
+		if 'directories' not in self._root_yml or 'tool_builds' not in self._root_yml['directories']:
+			return os.path.join(self._cfg.build_root, 'tool-builds', self.name)
+		else:
+			return os.path.join(self._cfg.build_root, self._root_yml['directories']['tool_builds'], self.name)
 
 	@property
 	def prefix_dir(self):
@@ -508,9 +515,10 @@ class HostPackage(RequirementsMixin):
 			os.unlink(os.path.join(self.build_dir, 'configured.xbstrap'))
 
 class TargetPackage(RequirementsMixin):
-	def __init__(self, cfg, pkg_yml):
+	def __init__(self, cfg, pkg_yml, root_yml):
 		self._cfg = cfg
 		self._this_yml = pkg_yml
+		self._root_yml = root_yml
 		self._configure_steps = [ ]
 		self._build_steps = [ ]
 
@@ -532,7 +540,10 @@ class TargetPackage(RequirementsMixin):
 
 	@property
 	def build_dir(self):
-		return os.path.join(self._cfg.build_root, 'pkg-builds', self.name)
+		if 'directories' not in self._root_yml or 'pkg_builds' not in self._root_yml['directories']:
+			return os.path.join(self._cfg.build_root, 'pkg-builds', self.name)
+		else:
+			return os.path.join(self._cfg.build_root, self._root_yml['directories']['pkg_builds'], self.name)
 
 	@property
 	def staging_dir(self):
@@ -841,7 +852,6 @@ def regenerate_src(cfg, src):
 def configure_tool(cfg, pkg):
 	src = cfg.get_source(pkg.source)
 
-	try_mkdir(os.path.join(cfg.build_root, 'tool-builds'))
 	try_rmtree(pkg.build_dir)
 	try_mkdir(pkg.build_dir)
 
@@ -939,7 +949,6 @@ def install_tool_stage(cfg, stage):
 def configure_pkg(cfg, pkg):
 	src = cfg.get_source(pkg.source)
 
-	try_mkdir(os.path.join(cfg.build_root, 'pkg-builds'))
 	try_rmtree(pkg.build_dir)
 	try_mkdir(pkg.build_dir)
 
