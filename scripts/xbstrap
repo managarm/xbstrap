@@ -23,9 +23,12 @@ def touch(path):
 	with open(path, 'a') as f:
 		pass
 
-def try_mkdir(path):
+def try_mkdir(path, recursive=False):
 	try:
-		os.makedirs(path)
+		if not recursive:
+			os.mkdir(path)
+		else:
+			os.makedirs(path)
 	except OSError as e:
 		if e.errno != errno.EEXIST:
 			raise
@@ -864,7 +867,7 @@ def configure_tool(cfg, pkg):
 	src = cfg.get_source(pkg.source)
 
 	try_rmtree(pkg.build_dir)
-	try_mkdir(pkg.build_dir)
+	try_mkdir(pkg.build_dir, True)
 
 	for step in pkg.configure_steps:
 		tool_pkgs = []
@@ -961,7 +964,7 @@ def configure_pkg(cfg, pkg):
 	src = cfg.get_source(pkg.source)
 
 	try_rmtree(pkg.build_dir)
-	try_mkdir(pkg.build_dir)
+	try_mkdir(pkg.build_dir, True)
 
 	for step in pkg.configure_steps:
 		tool_pkgs = []
@@ -1023,6 +1026,7 @@ def build_pkg(cfg, pkg):
 	os.rename(pkg.collect_dir, pkg.staging_dir)
 
 def install_pkg(cfg, pkg):
+	# constraint: the sysroot directory must be located in the build root
 	try_mkdir(cfg.sysroot_dir)
 
 	if use_xbps:
