@@ -791,19 +791,22 @@ def checkout_src(cfg, src):
 			args.append(source['branch'])
 		subprocess.check_call(args, cwd=src.source_dir)
 	else:
-		assert src.source_archive_format.startswith('tar.')
+		if src.source_archive_format == 'raw' and 'filename' in source:
+			shutil.copyfile(src.source_archive_file, os.path.join(src.sub_dir, src.name, source['filename']))
+		else:
+			assert src.source_archive_format.startswith('tar.')
 
-		compression = {
-			'tar.gz': 'gz',
-			'tar.xz': 'xz'
-		}
-		with tarfile.open(src.source_archive_file,
-				'r|' + compression[src.source_archive_format]) as tar:
-			for info in tar:
-				prefix = source['extract_path'] + '/'
-				if info.name.startswith(prefix):
-					info.name = src.name + '/' + info.name[len(prefix):]
-					tar.extract(info, src.sub_dir)
+			compression = {
+				'tar.gz': 'gz',
+				'tar.xz': 'xz'
+			}
+			with tarfile.open(src.source_archive_file,
+					'r|' + compression[src.source_archive_format]) as tar:
+				for info in tar:
+					prefix = source['extract_path'] + '/'
+					if info.name.startswith(prefix):
+						info.name = src.name + '/' + info.name[len(prefix):]
+						tar.extract(info, src.sub_dir)
 
 	src.mark_as_checkedout()
 
