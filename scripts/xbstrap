@@ -169,6 +169,20 @@ class Config:
 		else:
 			return os.path.join(self.build_root, self._root_yml['directories']['pkg_builds'])
 
+	@property
+	def tool_out_dir(self):
+		if 'directories' not in self._root_yml or 'tools' not in self._root_yml['directories']:
+			return os.path.join(self.build_root, 'tools')
+		else:
+			return os.path.join(self.build_root, self._root_yml['directories']['tools'])
+
+	@property
+	def package_out_dir(self):
+		if 'directories' not in self._root_yml or 'packages' not in self._root_yml['directories']:
+			return os.path.join(self.build_root, 'packages')
+		else:
+			return os.path.join(self.build_root, self._root_yml['directories']['packages'])
+
 	def get_source(self, name):
 		return self._sources[name]
 
@@ -488,7 +502,7 @@ class HostPackage(RequirementsMixin):
 
 	@property
 	def prefix_dir(self):
-		return os.path.join(self._cfg.build_root, 'tools', self.name)
+		return os.path.join(self._cfg.tool_out_dir, self.name)
 
 	@property
 	def name(self):
@@ -556,15 +570,15 @@ class TargetPackage(RequirementsMixin):
 
 	@property
 	def staging_dir(self):
-		return os.path.join(self._cfg.build_root, 'packages', self.name)
+		return os.path.join(self._cfg.package_out_dir, self.name)
 
 	@property
 	def collect_dir(self):
-		return os.path.join(self._cfg.build_root, 'packages', self.name + '.collect')
+		return os.path.join(self._cfg.package_out_dir, self.name + '.collect')
 
 	@property
 	def archive_file(self):
-		return os.path.join(self._cfg.build_root, 'packages', self.name + '.tar.gz')
+		return os.path.join(self._cfg.package_out_dir, self.name + '.tar.gz')
 
 	@property
 	def name(self):
@@ -927,7 +941,7 @@ def install_tool_stage(cfg, stage):
 	pkg = stage.pkg
 	src = cfg.get_source(pkg.source)
 
-	try_mkdir(os.path.join(cfg.build_root, 'tools'))
+	try_mkdir(cfg.tool_out_dir)
 #	try_rmtree(pkg.prefix_dir)
 	try_mkdir(pkg.prefix_dir)
 
@@ -989,7 +1003,7 @@ def configure_pkg(cfg, pkg):
 def build_pkg(cfg, pkg):
 	src = cfg.get_source(pkg.source)
 
-	try_mkdir('packages')
+	try_mkdir(cfg.package_out_dir)
 	try_rmtree(pkg.collect_dir)
 	os.mkdir(pkg.collect_dir)
 
@@ -1628,7 +1642,7 @@ def do_download(args):
 	if cfg.repository_url is None:
 		raise RuntimeError('No repository URL in bootstrap.yml')
 
-	try_mkdir('packages')
+	try_mkdir(cfg.tool_out_dir)
 
 	for pkg in sel:
 		url = urllib.parse.urljoin(cfg.repository_url + '/', pkg.name + '.tar.gz')
