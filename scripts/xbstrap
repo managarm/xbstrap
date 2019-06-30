@@ -152,6 +152,20 @@ class Config:
 	def xbps_repository_dir(self):
 		return os.path.join(self.build_root, 'xbps-repo')
 
+	@property
+	def tool_build_dir(self):
+		if 'directories' not in self._root_yml or 'pkg_builds' not in self._root_yml['directories']:
+			return os.path.join(self.build_root, 'tool-builds')
+		else:
+			return os.path.join(self.build_root, self._root_yml['directories']['tool_builds'])
+
+	@property
+	def pkg_build_dir(self):
+		if 'directories' not in self._root_yml or 'pkg_builds' not in self._root_yml['directories']:
+			return os.path.join(self.build_root, 'pkg-builds')
+		else:
+			return os.path.join(self.build_root, self._root_yml['directories']['pkg_builds'])
+
 	def get_source(self, name):
 		return self._sources[name]
 
@@ -468,10 +482,7 @@ class HostPackage(RequirementsMixin):
 
 	@property
 	def build_dir(self):
-		if 'directories' not in self._root_yml or 'tool_builds' not in self._root_yml['directories']:
-			return os.path.join(self._cfg.build_root, 'tool-builds', self.name)
-		else:
-			return os.path.join(self._cfg.build_root, self._root_yml['directories']['tool_builds'], self.name)
+		return os.path.join(self._cfg.tool_build_dir, self.name)
 
 	@property
 	def prefix_dir(self):
@@ -540,10 +551,7 @@ class TargetPackage(RequirementsMixin):
 
 	@property
 	def build_dir(self):
-		if 'directories' not in self._root_yml or 'pkg_builds' not in self._root_yml['directories']:
-			return os.path.join(self._cfg.build_root, 'pkg-builds', self.name)
-		else:
-			return os.path.join(self._cfg.build_root, self._root_yml['directories']['pkg_builds'], self.name)
+		return os.path.join(self._cfg.pkg_build_dir, self.name)
 
 	@property
 	def staging_dir(self):
