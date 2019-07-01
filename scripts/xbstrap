@@ -23,9 +23,12 @@ def touch(path):
 	with open(path, 'a') as f:
 		pass
 
-def try_mkdir(path):
+def try_mkdir(path, recursive=False):
 	try:
-		os.mkdir(path)
+		if not recursive:
+			os.mkdir(path)
+		else:
+			os.makedirs(path)
 	except OSError as e:
 		if e.errno != errno.EEXIST:
 			raise
@@ -101,7 +104,7 @@ class Config:
 			for src_yml in self._root_yml['sources']:
 				src = Source(self, None, src_yml)
 				if src.name in self._sources:
-					raise RuntimeError("Duplicate source")
+					raise RuntimeError("Duplicate source {}".format(src.name))
 				self._sources[src.name] = src
 
 		if 'tools' in self._root_yml and isinstance(self._root_yml['tools'], list):
@@ -109,7 +112,7 @@ class Config:
 				if 'source' in pkg_yml:
 					src = Source(self, pkg_yml['name'], pkg_yml['source'])
 					if src.name in self._sources:
-						raise RuntimeError("Duplicate source")
+						raise RuntimeError("Duplicate source {}".format(src.name))
 					self._sources[src.name] = src
 				pkg = HostPackage(self, pkg_yml)
 				self._tool_pkgs[pkg.name] = pkg
@@ -119,7 +122,7 @@ class Config:
 				if 'source' in pkg_yml:
 					src = Source(self, pkg_yml['name'], pkg_yml['source'])
 					if src.name in self._sources:
-						raise RuntimeError("Duplicate source")
+						raise RuntimeError("Duplicate source {}".format(src.name))
 					self._sources[src.name] = src
 				pkg = TargetPackage(self, pkg_yml)
 				self._target_pkgs[pkg.name] = pkg
@@ -143,11 +146,42 @@ class Config:
 
 	@property
 	def sysroot_dir(self):
-		return os.path.join(self.build_root, 'system-root')
+		if 'directories' not in self._root_yml or 'system_root' not in self._root_yml['directories']:
+			return os.path.join(self.build_root, 'system-root')
+		else:
+			return os.path.join(self.build_root, self._root_yml['directories']['system_root'])
 
 	@property
 	def xbps_repository_dir(self):
 		return os.path.join(self.build_root, 'xbps-repo')
+
+	@property
+	def tool_build_dir(self):
+		if 'directories' not in self._root_yml or 'pkg_builds' not in self._root_yml['directories']:
+			return os.path.join(self.build_root, 'tool-builds')
+		else:
+			return os.path.join(self.build_root, self._root_yml['directories']['tool_builds'])
+
+	@property
+	def pkg_build_dir(self):
+		if 'directories' not in self._root_yml or 'pkg_builds' not in self._root_yml['directories']:
+			return os.path.join(self.build_root, 'pkg-builds')
+		else:
+			return os.path.join(self.build_root, self._root_yml['directories']['pkg_builds'])
+
+	@property
+	def tool_out_dir(self):
+		if 'directories' not in self._root_yml or 'tools' not in self._root_yml['directories']:
+			return os.path.join(self.build_root, 'tools')
+		else:
+			return os.path.join(self.build_root, self._root_yml['directories']['tools'])
+
+	@property
+	def package_out_dir(self):
+		if 'directories' not in self._root_yml or 'packages' not in self._root_yml['directories']:
+			return os.path.join(self.build_root, 'packages')
+		else:
+			return os.path.join(self.build_root, self._root_yml['directories']['packages'])
 
 	def get_source(self, name):
 		return self._sources[name]
@@ -464,11 +498,11 @@ class HostPackage(RequirementsMixin):
 
 	@property
 	def build_dir(self):
-		return os.path.join(self._cfg.build_root, 'tool-builds', self.name)
+		return os.path.join(self._cfg.tool_build_dir, self.name)
 
 	@property
 	def prefix_dir(self):
-		return os.path.join(self._cfg.build_root, 'tools', self.name)
+		return os.path.join(self._cfg.tool_out_dir, self.name)
 
 	@property
 	def name(self):
@@ -532,19 +566,19 @@ class TargetPackage(RequirementsMixin):
 
 	@property
 	def build_dir(self):
-		return os.path.join(self._cfg.build_root, 'pkg-builds', self.name)
+		return os.path.join(self._cfg.pkg_build_dir, self.name)
 
 	@property
 	def staging_dir(self):
-		return os.path.join(self._cfg.build_root, 'packages', self.name)
+		return os.path.join(self._cfg.package_out_dir, self.name)
 
 	@property
 	def collect_dir(self):
-		return os.path.join(self._cfg.build_root, 'packages', self.name + '.collect')
+		return os.path.join(self._cfg.package_out_dir, self.name + '.collect')
 
 	@property
 	def archive_file(self):
-		return os.path.join(self._cfg.build_root, 'packages', self.name + '.tar.gz')
+		return os.path.join(self._cfg.package_out_dir, self.name + '.tar.gz')
 
 	@property
 	def name(self):
@@ -780,19 +814,22 @@ def checkout_src(cfg, src):
 			args.append(source['branch'])
 		subprocess.check_call(args, cwd=src.source_dir)
 	else:
-		assert src.source_archive_format.startswith('tar.')
+		if src.source_archive_format == 'raw' and 'filename' in source:
+			shutil.copyfile(src.source_archive_file, os.path.join(src.sub_dir, src.name, source['filename']))
+		else:
+			assert src.source_archive_format.startswith('tar.')
 
-		compression = {
-			'tar.gz': 'gz',
-			'tar.xz': 'xz'
-		}
-		with tarfile.open(src.source_archive_file,
-				'r|' + compression[src.source_archive_format]) as tar:
-			for info in tar:
-				prefix = source['extract_path'] + '/'
-				if info.name.startswith(prefix):
-					info.name = src.name + '/' + info.name[len(prefix):]
-					tar.extract(info, src.sub_dir)
+			compression = {
+				'tar.gz': 'gz',
+				'tar.xz': 'xz'
+			}
+			with tarfile.open(src.source_archive_file,
+					'r|' + compression[src.source_archive_format]) as tar:
+				for info in tar:
+					prefix = source['extract_path'] + '/'
+					if info.name.startswith(prefix):
+						info.name = src.name + '/' + info.name[len(prefix):]
+						tar.extract(info, src.sub_dir)
 
 	src.mark_as_checkedout()
 
@@ -841,9 +878,8 @@ def regenerate_src(cfg, src):
 def configure_tool(cfg, pkg):
 	src = cfg.get_source(pkg.source)
 
-	try_mkdir(os.path.join(cfg.build_root, 'tool-builds'))
 	try_rmtree(pkg.build_dir)
-	try_mkdir(pkg.build_dir)
+	try_mkdir(pkg.build_dir, True)
 
 	for step in pkg.configure_steps:
 		tool_pkgs = []
@@ -905,7 +941,7 @@ def install_tool_stage(cfg, stage):
 	pkg = stage.pkg
 	src = cfg.get_source(pkg.source)
 
-	try_mkdir(os.path.join(cfg.build_root, 'tools'))
+	try_mkdir(cfg.tool_out_dir)
 #	try_rmtree(pkg.prefix_dir)
 	try_mkdir(pkg.prefix_dir)
 
@@ -939,9 +975,8 @@ def install_tool_stage(cfg, stage):
 def configure_pkg(cfg, pkg):
 	src = cfg.get_source(pkg.source)
 
-	try_mkdir(os.path.join(cfg.build_root, 'pkg-builds'))
 	try_rmtree(pkg.build_dir)
-	try_mkdir(pkg.build_dir)
+	try_mkdir(pkg.build_dir, True)
 
 	for step in pkg.configure_steps:
 		tool_pkgs = []
@@ -968,7 +1003,7 @@ def configure_pkg(cfg, pkg):
 def build_pkg(cfg, pkg):
 	src = cfg.get_source(pkg.source)
 
-	try_mkdir('packages')
+	try_mkdir(cfg.package_out_dir)
 	try_rmtree(pkg.collect_dir)
 	os.mkdir(pkg.collect_dir)
 
@@ -1003,6 +1038,7 @@ def build_pkg(cfg, pkg):
 	os.rename(pkg.collect_dir, pkg.staging_dir)
 
 def install_pkg(cfg, pkg):
+	# constraint: the sysroot directory must be located in the build root
 	try_mkdir(cfg.sysroot_dir)
 
 	if use_xbps:
@@ -1606,7 +1642,7 @@ def do_download(args):
 	if cfg.repository_url is None:
 		raise RuntimeError('No repository URL in bootstrap.yml')
 
-	try_mkdir('packages')
+	try_mkdir(cfg.tool_out_dir)
 
 	for pkg in sel:
 		url = urllib.parse.urljoin(cfg.repository_url + '/', pkg.name + '.tar.gz')
