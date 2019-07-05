@@ -1094,16 +1094,6 @@ class Action(Enum):
 	BUILD_PKG = 9
 	INSTALL_PKG = 10
 	ARCHIVE_PKG = 11
-	# "Virtual" actions that are only used during planning.
-	# The ENSURE_X_INSTALLED action recursively expand to ENSURE_X_INSTALLED of dependencies.
-	# They only expand to INSTALL_X if the given package is not installed.
-	# This way, recursive installation dependencies are handed correctly,
-	# even if users delete packages from the sysroot.
-	ENSURE_TOOL_STAGE_INSTALLED = 12
-	ENSURE_PKG_INSTALLED = 13
-
-	def is_virtual(self):
-		return self == Action.ENSURE_TOOL_STAGE_INSTALLED or self == Action.ENSURE_PKG_INSTALLED
 
 Action.strings = {
 	Action.FETCH_SRC: 'fetch',
@@ -1117,8 +1107,49 @@ Action.strings = {
 	Action.BUILD_PKG: 'build',
 	Action.INSTALL_PKG: 'install',
 	Action.ARCHIVE_PKG: 'archive',
-	Action.ENSURE_TOOL_STAGE_INSTALLED: 'install-tool?',
-	Action.ENSURE_PKG_INSTALLED: 'install?'
+}
+
+def activate_fetch_src(cfg, src):
+	return not src.check_if_fetched()
+
+def activate_checkout_src(cfg, src):
+	return not src.check_if_checkedout()
+
+def activate_patch_src(cfg, src):
+	return not src.check_if_patched()
+
+def activate_regenerate_src(cfg, src):
+	return not src.check_if_regenerated()
+
+def activate_configure_tool(cfg, tool):
+	return not tool.check_if_configured()
+
+def activate_compile_tool_stage(cfg, stage):
+	return not stage.check_if_compiled()
+
+def activate_install_tool_stage(cfg, stage):
+	return not stage.check_if_installed()
+
+def activate_configure_pkg(cfg, pkg):
+	return not pkg.check_if_configured()
+
+def activate_build_pkg(cfg, pkg):
+	return not pkg.check_staging()
+
+def activate_install_pkg(cfg, pkg):
+	return not pkg.check_if_installed()
+
+activate_functions = {
+	Action.FETCH_SRC: activate_fetch_src,
+	Action.CHECKOUT_SRC: activate_checkout_src,
+	Action.PATCH_SRC: activate_patch_src,
+	Action.REGENERATE_SRC: activate_regenerate_src,
+	Action.CONFIGURE_TOOL: activate_configure_tool,
+	Action.COMPILE_TOOL_STAGE: activate_compile_tool_stage,
+	Action.INSTALL_TOOL_STAGE: activate_install_tool_stage,
+	Action.CONFIGURE_PKG: activate_configure_pkg,
+	Action.BUILD_PKG: activate_build_pkg,
+	Action.INSTALL_PKG: activate_install_pkg,
 }
 
 class PlanState(Enum):
@@ -1130,6 +1161,8 @@ class PlanItem:
 	def __init__(self, action, subject):
 		self.action = action
 		self.subject = subject
+		self.active = False
+		self.build_edges = set()
 		self.require_edges = set()
 		self.order_before_edges = set()
 		self.order_after_edges = set()
@@ -1148,6 +1181,10 @@ class Plan:
 	def __init__(self, cfg):
 		self._cfg = cfg
 		self._order = []
+		self._visited_for_materialization = set()
+		self._visited_for_activation = set()
+		self._items = dict()
+		self._stack = []
 		self.wanted = set()
 
 	def materialize_plan(self, action, subject):
@@ -1157,7 +1194,7 @@ class Plan:
 			if not subject.is_implicit:
 				for implicit in self._cfg.all_pkgs():
 					if implicit.is_implicit:
-						item.require_edges.add((action.ENSURE_PKG_INSTALLED, implicit))
+						item.require_edges.add((action.INSTALL_PKG, implicit))
 
 		def add_source_dependencies(s):
 			for src_name in s.source_dependencies:
@@ -1171,16 +1208,16 @@ class Plan:
 			for (tool_name, stage_name) in s.tool_dependencies:
 				dep_tool = self._cfg.get_tool_pkg(tool_name)
 				if stage_name is None:
-					item.require_edges.update([(action.ENSURE_TOOL_STAGE_INSTALLED, stage)
+					item.require_edges.update([(action.INSTALL_TOOL_STAGE, stage)
 							for stage in dep_tool.all_stages()])
 				else:
 					tool_stage = dep_tool.get_stage(stage_name)
-					item.require_edges.add((action.ENSURE_TOOL_STAGE_INSTALLED, tool_stage))
+					item.require_edges.add((action.INSTALL_TOOL_STAGE, tool_stage))
 
 		def add_pkg_dependencies(s):
 			for pkg_name in s.pkg_dependencies:
 				dep_pkg = self._cfg.get_target_pkg(pkg_name)
-				item.require_edges.add((action.ENSURE_PKG_INSTALLED, dep_pkg))
+				item.require_edges.add((action.INSTALL_PKG, dep_pkg))
 
 		sid = subject.subject_id
 
@@ -1189,51 +1226,33 @@ class Plan:
 			pass
 
 		elif action == Action.CHECKOUT_SRC:
-			if not subject.check_if_fetched():
-				item.require_edges.add((action.FETCH_SRC, subject))
+			item.build_edges.add((action.FETCH_SRC, subject))
 
 		elif action == Action.PATCH_SRC:
-			if not subject.check_if_checkedout():
-				item.require_edges.add((action.CHECKOUT_SRC, subject))
+			item.build_edges.add((action.CHECKOUT_SRC, subject))
 
 		elif action == Action.REGENERATE_SRC:
-			if not subject.check_if_patched():
-				item.require_edges.add((action.PATCH_SRC, subject))
+			item.build_edges.add((action.PATCH_SRC, subject))
 
 			add_source_dependencies(subject)
 			add_tool_dependencies(subject)
 
 		elif action == Action.CONFIGURE_TOOL:
 			src = self._cfg.get_source(subject.source)
-			if not src.check_if_regenerated():
-				item.require_edges.add((action.REGENERATE_SRC, src))
+			item.build_edges.add((action.REGENERATE_SRC, src))
 
 			add_tool_dependencies(subject)
 			add_pkg_dependencies(subject)
 
 		elif action == Action.COMPILE_TOOL_STAGE:
-			if not subject.pkg.check_if_configured():
-				item.require_edges.add((action.CONFIGURE_TOOL, subject.pkg))
-			else:
-				item.order_before_edges.add((action.CONFIGURE_TOOL, subject.pkg))
+			item.build_edges.add((action.CONFIGURE_TOOL, subject.pkg))
 
 			add_tool_dependencies(subject.pkg)
 			add_tool_dependencies(subject)
 			add_pkg_dependencies(subject)
 
 		elif action == Action.INSTALL_TOOL_STAGE:
-			if not subject.check_if_compiled():
-				item.require_edges.add((action.COMPILE_TOOL_STAGE, subject))
-			else:
-				item.order_before_edges.add((action.COMPILE_TOOL_STAGE, subject))
-
-			add_tool_dependencies(subject.pkg)
-			add_tool_dependencies(subject)
-			add_pkg_dependencies(subject)
-
-		elif action == Action.ENSURE_TOOL_STAGE_INSTALLED:
-			if not subject.check_if_installed():
-				item.require_edges.add((action.INSTALL_TOOL_STAGE, subject))
+			item.build_edges.add((action.COMPILE_TOOL_STAGE, subject))
 
 			add_tool_dependencies(subject.pkg)
 			add_tool_dependencies(subject)
@@ -1241,8 +1260,7 @@ class Plan:
 
 		elif action == Action.CONFIGURE_PKG:
 			src = self._cfg.get_source(subject.source)
-			if not src.check_if_regenerated():
-				item.require_edges.add((action.REGENERATE_SRC, src))
+			item.build_edges.add((action.REGENERATE_SRC, src))
 
 			# Configuration requires all dependencies to be present.
 			add_implicit_pkgs()
@@ -1250,10 +1268,7 @@ class Plan:
 			add_tool_dependencies(subject)
 
 		elif action == Action.BUILD_PKG:
-			if not subject.check_if_configured():
-				item.require_edges.add((action.CONFIGURE_PKG, subject))
-			else:
-				item.order_before_edges.add((action.CONFIGURE_PKG, subject))
+			item.build_edges.add((action.CONFIGURE_PKG, subject))
 
 			# Usually dependencies will already be installed during the configuration phase.
 			# However, if the sysroot is removed, we might need to install again.
@@ -1262,61 +1277,81 @@ class Plan:
 			add_tool_dependencies(subject)
 
 		elif action == Action.INSTALL_PKG:
-			if not subject.check_staging():
-				item.require_edges.add((action.BUILD_PKG, subject))
-			else:
-				item.order_before_edges.add((action.BUILD_PKG, subject))
+			item.build_edges.add((action.BUILD_PKG, subject))
 
 			# See Action.BUILD_PKG for rationale.
 			add_implicit_pkgs()
 			add_pkg_dependencies(subject)
 
 		elif action == Action.ARCHIVE_PKG:
-			if not subject.check_staging():
-				item.require_edges.add((action.BUILD_PKG, subject))
-
-		elif action == Action.ENSURE_PKG_INSTALLED:
-			if not subject.check_if_installed():
-				item.require_edges.add((action.INSTALL_PKG, subject))
-			else:
-				item.order_before_edges.add((action.INSTALL_PKG, subject))
-
-			# See Action.BUILD_PKG for rationale.
-			add_implicit_pkgs()
-			add_pkg_dependencies(subject)
+			item.build_edges.add((action.BUILD_PKG, subject))
 
 		return item
 
+	def _do_materialization_visit(self, edges):
+		for edge_pair in edges:
+			if edge_pair in self._visited_for_materialization:
+				continue
+			self._visited_for_materialization.add(edge_pair)
+			self._stack.append(edge_pair)
+
+	def _do_activation_visit(self, edges):
+		for edge_pair in edges:
+			if edge_pair in self._visited_for_activation:
+				continue
+			edge_action, edge_subject = edge_pair
+			edge_item = self._items[edge_pair]
+			self._visited_for_activation.add(edge_pair)
+			if activate_functions[edge_action](self._cfg, edge_subject):
+				self._stack.append(edge_pair)
+
+	def _do_order_before(self, item, edges):
+		for pair in edges:
+			if pair not in self._items:
+				continue
+			edge_item = self._items[pair]
+			item.edge_stack.append(pair)
+
 	def compute_plan(self):
 		# First, call materialize_plan() on all (action, subject) pairs.
-		to_materialize = set(self.wanted)
-		stack = list(to_materialize)
-		items = dict()
-		while stack:
-			(action, subject) = stack.pop()
-			item = self.materialize_plan(action, subject)
+		assert not self._stack
+		self._visited_for_materialization.update(self.wanted)
+		self._stack.extend(self._visited_for_materialization)
 
-			for dep_pair in item.require_edges:
-				if dep_pair in to_materialize:
-					continue
-				to_materialize.add(dep_pair)
-				stack.append(dep_pair)
+		while self._stack:
+			(action, subject) = self._stack.pop()
 
 			# TODO: Store the subject.subject_id instead of the subject object (= the package)?
-			items[(action, subject)] = item
+			item = self.materialize_plan(action, subject)
+			self._items[(action, subject)] = item
+
+			self._do_materialization_visit(item.build_edges)
+			self._do_materialization_visit(item.require_edges)
+
+		# Determine the items that will be enabled.
+		assert not self._stack
+		self._visited_for_activation.update(self.wanted)
+		self._stack.extend(self._visited_for_activation)
+
+		while self._stack:
+			pair = self._stack.pop()
+			item = self._items[pair]
+
+			assert not item.active
+			item.active = True
+
+			self._do_activation_visit(item.build_edges)
+			self._do_activation_visit(item.require_edges)
 
 		# Resolve ordering edges.
-		for item in items.values():
-			item.edge_stack += item.require_edges
-
-			for pair in item.order_before_edges:
-				if pair not in items:
-					continue
-				item.edge_stack.append(pair)
+		for item in self._items.values():
+			self._do_order_before(item, item.build_edges)
+			self._do_order_before(item, item.require_edges)
+			self._do_order_before(item, item.order_before_edges)
 
 			for pair in item.order_after_edges:
-				target_item = items[pair]
-				if not target_item:
+				target_item = self._items[pair]
+				if not target_item.active:
 					continue
 				target_item.edge_stack.append((item.action, item.subject))
 
@@ -1335,7 +1370,7 @@ class Plan:
 				# Packages that are already ordered do not need to be considered again.
 				assert item.state == PlanState.ORDERED
 
-		for root_item in items.values():
+		for root_item in self._items.values():
 			visit(root_item)
 
 			while stack:
@@ -1345,10 +1380,10 @@ class Plan:
 					assert item.state == PlanState.EXPANDING
 					item.state = PlanState.ORDERED
 					stack.pop()
-					if not action.is_virtual():
+					if item.active:
 						self._order.append((action, subject))
 				else:
-					edge_item = items[item.edge_stack.pop()]
+					edge_item = self._items[item.edge_stack.pop()]
 					assert edge_item
 					visit(edge_item)
 
