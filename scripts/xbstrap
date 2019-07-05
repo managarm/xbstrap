@@ -1150,7 +1150,7 @@ class Plan:
 		self._order = []
 		self.wanted = set()
 
-	def expand_plan(self, action, subject):
+	def materialize_plan(self, action, subject):
 		item = PlanItem(action, subject)
 
 		def add_implicit_pkgs():
@@ -1288,18 +1288,18 @@ class Plan:
 		return item
 
 	def compute_plan(self):
-		# First, call expand_plan() on all (action, subject) pairs.
-		to_expand = set(self.wanted)
-		stack = list(to_expand)
+		# First, call materialize_plan() on all (action, subject) pairs.
+		to_materialize = set(self.wanted)
+		stack = list(to_materialize)
 		items = dict()
 		while stack:
 			(action, subject) = stack.pop()
-			item = self.expand_plan(action, subject)
+			item = self.materialize_plan(action, subject)
 
 			for dep_pair in item.require_edges:
-				if dep_pair in to_expand:
+				if dep_pair in to_materialize:
 					continue
-				to_expand.add(dep_pair)
+				to_materialize.add(dep_pair)
 				stack.append(dep_pair)
 
 			# TODO: Store the subject.subject_id instead of the subject object (= the package)?
