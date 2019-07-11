@@ -1695,6 +1695,20 @@ do_install.parser = main_subparsers.add_parser('install',
 		parents=[update_pkg_sources.parser,
 			reconfigure_pkgs_parser, rebuild_pkgs_parser, select_pkgs.parser])
 
+def do_list_tools(args):
+	cfg = config_for_dir()
+	for tool in cfg.all_tools():
+		print(tool.name)
+
+do_list_tools.parser = main_subparsers.add_parser('list-tools')
+
+def do_list_pkgs(args):
+	cfg = config_for_dir()
+	for tool in cfg.all_pkgs():
+		print(tool.name)
+
+do_list_pkgs.parser = main_subparsers.add_parser('list-pkgs')
+
 args = main_parser.parse_args()
 
 colorama.init()
@@ -1733,6 +1747,10 @@ try:
 		do_download(args)
 	elif args.command == 'install':
 		do_install(args)
+	elif args.command == 'list-tools':
+		do_list_tools(args)
+	elif args.command == 'list-pkgs':
+		do_list_pkgs(args)
 	else:
 		assert not "Unexpected command"
 except ExecutionFailureException as e:
