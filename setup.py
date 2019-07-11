@@ -9,6 +9,9 @@ setup(name='xbstrap',
 		'colorama',
 		'pyyaml'
 	],
+	data_files=[
+        ('/etc/bash_completion.d', ['scripts/completion.sh']),
+    ],
 
 	# Package metadata.
 	author='Alexander van der Grinten',
