@@ -30,9 +30,9 @@ setup(name='xbstrap',
 		'pyyaml'
 	],
 	cmdclass={
-        'develop': CompletionDevelop,
-        'install': CompletionInstall,
-    },
+		'develop': CompletionDevelop,
+		'install': CompletionInstall,
+	},
 
 	# Package metadata.
 	author='Alexander van der Grinten',
