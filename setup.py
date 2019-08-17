@@ -9,7 +9,7 @@ from setuptools.command.install import install
 class CompletionDevelop(develop):
 	def run(self):
 		if(os.access('/etc/bash_completion.d', os.W_OK)):
-			shutil.copyfile('scripts/completion.sh', '/etc/bash_completion.d/completion.sh')
+			shutil.copyfile('extrafiles/completion.sh', '/etc/bash_completion.d/xbstrap')
 		else:
 			print('Insufficient permissions to install the completion script to /etc/bash_completion.d')
 		develop.run(self)
@@ -17,7 +17,7 @@ class CompletionDevelop(develop):
 class CompletionInstall(install):
 	def run(self):
 		if(os.access('/etc/bash_completion.d', os.W_OK)):
-			shutil.copyfile('scripts/completion.sh', '/etc/bash_completion.d/completion.sh')
+			shutil.copyfile('extrafiles/completion.sh', '/etc/bash_completion.d/xbstrap')
 		else:
 			print('Insufficient permissions to install the completion script to /etc/bash_completion.d')
 		install.run(self)
