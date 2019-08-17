@@ -23,7 +23,7 @@ class CompletionInstall(install):
 		install.run(self)
 
 setup(name='xbstrap',
-	version='0.8',
+	version='0.9',
 	scripts=['scripts/xbstrap'],
 	install_requires=[
 		'colorama',
