@@ -348,6 +348,16 @@ class Source(RequirementsMixin):
 			else:
 				args.append('refs/heads/' + self._this_yml['branch'])
 			return subprocess.call(args, cwd=self.source_dir) == 0
+		elif 'hg' in self._this_yml:
+			if not os.path.isdir(self.source_dir):
+				return False
+			args = ['hg', 'manifest', '-r',]
+			if 'tag' in self._this_yml:
+				args.append(self._this_yml['tag'])
+			else:
+				args.append(self._this_yml['branch'])
+			return subprocess.call(args, cwd=self.source_dir) == 0
+
 		else:
 			assert 'url' in self._this_yml
 			return os.access(self.source_archive_file, os.F_OK)
@@ -796,6 +806,9 @@ def fetch_src(cfg, src):
 			args.extend(['--update-head-ok', source['git'],
 					source['branch'] + ':' + source['branch']])
 		subprocess.check_call(args, cwd=src.source_dir)
+	elif 'hg' in source:
+		args = ['hg', 'clone', source['hg'], src.source_dir]
+		subprocess.check_call(args)
 	else:
 		assert 'url' in source
 
@@ -810,6 +823,13 @@ def checkout_src(cfg, src):
 		args = ['git', 'checkout']
 		if 'tag' in source:
 			args.append('refs/tags/' + source['tag'])
+		else:
+			args.append(source['branch'])
+		subprocess.check_call(args, cwd=src.source_dir)
+	elif 'hg' in source:
+		args = ['hg', 'checkout']
+		if 'tag' in source:
+			args.append(source['tag'])
 		else:
 			args.append(source['branch'])
 		subprocess.check_call(args, cwd=src.source_dir)
@@ -834,6 +854,8 @@ def checkout_src(cfg, src):
 	src.mark_as_checkedout()
 
 def patch_src(cfg, src):
+	source = src._this_yml
+
 	# Patches need to be applied in a sorted order.
 	patches = []
 	try:
@@ -846,8 +868,15 @@ def patch_src(cfg, src):
 	for patch in patches:
 		if not patch.endswith('.patch'):
 			continue
-		subprocess.check_call(['git', 'am', os.path.join(src.patch_dir, patch)],
+		if 'git' in source:
+			subprocess.check_call(['git', 'am', os.path.join(src.patch_dir, patch)],
 				cwd=src.source_dir)
+		elif 'hg' in source:
+			subprocess.check_call(['hg', 'import', os.path.join(src.patch_dir, patch)],
+				cwd=src.source_dir)
+
+		else:
+			raise RuntimeError('patching sources extracted from archives is unsupported')
 
 	src.mark_as_patched()
 
@@ -1617,6 +1646,7 @@ def update_pkg_sources(cfg, plan, args, sel):
 		sources.add(cfg.get_source(pkg.source))
 
 	for src in sources:
+		# TODO: add mercurial support
 		subprocess.check_call(['git', 'clean', '-xf'], cwd=src.source_dir)
 		subprocess.check_call(['git', 'reset', '--hard'], cwd=src.source_dir)
 
