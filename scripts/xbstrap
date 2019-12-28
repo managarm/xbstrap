@@ -557,6 +557,7 @@ class TargetPackage(RequirementsMixin):
 		self._this_yml = pkg_yml
 		self._configure_steps = [ ]
 		self._build_steps = [ ]
+		self._run_targets = dict()
 
 		if 'configure' in self._this_yml:
 			for step_yml in self._this_yml['configure']:
@@ -565,6 +566,12 @@ class TargetPackage(RequirementsMixin):
 		if 'build' in self._this_yml:
 			for step_yml in self._this_yml['build']:
 				self._build_steps.append(ScriptStep(step_yml))
+
+		if 'run' in self._this_yml:
+			for target_yml in self._this_yml['run']:
+				if not 'name' in target_yml:
+					raise RuntimeError("no name specified in target of package {}".format(self.name))
+				self._run_targets[target_yml['name']] = ScriptStep(target_yml)
 
 	@property
 	def source(self):
@@ -657,6 +664,40 @@ class TargetPackage(RequirementsMixin):
 		try_mkdir(os.path.join(self._cfg.sysroot_dir, 'etc', 'xbstrap'))
 		path = os.path.join(self._cfg.sysroot_dir, 'etc', 'xbstrap', self.name + '.installed')
 		touch(path)
+
+class RunPkgTarget(RequirementsMixin):
+	def __init__(self, cfg, pkg, target):
+		self._cfg = cfg
+		self._pkg = pkg
+		self._target = target
+
+	@property
+	def name(self):
+		return "{}:{}".format(self._pkg.name, self._target)
+
+	@property
+	def target_name(self):
+		return self._target
+
+	@property
+	def subject_id(self):
+		return self.name
+
+	@property
+	def is_implicit(self):
+		return False
+
+	@property
+	def _this_yml(self):
+		return self._pkg._this_yml
+
+	@property
+	def source(self):
+		return self._pkg.source
+
+	@property
+	def check_staging(self):
+		return self._pkg.check_staging
 
 def config_for_dir():
 	with open('bootstrap.link', 'r') as f:
@@ -1103,6 +1144,25 @@ def archive_pkg(cfg, pkg):
 			for ent in os.listdir(pkg.staging_dir):
 				tar.add(os.path.join(pkg.staging_dir, ent), arcname=ent)
 
+def run_pkg(cfg, target):
+	print("Run target {}".format(target.name))
+	src = cfg.get_source(target._pkg.source)
+	tools_required = []
+	for dep_name in target._pkg.tools_required:
+		tools_required.append(cfg.get_tool_pkg(dep_name))
+
+	def substitute(varname):
+		if varname == 'SOURCE_ROOT':
+			return cfg.source_root
+		elif varname == 'BUILD_ROOT':
+			return cfg.build_root
+		elif varname == 'SYSROOT_DIR':
+			return cfg.sysroot_dir
+		elif varname == 'THIS_SOURCE_DIR':
+			return src.source_dir
+
+	run_step(cfg, target._pkg._run_targets[target.target_name], target._pkg.build_dir, substitute, tools_required, for_package=False)
+
 # ---------------------------------------------------------------------------------------
 # Build planning.
 # ---------------------------------------------------------------------------------------
@@ -1123,6 +1183,7 @@ class Action(Enum):
 	BUILD_PKG = 9
 	INSTALL_PKG = 10
 	ARCHIVE_PKG = 11
+	RUN_PKG = 12
 
 Action.strings = {
 	Action.FETCH_SRC: 'fetch',
@@ -1136,6 +1197,7 @@ Action.strings = {
 	Action.BUILD_PKG: 'build',
 	Action.INSTALL_PKG: 'install',
 	Action.ARCHIVE_PKG: 'archive',
+	Action.RUN_PKG: 'run-pkg',
 }
 
 def activate_fetch_src(cfg, src):
@@ -1168,6 +1230,9 @@ def activate_build_pkg(cfg, pkg):
 def activate_install_pkg(cfg, pkg):
 	return not pkg.check_if_installed()
 
+def activate_run_pkg(cfg, pkg):
+	return not pkg.check_if_installed()
+
 activate_functions = {
 	Action.FETCH_SRC: activate_fetch_src,
 	Action.CHECKOUT_SRC: activate_checkout_src,
@@ -1179,6 +1244,7 @@ activate_functions = {
 	Action.CONFIGURE_PKG: activate_configure_pkg,
 	Action.BUILD_PKG: activate_build_pkg,
 	Action.INSTALL_PKG: activate_install_pkg,
+	Action.RUN_PKG: activate_run_pkg,
 }
 
 class PlanState(Enum):
@@ -1314,6 +1380,12 @@ class Plan:
 
 		elif action == Action.ARCHIVE_PKG:
 			item.build_edges.add((action.BUILD_PKG, subject))
+
+		elif action == Action.RUN_PKG:
+			item.build_edges.add((action.BUILD_PKG, subject))
+			add_implicit_pkgs()
+			add_pkg_dependencies(subject)
+			add_tool_dependencies(subject)
 
 		return item
 
@@ -1459,6 +1531,8 @@ class Plan:
 					install_pkg(self._cfg, subject)
 				elif action == Action.ARCHIVE_PKG:
 					archive_pkg(self._cfg, subject)
+				elif action == Action.RUN_PKG:
+					run_pkg(self._cfg, subject)
 				else:
 					raise AssertionError("Unexpected action")
 			except subprocess.CalledProcessError:
@@ -1774,6 +1848,24 @@ def do_list_pkgs(args):
 
 do_list_pkgs.parser = main_subparsers.add_parser('list-pkgs')
 
+def do_run_target(args):
+	print(args)
+	args.all = False
+	args.update = False
+	args.reconfigure = False
+	args.rebuild = False
+	cfg = config_for_dir()
+	sel = select_pkgs(cfg, args)
+	plan = Plan(cfg)
+	update_pkg_sources(cfg, plan, args, sel)
+	reconfigure_and_rebuild_pkgs(plan, args, sel)
+	plan.wanted.update([(Action.RUN_PKG, RunPkgTarget(cfg, pkg, args.target[0])) for pkg in sel])
+	plan.run_plan()
+
+do_run_target.parser = main_subparsers.add_parser('run-pkg')
+do_run_target.parser.add_argument('packages', nargs=1, type=str)
+do_run_target.parser.add_argument('target', nargs=1, type=str)
+
 args = main_parser.parse_args()
 
 colorama.init()
@@ -1816,10 +1908,11 @@ try:
 		do_list_tools(args)
 	elif args.command == 'list-pkgs':
 		do_list_pkgs(args)
+	elif args.command == 'run-pkg':
+		do_run_target(args)
 	else:
 		assert not "Unexpected command"
 except ExecutionFailureException as e:
 	print('{}xbstrap{}: {}{}{}'.format(colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
 			colorama.Fore.RED, e, colorama.Style.RESET_ALL))
 	sys.exit(1)
-
