@@ -1160,6 +1160,13 @@ def run_pkg(cfg, target):
 			return cfg.sysroot_dir
 		elif varname == 'THIS_SOURCE_DIR':
 			return src.source_dir
+		elif varname == 'THIS_BUILD_DIR':
+			return target._pkg.build_dir
+		elif varname == 'PREFIX':
+			return target._pkg.prefix_dir
+		elif varname == 'PARALLELISM':
+			nthreads = get_concurrency()
+			return str(nthreads)
 
 	run_step(cfg, target._pkg._run_targets[target.target_name], target._pkg.build_dir, substitute, tools_required, for_package=False)
 
