@@ -688,6 +688,10 @@ class RunPkgTarget(RequirementsMixin):
 		return False
 
 	@property
+	def subject_type(self):
+		return 'target'
+
+	@property
 	def _this_yml(self):
 		return self._pkg._this_yml
 
@@ -1145,7 +1149,6 @@ def archive_pkg(cfg, pkg):
 				tar.add(os.path.join(pkg.staging_dir, ent), arcname=ent)
 
 def run_pkg(cfg, target):
-	print("Run target {}".format(target.name))
 	src = cfg.get_source(target._pkg.source)
 	tools_required = []
 	for dep_name in target._pkg.tools_required:
