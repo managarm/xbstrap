@@ -1193,7 +1193,7 @@ class Action(Enum):
 	BUILD_PKG = 9
 	INSTALL_PKG = 10
 	ARCHIVE_PKG = 11
-	RUN_PKG = 12
+	RUN = 12
 
 Action.strings = {
 	Action.FETCH_SRC: 'fetch',
@@ -1207,7 +1207,7 @@ Action.strings = {
 	Action.BUILD_PKG: 'build',
 	Action.INSTALL_PKG: 'install',
 	Action.ARCHIVE_PKG: 'archive',
-	Action.RUN_PKG: 'run-pkg',
+	Action.RUN: 'run',
 }
 
 def activate_fetch_src(cfg, src):
@@ -1254,7 +1254,7 @@ activate_functions = {
 	Action.CONFIGURE_PKG: activate_configure_pkg,
 	Action.BUILD_PKG: activate_build_pkg,
 	Action.INSTALL_PKG: activate_install_pkg,
-	Action.RUN_PKG: activate_run_pkg,
+	Action.RUN: activate_run_pkg,
 }
 
 class PlanState(Enum):
@@ -1391,7 +1391,7 @@ class Plan:
 		elif action == Action.ARCHIVE_PKG:
 			item.build_edges.add((action.BUILD_PKG, subject))
 
-		elif action == Action.RUN_PKG:
+		elif action == Action.RUN:
 			item.build_edges.add((action.BUILD_PKG, subject))
 			add_implicit_pkgs()
 			add_pkg_dependencies(subject)
@@ -1541,7 +1541,7 @@ class Plan:
 					install_pkg(self._cfg, subject)
 				elif action == Action.ARCHIVE_PKG:
 					archive_pkg(self._cfg, subject)
-				elif action == Action.RUN_PKG:
+				elif action == Action.RUN:
 					run_pkg(self._cfg, subject)
 				else:
 					raise AssertionError("Unexpected action")
@@ -1709,7 +1709,10 @@ def select_pkgs(cfg, args):
 	if args.all:
 		return [pkg for pkg in cfg.all_pkgs() if pkg.is_default]
 	else:
-		return [cfg.get_target_pkg(name) for name in args.packages]
+		if args.command == 'run':
+			return [cfg.get_target_pkg(name) for name in args.pkg]
+		else:
+			return [cfg.get_target_pkg(name) for name in args.packages]
 
 select_pkgs.parser = argparse.ArgumentParser(add_help=False)
 select_pkgs.parser.add_argument('--all', action='store_true')
@@ -1868,11 +1871,11 @@ def do_run_target(args):
 	plan = Plan(cfg)
 	update_pkg_sources(cfg, plan, args, sel)
 	reconfigure_and_rebuild_pkgs(plan, args, sel)
-	plan.wanted.update([(Action.RUN_PKG, RunPkgTarget(cfg, pkg, args.target[0])) for pkg in sel])
+	plan.wanted.update([(Action.RUN, RunPkgTarget(cfg, pkg, args.target[0])) for pkg in sel])
 	plan.run_plan()
 
-do_run_target.parser = main_subparsers.add_parser('run-pkg')
-do_run_target.parser.add_argument('packages', nargs=1, type=str)
+do_run_target.parser = main_subparsers.add_parser('run')
+do_run_target.parser.add_argument('--pkg', nargs=1, required=True, type=str)
 do_run_target.parser.add_argument('target', nargs=1, type=str)
 
 args = main_parser.parse_args()
@@ -1917,7 +1920,7 @@ try:
 		do_list_tools(args)
 	elif args.command == 'list-pkgs':
 		do_list_pkgs(args)
-	elif args.command == 'run-pkg':
+	elif args.command == 'run':
 		do_run_target(args)
 	else:
 		assert not "Unexpected command"
