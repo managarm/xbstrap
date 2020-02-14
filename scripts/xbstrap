@@ -571,7 +571,7 @@ class TargetPackage(RequirementsMixin):
 			for target_yml in self._this_yml['run']:
 				if not 'name' in target_yml:
 					raise RuntimeError("no name specified in target of package {}".format(self.name))
-				self._run_targets[target_yml['name']] = ScriptStep(target_yml)
+				self._run_targets[target_yml['name']] = RunPkgTarget(cfg, self, target_yml)
 
 	@property
 	def source(self):
@@ -633,6 +633,11 @@ class TargetPackage(RequirementsMixin):
 	def version(self):
 		return "0.0_0"
 
+	def get_target(self, target):
+		if target in self._run_targets:
+			return self._run_targets[target]
+		return False
+
 	def check_if_configured(self):
 		return os.access(os.path.join(self.build_dir, 'configured.xbstrap'), os.F_OK)
 
@@ -666,10 +671,11 @@ class TargetPackage(RequirementsMixin):
 		touch(path)
 
 class RunPkgTarget(RequirementsMixin):
-	def __init__(self, cfg, pkg, target):
+	def __init__(self, cfg, pkg, target_yml):
 		self._cfg = cfg
 		self._pkg = pkg
-		self._target = target
+		self._target = target_yml['name']
+		self._script_step = ScriptStep(target_yml)
 
 	@property
 	def name(self):
@@ -678,6 +684,14 @@ class RunPkgTarget(RequirementsMixin):
 	@property
 	def target_name(self):
 		return self._target
+
+	@property
+	def pkg(self):
+		return self._pkg
+
+	@property
+	def script_step(self):
+		return self._script_step
 
 	@property
 	def subject_id(self):
@@ -1149,9 +1163,10 @@ def archive_pkg(cfg, pkg):
 				tar.add(os.path.join(pkg.staging_dir, ent), arcname=ent)
 
 def run_pkg(cfg, target):
-	src = cfg.get_source(target._pkg.source)
+	src = cfg.get_source(target.pkg.source)
+
 	tools_required = []
-	for dep_name in target._pkg.tools_required:
+	for dep_name in target.pkg.tools_required:
 		tools_required.append(cfg.get_tool_pkg(dep_name))
 
 	def substitute(varname):
@@ -1171,7 +1186,7 @@ def run_pkg(cfg, target):
 			nthreads = get_concurrency()
 			return str(nthreads)
 
-	run_step(cfg, target._pkg._run_targets[target.target_name], target._pkg.build_dir, substitute, tools_required, for_package=False)
+	run_step(cfg, target.script_step, target.pkg.build_dir, substitute, tools_required, for_package=False)
 
 # ---------------------------------------------------------------------------------------
 # Build planning.
@@ -1866,12 +1881,18 @@ def do_run_target(args):
 	args.update = False
 	args.reconfigure = False
 	args.rebuild = False
+
 	cfg = config_for_dir()
 	sel = select_pkgs(cfg, args)
 	plan = Plan(cfg)
+
+	if not sel[0].get_target(args.target[0]):
+		raise RuntimeError("target {} of package {} not found".format(args.target[0], sel[0].name));
+
 	update_pkg_sources(cfg, plan, args, sel)
 	reconfigure_and_rebuild_pkgs(plan, args, sel)
-	plan.wanted.update([(Action.RUN, RunPkgTarget(cfg, pkg, args.target[0])) for pkg in sel])
+
+	plan.wanted.update([(Action.RUN, pkg.get_target(args.target[0])) for pkg in sel])
 	plan.run_plan()
 
 do_run_target.parser = main_subparsers.add_parser('run')
