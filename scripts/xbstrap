@@ -557,7 +557,7 @@ class TargetPackage(RequirementsMixin):
 		self._this_yml = pkg_yml
 		self._configure_steps = [ ]
 		self._build_steps = [ ]
-		self._run_targets = dict()
+		self._run_tasks = dict()
 
 		if 'configure' in self._this_yml:
 			for step_yml in self._this_yml['configure']:
@@ -568,10 +568,10 @@ class TargetPackage(RequirementsMixin):
 				self._build_steps.append(ScriptStep(step_yml))
 
 		if 'run' in self._this_yml:
-			for target_yml in self._this_yml['run']:
-				if not 'name' in target_yml:
-					raise RuntimeError("no name specified in target of package {}".format(self.name))
-				self._run_targets[target_yml['name']] = RunPkgTarget(cfg, self, target_yml)
+			for task_yml in self._this_yml['run']:
+				if not 'name' in task_yml:
+					raise RuntimeError("no name specified in task of package {}".format(self.name))
+				self._run_tasks[task_yml['name']] = PackageRunTask(cfg, self, task_yml)
 
 	@property
 	def source(self):
@@ -633,9 +633,9 @@ class TargetPackage(RequirementsMixin):
 	def version(self):
 		return "0.0_0"
 
-	def get_target(self, target):
-		if target in self._run_targets:
-			return self._run_targets[target]
+	def get_task(self, task):
+		if task in self._run_tasks:
+			return self._run_tasks[task]
 		return False
 
 	def check_if_configured(self):
@@ -670,20 +670,20 @@ class TargetPackage(RequirementsMixin):
 		path = os.path.join(self._cfg.sysroot_dir, 'etc', 'xbstrap', self.name + '.installed')
 		touch(path)
 
-class RunPkgTarget(RequirementsMixin):
-	def __init__(self, cfg, pkg, target_yml):
+class PackageRunTask(RequirementsMixin):
+	def __init__(self, cfg, pkg, task_yml):
 		self._cfg = cfg
 		self._pkg = pkg
-		self._target = target_yml['name']
-		self._script_step = ScriptStep(target_yml)
+		self._task = task_yml['name']
+		self._script_step = ScriptStep(task_yml)
 
 	@property
 	def name(self):
-		return "{}:{}".format(self._pkg.name, self._target)
+		return "{}:{}".format(self._pkg.name, self._task)
 
 	@property
-	def target_name(self):
-		return self._target
+	def task_name(self):
+		return self._task
 
 	@property
 	def pkg(self):
@@ -703,7 +703,7 @@ class RunPkgTarget(RequirementsMixin):
 
 	@property
 	def subject_type(self):
-		return 'target'
+		return 'task'
 
 	@property
 	def _this_yml(self):
@@ -1162,11 +1162,11 @@ def archive_pkg(cfg, pkg):
 			for ent in os.listdir(pkg.staging_dir):
 				tar.add(os.path.join(pkg.staging_dir, ent), arcname=ent)
 
-def run_pkg(cfg, target):
-	src = cfg.get_source(target.pkg.source)
+def run_pkg(cfg, task):
+	src = cfg.get_source(task.pkg.source)
 
 	tools_required = []
-	for dep_name in target.pkg.tools_required:
+	for dep_name in task.pkg.tools_required:
 		tools_required.append(cfg.get_tool_pkg(dep_name))
 
 	def substitute(varname):
@@ -1179,14 +1179,14 @@ def run_pkg(cfg, target):
 		elif varname == 'THIS_SOURCE_DIR':
 			return src.source_dir
 		elif varname == 'THIS_BUILD_DIR':
-			return target._pkg.build_dir
+			return task._pkg.build_dir
 		elif varname == 'PREFIX':
-			return target._pkg.prefix_dir
+			return task._pkg.prefix_dir
 		elif varname == 'PARALLELISM':
 			nthreads = get_concurrency()
 			return str(nthreads)
 
-	run_step(cfg, target.script_step, target.pkg.build_dir, substitute, tools_required, for_package=False)
+	run_step(cfg, task.script_step, task.pkg.build_dir, substitute, tools_required, for_package=False)
 
 # ---------------------------------------------------------------------------------------
 # Build planning.
@@ -1876,7 +1876,7 @@ def do_list_pkgs(args):
 
 do_list_pkgs.parser = main_subparsers.add_parser('list-pkgs')
 
-def do_run_target(args):
+def do_run_task(args):
 	args.all = False
 	args.update = False
 	args.reconfigure = False
@@ -1886,18 +1886,18 @@ def do_run_target(args):
 	sel = select_pkgs(cfg, args)
 	plan = Plan(cfg)
 
-	if not sel[0].get_target(args.target[0]):
-		raise RuntimeError("target {} of package {} not found".format(args.target[0], sel[0].name));
+	if not sel[0].get_task(args.task[0]):
+		raise RuntimeError("task {} of package {} not found".format(args.task[0], sel[0].name));
 
 	update_pkg_sources(cfg, plan, args, sel)
 	reconfigure_and_rebuild_pkgs(plan, args, sel)
 
-	plan.wanted.update([(Action.RUN, pkg.get_target(args.target[0])) for pkg in sel])
+	plan.wanted.update([(Action.RUN, pkg.get_task(args.task[0])) for pkg in sel])
 	plan.run_plan()
 
-do_run_target.parser = main_subparsers.add_parser('run')
-do_run_target.parser.add_argument('--pkg', nargs=1, required=True, type=str)
-do_run_target.parser.add_argument('target', nargs=1, type=str)
+do_run_task.parser = main_subparsers.add_parser('run')
+do_run_task.parser.add_argument('--pkg', nargs=1, required=True, type=str)
+do_run_task.parser.add_argument('task', nargs=1, type=str)
 
 args = main_parser.parse_args()
 
@@ -1942,7 +1942,7 @@ try:
 	elif args.command == 'list-pkgs':
 		do_list_pkgs(args)
 	elif args.command == 'run':
-		do_run_target(args)
+		do_run_task(args)
 	else:
 		assert not "Unexpected command"
 except ExecutionFailureException as e:
