@@ -933,9 +933,10 @@ def patch_src(cfg, src):
 		elif 'hg' in source:
 			subprocess.check_call(['hg', 'import', os.path.join(src.patch_dir, patch)],
 				cwd=src.source_dir)
-
 		else:
-			raise RuntimeError('patching sources extracted from archives is unsupported')
+			path_strip = str(source['patch-path-strip']) if 'patch-path-strip' in source else '0'
+			with open(os.path.join(src.patch_dir, patch), 'r') as fd:
+				subprocess.check_call(['patch', '-p', path_strip, '--merge'], stdin=fd, cwd=src.source_dir)
 
 	src.mark_as_patched()
 
