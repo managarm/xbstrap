@@ -4,6 +4,8 @@ xbstrap is a build system designed to build "distributions" consisting of multip
 It does not replace neither `make` and `ninja` nor `autoconf`, `automake`, `meson` or `cmake` and similar utilities.
 Instead, xbstrap is intended to invoke those build systems in the correct order, while respecting inter-package dependencies.
 
+**Official Discord server:** https://discord.gg/7WB6Ur3
+
 ## Installation
 
 xbstrap is available from PyPI. To install it using pip, use:
