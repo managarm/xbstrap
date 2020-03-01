@@ -1308,7 +1308,7 @@ class Plan:
 		self._stack = []
 		self.wanted = set()
 
-	def materialize_plan(self, action, subject):
+	def _materialize_item(self, action, subject):
 		item = PlanItem(action, subject)
 
 		def add_implicit_pkgs():
@@ -1440,7 +1440,12 @@ class Plan:
 			item.edge_stack.append(pair)
 
 	def compute_plan(self):
-		# First, call materialize_plan() on all (action, subject) pairs.
+		self._do_materialization()
+		self._do_activation()
+		self._do_ordering()
+
+	def _do_materialization(self):
+		# First, call _materialize_item() on all (action, subject) pairs.
 		assert not self._stack
 		self._visited_for_materialization.update(self.wanted)
 		self._stack.extend(self._visited_for_materialization)
@@ -1449,12 +1454,13 @@ class Plan:
 			(action, subject) = self._stack.pop()
 
 			# TODO: Store the subject.subject_id instead of the subject object (= the package)?
-			item = self.materialize_plan(action, subject)
+			item = self._materialize_item(action, subject)
 			self._items[(action, subject)] = item
 
 			self._do_materialization_visit(item.build_edges)
 			self._do_materialization_visit(item.require_edges)
 
+	def _do_activation(self):
 		# Determine the items that will be enabled.
 		assert not self._stack
 		self._visited_for_activation.update(self.wanted)
@@ -1470,6 +1476,7 @@ class Plan:
 			self._do_activation_visit(item.build_edges)
 			self._do_activation_visit(item.require_edges)
 
+	def _do_ordering(self):
 		# Resolve ordering edges.
 		for item in self._items.values():
 			self._do_order_before(item, item.build_edges)
