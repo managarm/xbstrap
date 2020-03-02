@@ -1306,6 +1306,7 @@ class Plan:
 		self._visited_for_activation = set()
 		self._items = dict()
 		self._stack = []
+		self.dry_run = False
 		self.update = False
 		self.wanted = set()
 
@@ -1552,6 +1553,9 @@ class Plan:
 			else:
 				print('    {:12} {}'.format(Action.strings[action], subject.name))
 
+		if self.dry_run:
+			return
+
 		for (n, (action, subject)) in enumerate(scheduled):
 			print('{}xbstrap{}: {} {} [{}/{}]'.format(
 					colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
@@ -1641,44 +1645,64 @@ def do_init(args):
 do_init.parser = main_subparsers.add_parser('init')
 do_init.parser.add_argument('src_root', type=str)
 
+def handle_plan_args(cfg, plan, args):
+	if args.dry_run:
+		plan.dry_run = True
+	if args.update:
+		plan.update = True
+	# TODO: handle --overwrite
+
+handle_plan_args.parser = argparse.ArgumentParser(add_help=False)
+handle_plan_args.parser.add_argument('--dry-run', action='store_true')
+handle_plan_args.parser.add_argument('--update', action='store_true')
+handle_plan_args.parser.add_argument('--overwrite', action='store_true')
+
 def do_fetch(args):
 	cfg = config_for_dir()
 	src = cfg.get_source(args.source)
 	plan = Plan(cfg)
+	handle_plan_args(cfg, plan, args);
 	plan.wanted.add((Action.FETCH_SRC, src))
 	plan.run_plan()
 
-do_fetch.parser = main_subparsers.add_parser('fetch')
+do_fetch.parser = main_subparsers.add_parser('fetch',
+		parents=[handle_plan_args.parser])
 do_fetch.parser.add_argument('source', type=str)
 
 def do_checkout(args):
 	cfg = config_for_dir()
 	src = cfg.get_source(args.source)
 	plan = Plan(cfg)
+	handle_plan_args(cfg, plan, args);
 	plan.wanted.add((Action.CHECKOUT_SRC, src))
 	plan.run_plan()
 
-do_checkout.parser = main_subparsers.add_parser('checkout')
+do_checkout.parser = main_subparsers.add_parser('checkout',
+		parents=[handle_plan_args.parser])
 do_checkout.parser.add_argument('source', type=str)
 
 def do_patch(args):
 	cfg = config_for_dir()
 	src = cfg.get_source(args.source)
 	plan = Plan(cfg)
+	handle_plan_args(cfg, plan, args);
 	plan.wanted.add((Action.PATCH_SRC, src))
 	plan.run_plan()
 
-do_patch.parser = main_subparsers.add_parser('patch')
+do_patch.parser = main_subparsers.add_parser('patch',
+		parents=[handle_plan_args.parser])
 do_patch.parser.add_argument('source', type=str)
 
 def do_regenerate(args):
 	cfg = config_for_dir()
 	src = cfg.get_source(args.source)
 	plan = Plan(cfg)
+	handle_plan_args(cfg, plan, args);
 	plan.wanted.add((Action.REGENERATE_SRC, src))
 	plan.run_plan()
 
-do_regenerate.parser = main_subparsers.add_parser('regenerate')
+do_regenerate.parser = main_subparsers.add_parser('regenerate',
+		parents=[handle_plan_args.parser])
 do_regenerate.parser.add_argument('source', type=str)
 
 def select_tools(cfg, args):
@@ -1714,35 +1738,40 @@ def do_configure_tool(args):
 	cfg = config_for_dir()
 	sel = select_tools(cfg, args)
 	plan = Plan(cfg)
+	handle_plan_args(cfg, plan, args);
 	plan.wanted.update([(Action.CONFIGURE_TOOL, pkg) for pkg in sel])
 	plan.run_plan()
 
 do_configure_tool.parser = main_subparsers.add_parser('configure-tool',
-		parents=[select_tools.parser])
+		parents=[handle_plan_args.parser, select_tools.parser])
 
 def do_compile_tool(args):
 	cfg = config_for_dir()
 	sel = select_tools(cfg, args)
 	plan = Plan(cfg)
+	handle_plan_args(cfg, plan, args);
 	reconfigure_and_recompile_tools(plan, args, sel)
 	plan.wanted.update([(Action.COMPILE_TOOL_STAGE, stage) for pkg in sel
 			for stage in pkg.all_stages()])
 	plan.run_plan()
 
 do_compile_tool.parser = main_subparsers.add_parser('compile-tool',
-		parents=[select_tools.parser, reconfigure_tools_parser])
+		parents=[handle_plan_args.parser,
+			select_tools.parser, reconfigure_tools_parser])
 
 def do_install_tool(args):
 	cfg = config_for_dir()
 	sel = select_tools(cfg, args)
 	plan = Plan(cfg)
+	handle_plan_args(cfg, plan, args);
 	reconfigure_and_recompile_tools(plan, args, sel)
 	plan.wanted.update([(Action.INSTALL_TOOL_STAGE, stage) for pkg in sel
 			for stage in pkg.all_stages()])
 	plan.run_plan()
 
 do_install_tool.parser = main_subparsers.add_parser('install-tool',
-		parents=[select_tools.parser, reconfigure_tools_parser, recompile_tools_parser])
+		parents=[handle_plan_args.parser,
+			select_tools.parser, reconfigure_tools_parser, recompile_tools_parser])
 
 def select_pkgs(cfg, args):
 	if args.all:
@@ -1756,34 +1785,6 @@ def select_pkgs(cfg, args):
 select_pkgs.parser = argparse.ArgumentParser(add_help=False)
 select_pkgs.parser.add_argument('--all', action='store_true')
 select_pkgs.parser.add_argument('packages', nargs='*', type=str)
-
-def update_pkg_sources(cfg, plan, args, sel):
-	if not args.update:
-		return
-
-	if not args.overwrite:
-		raise RuntimeError("--update without --overwrite is not implemented")
-
-	if args.reconfigure or args.rebuild:
-		raise RuntimeError("--update cannot be combined with --reconfigure/--rebuild")
-
-	sources = set()
-	for pkg in sel:
-		sources.add(cfg.get_source(pkg.source))
-
-	for src in sources:
-		# TODO: add mercurial support
-		subprocess.check_call(['git', 'clean', '-xf'], cwd=src.source_dir)
-		subprocess.check_call(['git', 'reset', '--hard'], cwd=src.source_dir)
-
-	# Short cut: If we reconfigure the package, the source will be regenerated.
-	# In turn, this will do everything else automatically.
-	for pkg in sel:
-		plan.wanted.add((Action.CONFIGURE_PKG, pkg))
-
-update_pkg_sources.parser = argparse.ArgumentParser(add_help=False)
-update_pkg_sources.parser.add_argument('--update', action='store_true')
-update_pkg_sources.parser.add_argument('--overwrite', action='store_true')
 
 def reconfigure_and_rebuild_pkgs(plan, args, sel):
 	if args.reconfigure:
@@ -1806,24 +1807,24 @@ def do_configure(args):
 	cfg = config_for_dir()
 	sel = select_pkgs(cfg, args)
 	plan = Plan(cfg)
-	update_pkg_sources(cfg, plan, args, sel)
+	handle_plan_args(cfg, plan, args)
 	plan.wanted.update([(Action.CONFIGURE_PKG, pkg) for pkg in sel])
 	plan.run_plan()
 
 do_configure.parser = main_subparsers.add_parser('configure',
-		parents=[update_pkg_sources.parser, select_pkgs.parser])
+		parents=[handle_plan_args.parser, select_pkgs.parser])
 
 def do_build(args):
 	cfg = config_for_dir()
 	sel = select_pkgs(cfg, args)
 	plan = Plan(cfg)
-	update_pkg_sources(cfg, plan, args, sel)
+	handle_plan_args(cfg, plan, args)
 	reconfigure_and_rebuild_pkgs(plan, args, sel)
 	plan.wanted.update([(Action.BUILD_PKG, pkg) for pkg in sel])
 	plan.run_plan()
 
 do_build.parser = main_subparsers.add_parser('build',
-		parents=[update_pkg_sources.parser,
+		parents=[handle_plan_args.parser,
 			reconfigure_pkgs_parser, select_pkgs.parser])
 
 def do_download(args):
@@ -1867,23 +1868,24 @@ def do_archive(args):
 	cfg = config_for_dir()
 	sel = select_pkgs(cfg, args)
 	plan = Plan(cfg)
+	handle_plan_args(cfg, plan, args);
 	plan.wanted.update([(Action.ARCHIVE_PKG, pkg) for pkg in sel])
 	plan.run_plan()
 
 do_archive.parser = main_subparsers.add_parser('archive',
-		parents=[select_pkgs.parser])
+		parents=[handle_plan_args.parser, select_pkgs.parser])
 
 def do_install(args):
 	cfg = config_for_dir()
 	sel = select_pkgs(cfg, args)
 	plan = Plan(cfg)
-	update_pkg_sources(cfg, plan, args, sel)
+	handle_plan_args(cfg, plan, args)
 	reconfigure_and_rebuild_pkgs(plan, args, sel)
 	plan.wanted.update([(Action.INSTALL_PKG, pkg) for pkg in sel])
 	plan.run_plan()
 
 do_install.parser = main_subparsers.add_parser('install',
-		parents=[update_pkg_sources.parser,
+		parents=[handle_plan_args.parser,
 			reconfigure_pkgs_parser, rebuild_pkgs_parser, select_pkgs.parser])
 
 def do_list_tools(args):
@@ -1902,9 +1904,6 @@ do_list_pkgs.parser = main_subparsers.add_parser('list-pkgs')
 
 def do_run_task(args):
 	args.all = False
-	args.update = False
-	args.reconfigure = False
-	args.rebuild = False
 
 	cfg = config_for_dir()
 	sel = select_pkgs(cfg, args)
@@ -1913,13 +1912,15 @@ def do_run_task(args):
 	if not sel[0].get_task(args.task[0]):
 		raise RuntimeError("task {} of package {} not found".format(args.task[0], sel[0].name));
 
-	update_pkg_sources(cfg, plan, args, sel)
+	handle_plan_args(cfg, plan, args)
 	reconfigure_and_rebuild_pkgs(plan, args, sel)
 
 	plan.wanted.update([(Action.RUN, pkg.get_task(args.task[0])) for pkg in sel])
 	plan.run_plan()
 
-do_run_task.parser = main_subparsers.add_parser('run')
+do_run_task.parser = main_subparsers.add_parser('run',
+		parents=[handle_plan_args.parser,
+			reconfigure_pkgs_parser, rebuild_pkgs_parser])
 do_run_task.parser.add_argument('--pkg', nargs=1, required=True, type=str)
 do_run_task.parser.add_argument('task', nargs=1, type=str)
 
