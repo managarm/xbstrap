@@ -1439,11 +1439,6 @@ class Plan:
 			edge_item = self._items[pair]
 			item.edge_stack.append(pair)
 
-	def compute_plan(self):
-		self._do_materialization()
-		self._do_activation()
-		self._do_ordering()
-
 	def _do_materialization(self):
 		# First, call _materialize_item() on all (action, subject) pairs.
 		assert not self._stack
@@ -1460,22 +1455,6 @@ class Plan:
 			self._do_materialization_visit(item.build_edges)
 			self._do_materialization_visit(item.require_edges)
 
-	def _do_activation(self):
-		# Determine the items that will be enabled.
-		assert not self._stack
-		self._visited_for_activation.update(self.wanted)
-		self._stack.extend(self._visited_for_activation)
-
-		while self._stack:
-			pair = self._stack.pop()
-			item = self._items[pair]
-
-			assert not item.active
-			item.active = True
-
-			self._do_activation_visit(item.build_edges)
-			self._do_activation_visit(item.require_edges)
-
 	def _do_ordering(self):
 		# Resolve ordering edges.
 		for item in self._items.values():
@@ -1485,8 +1464,6 @@ class Plan:
 
 			for pair in item.order_after_edges:
 				target_item = self._items[pair]
-				if not target_item.active:
-					continue
 				target_item.edge_stack.append((item.action, item.subject))
 
 		# The following code does a topologic sort of the desired items.
@@ -1514,19 +1491,41 @@ class Plan:
 					assert item.state == PlanState.EXPANDING
 					item.state = PlanState.ORDERED
 					stack.pop()
-					if item.active:
-						self._order.append((action, subject))
+					self._order.append((action, subject))
 				else:
 					edge_item = self._items[item.edge_stack.pop()]
 					assert edge_item
 					visit(edge_item)
 
+	def _do_activation(self):
+		# Determine the items that will be enabled.
+		assert not self._stack
+		self._visited_for_activation.update(self.wanted)
+		self._stack.extend(self._visited_for_activation)
+
+		while self._stack:
+			pair = self._stack.pop()
+			item = self._items[pair]
+
+			assert not item.active
+			item.active = True
+
+			self._do_activation_visit(item.build_edges)
+			self._do_activation_visit(item.require_edges)
+
 	def run_plan(self):
-		self.compute_plan()
+		# Compute the plan.
+		self._do_materialization()
+		self._do_ordering()
+		self._do_activation()
+
+		# Run the plan.
+		scheduled = [(action, subject) for (action, subject) in self._order
+				if self._items[(action, subject)].active]
 
 		print('{}xbstrap{}: Running the following plan:'.format(
 				colorama.Style.BRIGHT, colorama.Style.RESET_ALL))
-		for (action, subject) in self._order:
+		for (action, subject) in scheduled:
 			if isinstance(subject, HostStage):
 				if subject.stage_name:
 					print('    {:12} {}, stage: {}'.format(Action.strings[action],
@@ -1536,11 +1535,11 @@ class Plan:
 			else:
 				print('    {:12} {}'.format(Action.strings[action], subject.name))
 
-		for (n, (action, subject)) in enumerate(self._order):
+		for (n, (action, subject)) in enumerate(scheduled):
 			print('{}xbstrap{}: {} {} [{}/{}]'.format(
 					colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
 					Action.strings[action], subject.subject_id,
-					n + 1, len(self._order)))
+					n + 1, len(scheduled)))
 			try:
 				if action == Action.FETCH_SRC:
 					fetch_src(self._cfg, subject)
