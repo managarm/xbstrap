@@ -1306,6 +1306,7 @@ class Plan:
 		self._visited_for_activation = set()
 		self._items = dict()
 		self._stack = []
+		self.update = False
 		self.wanted = set()
 
 	def _materialize_item(self, action, subject):
@@ -1512,6 +1513,22 @@ class Plan:
 
 			self._do_activation_visit(item.build_edges)
 			self._do_activation_visit(item.require_edges)
+
+		if self.update:
+			for (action, subject) in self._order:
+				item = self._items[(action, subject)]
+				if activate_functions[action](self._cfg, subject):
+					item.active = True
+
+				# Activate items if their dependencies were activated.
+				for pair in item.build_edges:
+					dep_item = self._items[pair]
+					if dep_item.active:
+						item.active = True
+				for pair in item.require_edges:
+					dep_item = self._items[pair]
+					if dep_item.active:
+						item.active = True
 
 	def run_plan(self):
 		# Compute the plan.
