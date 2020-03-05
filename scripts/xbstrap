@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: MIT
 
 import argparse
+from collections import namedtuple
 from enum import Enum
 import errno
 import os
@@ -92,12 +93,15 @@ def installtree(src_root, dest_root):
 			else:
 				shutil.copy2(src_path, dest_path)
 
-class ActionSettings:
+class ItemSettings:
 	def __init__(self):
 		# 0 = Do not check for updates.
 		# 1 = Check for updates.
 		# 2 = Check even for "crazy" updates (e.g., modification of VCS tags).
 		self.check_remotes = 0
+
+ItemState = namedtuple('ItemState', ['missing', 'updatable'],
+		defaults=[False, False])
 
 class Config:
 	def __init__(self, root_yml):
@@ -368,14 +372,14 @@ class Source(RequirementsMixin):
 
 			# There is a TOCTOU here; we assume that users do not concurrently delete directories.
 			if not os.path.isdir(self.source_dir):
-				return False
+				return ItemState(missing=True)
 			if 'tag' in self._this_yml:
 				ref = 'refs/tags/' + self._this_yml['tag']
 			else:
 				ref = 'refs/heads/' + self._this_yml['branch']
 			local_commit = get_local_commit(ref)
 			if local_commit is None:
-				return False
+				return ItemState(missing=True)
 
 			# Only check remote commits for 
 			check_remote = False
@@ -390,39 +394,48 @@ class Source(RequirementsMixin):
 						self.name))
 				remote_commit = get_remote_commit(ref)
 				if local_commit != remote_commit:
-					return False
-			return True
+					return ItemState(updatable=True)
+			return ItemState()
 		elif 'hg' in self._this_yml:
 			if not os.path.isdir(self.source_dir):
-				return False
+				return ItemState(missing=True)
 			args = ['hg', 'manifest', '-r',]
 			if 'tag' in self._this_yml:
 				args.append(self._this_yml['tag'])
 			else:
 				args.append(self._this_yml['branch'])
-			return subprocess.call(args, cwd=self.source_dir) == 0
-
+			if subprocess.call(args, cwd=self.source_dir) != 0:
+				return ItemState(missing=True)
+			return ItemState()
 		else:
 			assert 'url' in self._this_yml
-			return os.access(self.source_archive_file, os.F_OK)
+			if not os.access(self.source_archive_file, os.F_OK):
+				return ItemState(missing=True)
+			return ItemState()
 
 	def check_if_checkedout(self, settings):
 		path = os.path.join(self.source_dir, 'checkedout.xbstrap')
-		return os.access(path, os.F_OK)
+		if not os.access(path, os.F_OK):
+			return ItemState(missing=True)
+		return ItemState()
 
 	def mark_as_checkedout(self):
 		touch(os.path.join(self.source_dir, 'checkedout.xbstrap'))
 
 	def check_if_patched(self, settings):
 		path = os.path.join(self.source_dir, 'patched.xbstrap')
-		return os.access(path, os.F_OK)
+		if not os.access(path, os.F_OK):
+			return ItemState(missing=True)
+		return ItemState()
 
 	def mark_as_patched(self):
 		touch(os.path.join(self.source_dir, 'patched.xbstrap'))
 
 	def check_if_regenerated(self, settings):
 		path = os.path.join(self.source_dir, 'regenerated.xbstrap')
-		return os.access(path, os.F_OK)
+		if not os.access(path, os.F_OK):
+			return ItemState(missing=True)
+		return ItemState()
 
 	def mark_as_regenerated(self):
 		touch(os.path.join(self.source_dir, 'regenerated.xbstrap'))
@@ -474,7 +487,9 @@ class HostStage(RequirementsMixin):
 		if not self._inherited:
 			stage_spec = '@' + self.stage_name
 		path = os.path.join(self._pkg.build_dir, 'built' + stage_spec + '.xbstrap')
-		return os.access(path, os.F_OK)
+		if not os.access(path, os.F_OK):
+			return ItemState(missing=True)
+		return ItemState()
 
 	def mark_as_compiled(self):
 		stage_spec = ''
@@ -488,7 +503,9 @@ class HostStage(RequirementsMixin):
 			stage_spec = '@' + self.stage_name
 		path = os.path.join(self._pkg.prefix_dir, 'etc', 'xbstrap',
 				self._pkg.name + stage_spec + '.installed')
-		return os.access(path, os.F_OK)
+		if not os.access(path, os.F_OK):
+			return ItemState(missing=True)
+		return ItemState()
 
 	def mark_as_installed(self):
 		stage_spec = ''
@@ -587,7 +604,9 @@ class HostPackage(RequirementsMixin):
 		yield from self._configure_steps
 
 	def check_if_configured(self, settings):
-		return os.access(os.path.join(self.build_dir, 'configured.xbstrap'), os.F_OK)
+		if not os.access(os.path.join(self.build_dir, 'configured.xbstrap'), os.F_OK):
+			return ItemState(missing=True)
+		return ItemState()
 
 	def mark_as_configured(self, mark=True):
 		if mark:
@@ -683,7 +702,9 @@ class TargetPackage(RequirementsMixin):
 		return False
 
 	def check_if_configured(self, settings):
-		return os.access(os.path.join(self.build_dir, 'configured.xbstrap'), os.F_OK)
+		if not os.access(os.path.join(self.build_dir, 'configured.xbstrap'), os.F_OK):
+			return ItemState(missing=True)
+		return ItemState()
 
 	def mark_as_configured(self, mark=True):
 		if mark:
@@ -691,8 +712,10 @@ class TargetPackage(RequirementsMixin):
 		else:
 			os.unlink(os.path.join(self.build_dir, 'configured.xbstrap'))
 
-	def check_staging(self):
-		return os.access(self.staging_dir, os.F_OK)
+	def check_staging(self, settings):
+		if not os.access(self.staging_dir, os.F_OK):
+			return ItemState(missing=True)
+		return ItemState()
 
 	def check_if_installed(self, settings):
 		if use_xbps:
@@ -701,12 +724,16 @@ class TargetPackage(RequirementsMixin):
 					'-r', self._cfg.sysroot_dir,
 					self.name
 					])
-				return b'state: installed' in out.splitlines()
+				if b'state: installed' not in out.splitlines():
+					return ItemState(missing=True)
+				return ItemState()
 			except subprocess.CalledProcessError:
-				return False
+				return ItemState(missing=True)
 		else:
 			path = os.path.join(self._cfg.sysroot_dir, 'etc', 'xbstrap', self.name + '.installed')
-			return os.access(path, os.F_OK)
+			if not os.access(path, os.F_OK):
+				return ItemState(missing=True)
+			return ItemState()
 
 	def mark_as_installed(self):
 		try_mkdir(os.path.join(self._cfg.sysroot_dir, 'etc'))
@@ -756,10 +783,6 @@ class PackageRunTask(RequirementsMixin):
 	@property
 	def source(self):
 		return self._pkg.source
-
-	@property
-	def check_staging(self):
-		return self._pkg.check_staging
 
 def config_for_dir():
 	with open('bootstrap.link', 'r') as f:
@@ -1270,62 +1293,18 @@ Action.strings = {
 	Action.RUN: 'run',
 }
 
-def activate_fetch_src(cfg, src, settings):
-	return not src.check_if_fetched(settings)
-
-def activate_checkout_src(cfg, src, settings):
-	return not src.check_if_checkedout(settings)
-
-def activate_patch_src(cfg, src, settings):
-	return not src.check_if_patched(settings)
-
-def activate_regenerate_src(cfg, src, settings):
-	return not src.check_if_regenerated(settings)
-
-def activate_configure_tool(cfg, tool, settings):
-	return not tool.check_if_configured(settings)
-
-def activate_compile_tool_stage(cfg, stage, settings):
-	return not stage.check_if_compiled(settings)
-
-def activate_install_tool_stage(cfg, stage, settings):
-	return not stage.check_if_installed(settings)
-
-def activate_configure_pkg(cfg, pkg, settings):
-	return not pkg.check_if_configured(settings)
-
-def activate_build_pkg(cfg, pkg, settings):
-	return not pkg.check_staging(settings)
-
-def activate_install_pkg(cfg, pkg, settings):
-	return not pkg.check_if_installed(settings)
-
-def activate_run_pkg(cfg, pkg, settings):
-	return not pkg.check_if_installed(settings)
-
-activate_functions = {
-	Action.FETCH_SRC: activate_fetch_src,
-	Action.CHECKOUT_SRC: activate_checkout_src,
-	Action.PATCH_SRC: activate_patch_src,
-	Action.REGENERATE_SRC: activate_regenerate_src,
-	Action.CONFIGURE_TOOL: activate_configure_tool,
-	Action.COMPILE_TOOL_STAGE: activate_compile_tool_stage,
-	Action.INSTALL_TOOL_STAGE: activate_install_tool_stage,
-	Action.CONFIGURE_PKG: activate_configure_pkg,
-	Action.BUILD_PKG: activate_build_pkg,
-	Action.INSTALL_PKG: activate_install_pkg,
-	Action.RUN: activate_run_pkg,
-}
-
 class PlanState(Enum):
 	NULL = 0
 	EXPANDING = 1
 	ORDERED = 2
 
 class PlanItem:
-	def __init__(self, action, subject):
+	def __init__(self, action, subject, settings):
 		self.action = action
 		self.subject = subject
+		self.settings = settings
+
+		self._state = None
 		self.active = False
 		self.build_edges = set()
 		self.require_edges = set()
@@ -1334,6 +1313,34 @@ class PlanItem:
 
 		self.state = PlanState.NULL
 		self.edge_stack = []
+
+	@property
+	def is_missing(self):
+		self._determine_state()
+		return self._state.missing
+
+	@property
+	def is_updatable(self):
+		self._determine_state()
+		return self._state.updatable
+
+	def _determine_state(self):
+		if self._state is not None:
+			return
+		visitors = {
+			Action.FETCH_SRC: lambda s, c: s.check_if_fetched(c),
+			Action.CHECKOUT_SRC: lambda s, c: s.check_if_checkedout(c),
+			Action.PATCH_SRC: lambda s, c: s.check_if_patched(c),
+			Action.REGENERATE_SRC: lambda s, c: s.check_if_regenerated(c),
+			Action.CONFIGURE_TOOL: lambda s, c: s.check_if_configured(c),
+			Action.COMPILE_TOOL_STAGE: lambda s, c: s.check_if_compiled(c),
+			Action.INSTALL_TOOL_STAGE: lambda s, c: s.check_if_installed(c),
+			Action.CONFIGURE_PKG: lambda s, c: s.check_if_configured(c),
+			Action.BUILD_PKG: lambda s, c: s.check_staging(c),
+			Action.INSTALL_PKG: lambda s, c: s.check_if_installed(c),
+			Action.RUN: lambda s, c: ItemState(),
+		}
+		self._state = visitors[self.action](self.subject, self.settings)
 
 class ExecutionFailureException(Exception):
 	def __init__(self, step, subject):
@@ -1358,7 +1365,7 @@ class Plan:
 		self.wanted = set()
 
 	def _materialize_item(self, action, subject):
-		item = PlanItem(action, subject)
+		item = PlanItem(action, subject, self._settings)
 
 		def add_implicit_pkgs():
 			if not subject.is_implicit:
@@ -1371,7 +1378,8 @@ class Plan:
 				dep_source = self._cfg.get_source(src_name)
 				# In contrast to tool/pkg dependencies,
 				# source dependencies are *not* recursive for now.
-				if not dep_source.check_if_patched():
+				# TODO: Rewrite this check_if_patched() call to use the corresponding PlanItem?
+				if not dep_source.check_if_patched(self._settings):
 					item.require_edges.add((action.PATCH_SRC, dep_source))
 
 		def add_tool_dependencies(s):
@@ -1545,7 +1553,7 @@ class Plan:
 				action, subject = pair
 				item = self._items[pair]
 				self._visited_for_activation.add(pair)
-				if activate_functions[action](self._cfg, subject, self._settings):
+				if item.is_missing:
 					self._stack.append(pair)
 
 		def activate(root_action, root_subject):
@@ -1564,14 +1572,15 @@ class Plan:
 				visit(item.require_edges)
 
 		for (action, subject) in self.wanted:
-			if self.check and not activate_functions[action](self._cfg, subject, self._settings):
+			item = self._items[(action, subject)]
+			if self.check and not item.is_missing:
 				continue
 			activate(action, subject)
 
 		if self.update:
 			for (action, subject) in self._order:
 				item = self._items[(action, subject)]
-				if activate_functions[action](self._cfg, subject, self._settings):
+				if item.is_updatable:
 					activate(action, subject)
 
 				# Activate items if their dependencies were activated.
@@ -1585,7 +1594,7 @@ class Plan:
 						activate(action, subject)
 
 	def run_plan(self):
-		self._settings = ActionSettings()
+		self._settings = ItemSettings()
 		if self.update:
 			self._settings.check_remotes = 1
 		if self.update and self.paranoid:
@@ -1606,11 +1615,15 @@ class Plan:
 			if isinstance(subject, HostStage):
 				if subject.stage_name:
 					print('    {:14} {}, stage: {}'.format(Action.strings[action],
-							subject.pkg.name, subject.stage_name))
+							subject.pkg.name, subject.stage_name), end='')
 				else:
-					print('    {:14} {}'.format(Action.strings[action], subject.pkg.name))
+					print('    {:14} {}'.format(Action.strings[action], subject.pkg.name), end='')
 			else:
-				print('    {:14} {}'.format(Action.strings[action], subject.name))
+				print('    {:14} {}'.format(Action.strings[action], subject.name), end='')
+			if self._items[(action, subject)].is_updatable:
+				print(' ({}{}updatable{})'.format(colorama.Style.BRIGHT, colorama.Fore.BLUE,
+						colorama.Style.RESET_ALL), end='')
+			print()
 
 		if self.dry_run:
 			return
