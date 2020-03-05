@@ -1308,6 +1308,7 @@ class Plan:
 		self._stack = []
 		self.dry_run = False
 		self.update = False
+		self.check = False
 		self.wanted = set()
 
 	def _materialize_item(self, action, subject):
@@ -1424,16 +1425,6 @@ class Plan:
 			self._visited_for_materialization.add(edge_pair)
 			self._stack.append(edge_pair)
 
-	def _do_activation_visit(self, edges):
-		for edge_pair in edges:
-			if edge_pair in self._visited_for_activation:
-				continue
-			edge_action, edge_subject = edge_pair
-			edge_item = self._items[edge_pair]
-			self._visited_for_activation.add(edge_pair)
-			if activate_functions[edge_action](self._cfg, edge_subject):
-				self._stack.append(edge_pair)
-
 	def _do_order_before(self, item, edges):
 		for pair in edges:
 			if pair not in self._items:
@@ -1501,35 +1492,51 @@ class Plan:
 
 	def _do_activation(self):
 		# Determine the items that will be enabled.
-		assert not self._stack
-		self._visited_for_activation.update(self.wanted)
-		self._stack.extend(self._visited_for_activation)
+		def visit(edges):
+			for pair in edges:
+				if pair in self._visited_for_activation:
+					continue
+				action, subject = pair
+				item = self._items[pair]
+				self._visited_for_activation.add(pair)
+				if activate_functions[action](self._cfg, subject):
+					self._stack.append(pair)
 
-		while self._stack:
-			pair = self._stack.pop()
-			item = self._items[pair]
+		def activate(root_action, root_subject):
+			assert not self._stack
+			self._visited_for_activation.add((root_action, root_subject))
+			self._stack.append((root_action, root_subject))
 
-			assert not item.active
-			item.active = True
+			while self._stack:
+				pair = self._stack.pop()
+				item = self._items[pair]
+				if item.active:
+					continue
+				item.active = True
 
-			self._do_activation_visit(item.build_edges)
-			self._do_activation_visit(item.require_edges)
+				visit(item.build_edges)
+				visit(item.require_edges)
+
+		for (action, subject) in self.wanted:
+			if self.check and not activate_functions[action](self._cfg, subject):
+				continue
+			activate(action, subject)
 
 		if self.update:
 			for (action, subject) in self._order:
 				item = self._items[(action, subject)]
 				if activate_functions[action](self._cfg, subject):
-					item.active = True
+					activate(action, subject)
 
 				# Activate items if their dependencies were activated.
-				for pair in item.build_edges:
-					dep_item = self._items[pair]
+				for dep_pair in item.build_edges:
+					dep_item = self._items[dep_pair]
 					if dep_item.active:
-						item.active = True
-				for pair in item.require_edges:
-					dep_item = self._items[pair]
+						activate(action, subject)
+				for dep_pair in item.require_edges:
+					dep_item = self._items[dep_pair]
 					if dep_item.active:
-						item.active = True
+						activate(action, subject)
 
 	def run_plan(self):
 		# Compute the plan.
@@ -1546,12 +1553,12 @@ class Plan:
 		for (action, subject) in scheduled:
 			if isinstance(subject, HostStage):
 				if subject.stage_name:
-					print('    {:12} {}, stage: {}'.format(Action.strings[action],
+					print('    {:14} {}, stage: {}'.format(Action.strings[action],
 							subject.pkg.name, subject.stage_name))
 				else:
-					print('    {:12} {}'.format(Action.strings[action], subject.pkg.name))
+					print('    {:14} {}'.format(Action.strings[action], subject.pkg.name))
 			else:
-				print('    {:12} {}'.format(Action.strings[action], subject.name))
+				print('    {:14} {}'.format(Action.strings[action], subject.name))
 
 		if self.dry_run:
 			return
@@ -1648,13 +1655,16 @@ do_init.parser.add_argument('src_root', type=str)
 def handle_plan_args(cfg, plan, args):
 	if args.dry_run:
 		plan.dry_run = True
+	if args.check:
+		plan.check = True
 	if args.update:
 		plan.update = True
 	# TODO: handle --overwrite
 
 handle_plan_args.parser = argparse.ArgumentParser(add_help=False)
-handle_plan_args.parser.add_argument('--dry-run', action='store_true')
-handle_plan_args.parser.add_argument('--update', action='store_true')
+handle_plan_args.parser.add_argument('-n', '--dry-run', action='store_true')
+handle_plan_args.parser.add_argument('-c', '--check', action='store_true')
+handle_plan_args.parser.add_argument('-u', '--update', action='store_true')
 handle_plan_args.parser.add_argument('--overwrite', action='store_true')
 
 def do_fetch(args):
