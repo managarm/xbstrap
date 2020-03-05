@@ -93,7 +93,11 @@ def installtree(src_root, dest_root):
 				shutil.copy2(src_path, dest_path)
 
 class ActionSettings:
-	pass
+	def __init__(self):
+		# 0 = Do not check for updates.
+		# 1 = Check for updates.
+		# 2 = Check even for "crazy" updates (e.g., modification of VCS tags).
+		self.check_remotes = 0
 
 class Config:
 	def __init__(self, root_yml):
@@ -342,15 +346,52 @@ class Source(RequirementsMixin):
 
 	def check_if_fetched(self, settings):
 		if 'git' in self._this_yml:
+			def get_local_commit(ref):
+				try:
+					out = subprocess.check_output(['git', 'show-ref', '--verify', ref],
+							cwd=self.source_dir).decode().splitlines()
+				except subprocess.CalledProcessError:
+					return None
+				assert len(out) == 1
+				(commit, outref) = out[0].split(' ')
+				return commit
+
+			def get_remote_commit(ref):
+				try:
+					out = subprocess.check_output(['git', 'ls-remote', '--exit-code',
+						self._this_yml['git'], ref]).decode().splitlines()
+				except subprocess.CalledProcessError:
+					return None
+				assert len(out) == 1
+				(commit, outref) = out[0].split('\t')
+				return commit
+
 			# There is a TOCTOU here; we assume that users do not concurrently delete directories.
 			if not os.path.isdir(self.source_dir):
 				return False
-			args = ['git', 'show-ref', '-q', '--verify']
 			if 'tag' in self._this_yml:
-				args.append('refs/tags/' + self._this_yml['tag'])
+				ref = 'refs/tags/' + self._this_yml['tag']
 			else:
-				args.append('refs/heads/' + self._this_yml['branch'])
-			return subprocess.call(args, cwd=self.source_dir) == 0
+				ref = 'refs/heads/' + self._this_yml['branch']
+			local_commit = get_local_commit(ref)
+			if local_commit is None:
+				return False
+
+			# Only check remote commits for 
+			check_remote = False
+			if settings.check_remotes >= 2:
+				check_remote = True
+			if settings.check_remotes >= 1 and 'tag' not in self._this_yml:
+				check_remote = True
+
+			if check_remote:
+				print('{}xbstrap{}: Checking for remote updates of {}'.format(
+						colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
+						self.name))
+				remote_commit = get_remote_commit(ref)
+				if local_commit != remote_commit:
+					return False
+			return True
 		elif 'hg' in self._this_yml:
 			if not os.path.isdir(self.source_dir):
 				return False
@@ -1311,8 +1352,9 @@ class Plan:
 		self._stack = []
 		self._settings = None
 		self.dry_run = False
-		self.update = False
 		self.check = False
+		self.update = False
+		self.paranoid = False
 		self.wanted = set()
 
 	def _materialize_item(self, action, subject):
@@ -1544,6 +1586,10 @@ class Plan:
 
 	def run_plan(self):
 		self._settings = ActionSettings()
+		if self.update:
+			self._settings.check_remotes = 1
+		if self.update and self.paranoid:
+			self._settings.check_remotes = 2
 
 		# Compute the plan.
 		self._do_materialization()
@@ -1665,12 +1711,15 @@ def handle_plan_args(cfg, plan, args):
 		plan.check = True
 	if args.update:
 		plan.update = True
+	if args.paranoid:
+		plan.paranoid = True
 	# TODO: handle --overwrite
 
 handle_plan_args.parser = argparse.ArgumentParser(add_help=False)
 handle_plan_args.parser.add_argument('-n', '--dry-run', action='store_true')
 handle_plan_args.parser.add_argument('-c', '--check', action='store_true')
 handle_plan_args.parser.add_argument('-u', '--update', action='store_true')
+handle_plan_args.parser.add_argument('--paranoid', action='store_true')
 handle_plan_args.parser.add_argument('--overwrite', action='store_true')
 
 def do_fetch(args):
