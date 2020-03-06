@@ -354,7 +354,7 @@ class Source(RequirementsMixin):
 			def get_local_commit(ref):
 				try:
 					out = subprocess.check_output(['git', 'show-ref', '--verify', ref],
-							cwd=self.source_dir).decode().splitlines()
+							cwd=self.source_dir, stderr=subprocess.DEVNULL).decode().splitlines()
 				except subprocess.CalledProcessError:
 					return None
 				assert len(out) == 1
