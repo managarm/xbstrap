@@ -918,26 +918,37 @@ def postprocess_libtool(cfg, pkg):
 
 def fetch_src(cfg, src):
 	try_mkdir(src.sub_dir)
-	try_mkdir(src.source_dir)
 	source = src._this_yml
 
 	if 'git' in source:
-		subprocess.check_call(['git', 'init'], cwd=src.source_dir)
+		init = not os.path.isdir(src.source_dir)
+		if init:
+			try_mkdir(src.source_dir)
+			subprocess.check_call(['git', 'init'], cwd=src.source_dir)
+
+		shallow = not source.get('disable_shallow_fetch', False)
 		args = ['git', 'fetch']
-		if 'disable_shallow_fetch' not in source or not source['disable_shallow_fetch']:
-			args.append('--depth=1')
 		if 'tag' in source:
+			if shallow:
+				args.append('--depth=1')
 			args.extend([source['git'], 'tag', source['tag']])
 		else:
+			# When initializing the repository, we fetch only one commit.
+			# For updates, we fetch all *new* commits (= default behavior of 'git fetch').
+			# We do not unshallow the repository.
+			if init and shallow:
+				args.append('--depth=1')
 			args.extend(['--update-head-ok', source['git'],
 					source['branch'] + ':' + source['branch']])
 		subprocess.check_call(args, cwd=src.source_dir)
 	elif 'hg' in source:
+		try_mkdir(src.source_dir)
 		args = ['hg', 'clone', source['hg'], src.source_dir]
 		subprocess.check_call(args)
 	else:
 		assert 'url' in source
 
+		try_mkdir(src.source_dir)
 		with urllib.request.urlopen(source['url']) as req:
 			with open(src.source_archive_file, 'wb') as f:
 				shutil.copyfileobj(req, f)
