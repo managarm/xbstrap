@@ -1339,6 +1339,7 @@ class PlanItem:
 
 		self.state = PlanState.NULL
 		self.edge_stack = []
+		self.build_span = False
 
 	@property
 	def is_missing(self):
@@ -1599,16 +1600,31 @@ class Plan:
 				visit(item.build_edges)
 				visit(item.require_edges)
 
+		# Activate wanted items.
 		for (action, subject) in self.wanted:
 			item = self._items[(action, subject)]
-			if self.check and not item.is_missing:
-				continue
-			activate(action, subject)
+			item.build_span = True
+			if not self.check or item.is_missing:
+				activate(action, subject)
 
+		# Discover all items reachable by build edges.
+		for (action, subject) in reversed(self._order):
+			item = self._items[(action, subject)]
+			if not item.build_span:
+				continue
+			for dep_pair in item.build_edges:
+				dep_item = self._items[dep_pair]
+				dep_item.build_span = True
+
+		# Activate updatable items.
 		if self.update:
 			for (action, subject) in self._order:
 				item = self._items[(action, subject)]
-				if item.is_missing or item.is_updatable:
+				# For wanted items, we ensure that their predecessors are available.
+				# For all other items, we check for updatability.
+				if item.build_span and item.is_missing:
+					activate(action, subject)
+				elif item.is_updatable:
 					activate(action, subject)
 
 				# Activate items if their dependencies were activated.
