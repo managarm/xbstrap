@@ -99,6 +99,7 @@ class ItemSettings:
 		# 1 = Check for updates.
 		# 2 = Check even for "crazy" updates (e.g., modification of VCS tags).
 		self.check_remotes = 0
+		self.reset = False
 
 ItemState = namedtuple('ItemState', ['missing', 'updatable'],
 		defaults=[False, False])
@@ -925,6 +926,8 @@ def fetch_src(cfg, src):
 		if init:
 			try_mkdir(src.source_dir)
 			subprocess.check_call(['git', 'init'], cwd=src.source_dir)
+			subprocess.check_call(['git', 'remote', 'add', 'origin', source['git']],
+					cwd=src.source_dir)
 
 		shallow = not source.get('disable_shallow_fetch', False)
 		args = ['git', 'fetch']
@@ -939,7 +942,8 @@ def fetch_src(cfg, src):
 			if init and shallow:
 				args.append('--depth=1')
 			args.extend(['--update-head-ok', source['git'],
-					source['branch'] + ':' + source['branch']])
+					'refs/heads/' + source['branch']
+					+ ':' + 'refs/remotes/origin/' + source['branch']])
 		subprocess.check_call(args, cwd=src.source_dir)
 	elif 'hg' in source:
 		try_mkdir(src.source_dir)
@@ -953,16 +957,27 @@ def fetch_src(cfg, src):
 			with open(src.source_archive_file, 'wb') as f:
 				shutil.copyfileobj(req, f)
 
-def checkout_src(cfg, src):
+def checkout_src(cfg, src, settings):
 	source = src._this_yml
 
 	if 'git' in source:
-		args = ['git', 'checkout']
+		init = subprocess.call(['git', 'show-ref', '--verify', '-q', 'HEAD'],
+				cwd=src.source_dir) != 0
+
 		if 'tag' in source:
-			args.append('refs/tags/' + source['tag'])
+			if init or settings.reset:
+				subprocess.check_call(['git', 'checkout', '--detach',
+						'refs/tags/' + source['tag']], cwd=src.source_dir)
+			else:
+				raise RuntimeError("Refusing to checkout tag '{}' of source {}".format(
+						source['tag'], src.name));
 		else:
-			args.append(source['branch'])
-		subprocess.check_call(args, cwd=src.source_dir)
+			if init or settings.reset:
+				subprocess.check_call(['git', 'checkout', '-B', source['branch'],
+						'origin/' + source['branch']], cwd=src.source_dir)
+			else:
+				subprocess.check_call(['git', 'rebase',
+						'origin/' + source['branch']], cwd=src.source_dir)
 	elif 'hg' in source:
 		args = ['hg', 'checkout']
 		if 'tag' in source:
@@ -1374,6 +1389,7 @@ class Plan:
 		self.update = False
 		self.paranoid = False
 		self.wanted = set()
+		self.reset = False
 
 	def _materialize_item(self, action, subject):
 		item = PlanItem(action, subject, self._settings)
@@ -1610,6 +1626,7 @@ class Plan:
 			self._settings.check_remotes = 1
 		if self.update and self.paranoid:
 			self._settings.check_remotes = 2
+		self._settings.reset = self.reset
 
 		# Compute the plan.
 		self._do_materialization()
@@ -1648,7 +1665,7 @@ class Plan:
 				if action == Action.FETCH_SRC:
 					fetch_src(self._cfg, subject)
 				elif action == Action.CHECKOUT_SRC:
-					checkout_src(self._cfg, subject)
+					checkout_src(self._cfg, subject, self._settings)
 				elif action == Action.PATCH_SRC:
 					patch_src(self._cfg, subject)
 				elif action == Action.REGENERATE_SRC:
@@ -1737,14 +1754,15 @@ def handle_plan_args(cfg, plan, args):
 		plan.update = True
 	if args.paranoid:
 		plan.paranoid = True
-	# TODO: handle --overwrite
+	if args.reset:
+		plan.reset = True
 
 handle_plan_args.parser = argparse.ArgumentParser(add_help=False)
 handle_plan_args.parser.add_argument('-n', '--dry-run', action='store_true')
 handle_plan_args.parser.add_argument('-c', '--check', action='store_true')
 handle_plan_args.parser.add_argument('-u', '--update', action='store_true')
 handle_plan_args.parser.add_argument('--paranoid', action='store_true')
-handle_plan_args.parser.add_argument('--overwrite', action='store_true')
+handle_plan_args.parser.add_argument('--reset', action='store_true')
 
 def do_fetch(args):
 	cfg = config_for_dir()
