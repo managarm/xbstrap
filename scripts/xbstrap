@@ -399,12 +399,12 @@ class Source(RequirementsMixin):
 		elif 'hg' in self._this_yml:
 			if not os.path.isdir(self.source_dir):
 				return ItemState(missing=True)
-			args = ['hg', 'manifest', '-r',]
+			args = ['hg', 'manifest', '--pager', 'never', '-r',]
 			if 'tag' in self._this_yml:
 				args.append(self._this_yml['tag'])
 			else:
 				args.append(self._this_yml['branch'])
-			if subprocess.call(args, cwd=self.source_dir) != 0:
+			if subprocess.call(args, cwd=self.source_dir, stdout=subprocess.DEVNULL) != 0:
 				return ItemState(missing=True)
 			return ItemState()
 		else:
