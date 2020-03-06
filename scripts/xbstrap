@@ -1620,11 +1620,11 @@ class Plan:
 		if self.update:
 			for (action, subject) in self._order:
 				item = self._items[(action, subject)]
-				# For wanted items, we ensure that their predecessors are available.
-				# For all other items, we check for updatability.
-				if item.build_span and item.is_missing:
-					activate(action, subject)
-				elif item.is_updatable:
+				# Unless we're doing a recursive update, we only follow check items
+				# that are reachable by build edges.
+				if not self.recursive and not item.build_span:
+					continue
+				if item.is_missing or item.is_updatable:
 					activate(action, subject)
 
 				# Activate items if their dependencies were activated.
