@@ -101,8 +101,8 @@ class ItemSettings:
 		self.check_remotes = 0
 		self.reset = False
 
-ItemState = namedtuple('ItemState', ['missing', 'updatable'],
-		defaults=[False, False])
+ItemState = namedtuple('ItemState', ['missing', 'updatable', 'timestamp'],
+		defaults=[False, False, None])
 
 class Config:
 	def __init__(self, root_yml):
@@ -416,27 +416,33 @@ class Source(RequirementsMixin):
 
 	def check_if_checkedout(self, settings):
 		path = os.path.join(self.source_dir, 'checkedout.xbstrap')
-		if not os.access(path, os.F_OK):
+		try:
+			stat = os.stat(path)
+		except FileNotFoundError:
 			return ItemState(missing=True)
-		return ItemState()
+		return ItemState(timestamp=stat.st_mtime)
 
 	def mark_as_checkedout(self):
 		touch(os.path.join(self.source_dir, 'checkedout.xbstrap'))
 
 	def check_if_patched(self, settings):
 		path = os.path.join(self.source_dir, 'patched.xbstrap')
-		if not os.access(path, os.F_OK):
+		try:
+			stat = os.stat(path)
+		except FileNotFoundError:
 			return ItemState(missing=True)
-		return ItemState()
+		return ItemState(timestamp=stat.st_mtime)
 
 	def mark_as_patched(self):
 		touch(os.path.join(self.source_dir, 'patched.xbstrap'))
 
 	def check_if_regenerated(self, settings):
 		path = os.path.join(self.source_dir, 'regenerated.xbstrap')
-		if not os.access(path, os.F_OK):
+		try:
+			stat = os.stat(path)
+		except FileNotFoundError:
 			return ItemState(missing=True)
-		return ItemState()
+		return ItemState(timestamp=stat.st_mtime)
 
 	def mark_as_regenerated(self):
 		touch(os.path.join(self.source_dir, 'regenerated.xbstrap'))
@@ -488,9 +494,11 @@ class HostStage(RequirementsMixin):
 		if not self._inherited:
 			stage_spec = '@' + self.stage_name
 		path = os.path.join(self._pkg.build_dir, 'built' + stage_spec + '.xbstrap')
-		if not os.access(path, os.F_OK):
+		try:
+			stat = os.stat(path)
+		except FileNotFoundError:
 			return ItemState(missing=True)
-		return ItemState()
+		return ItemState(timestamp=stat.st_mtime)
 
 	def mark_as_compiled(self):
 		stage_spec = ''
@@ -504,9 +512,11 @@ class HostStage(RequirementsMixin):
 			stage_spec = '@' + self.stage_name
 		path = os.path.join(self._pkg.prefix_dir, 'etc', 'xbstrap',
 				self._pkg.name + stage_spec + '.installed')
-		if not os.access(path, os.F_OK):
+		try:
+			stat = os.stat(path)
+		except FileNotFoundError:
 			return ItemState(missing=True)
-		return ItemState()
+		return ItemState(timestamp=stat.st_mtime)
 
 	def mark_as_installed(self):
 		stage_spec = ''
@@ -605,9 +615,12 @@ class HostPackage(RequirementsMixin):
 		yield from self._configure_steps
 
 	def check_if_configured(self, settings):
-		if not os.access(os.path.join(self.build_dir, 'configured.xbstrap'), os.F_OK):
+		path = os.path.join(self.build_dir, 'configured.xbstrap')
+		try:
+			stat = os.stat(path)
+		except FileNotFoundError:
 			return ItemState(missing=True)
-		return ItemState()
+		return ItemState(timestamp=stat.st_mtime)
 
 	def mark_as_configured(self, mark=True):
 		if mark:
@@ -703,9 +716,12 @@ class TargetPackage(RequirementsMixin):
 		return False
 
 	def check_if_configured(self, settings):
-		if not os.access(os.path.join(self.build_dir, 'configured.xbstrap'), os.F_OK):
+		path = os.path.join(self.build_dir, 'configured.xbstrap')
+		try:
+			stat = os.stat(path)
+		except FileNotFoundError:
 			return ItemState(missing=True)
-		return ItemState()
+		return ItemState(timestamp=stat.st_mtime)
 
 	def mark_as_configured(self, mark=True):
 		if mark:
@@ -1340,6 +1356,7 @@ class PlanItem:
 		self.state = PlanState.NULL
 		self.edge_stack = []
 		self.build_span = False
+		self.outdated = False
 
 	@property
 	def is_missing(self):
@@ -1350,6 +1367,11 @@ class PlanItem:
 	def is_updatable(self):
 		self._determine_state()
 		return self._state.updatable
+
+	@property
+	def timestamp(self):
+		self._determine_state()
+		return self._state.timestamp
 
 	def _determine_state(self):
 		if self._state is not None:
@@ -1618,6 +1640,13 @@ class Plan:
 
 		# Activate updatable items.
 		if self.update:
+			def is_outdated(item, dep_item):
+				ts = item.timestamp
+				dep_ts = dep_item.timestamp
+				if ts is None or dep_ts is None:
+					return False
+				return dep_ts > ts
+
 			for (action, subject) in self._order:
 				item = self._items[(action, subject)]
 				# Unless we're doing a recursive update, we only follow check items
@@ -1632,10 +1661,16 @@ class Plan:
 					dep_item = self._items[dep_pair]
 					if dep_item.active:
 						activate(action, subject)
+					elif is_outdated(item, dep_item):
+						item.outdated = True
+						activate(action, subject)
 				if self.recursive:
 					for dep_pair in item.require_edges:
 						dep_item = self._items[dep_pair]
 						if dep_item.active:
+							activate(action, subject)
+						elif is_outdated(item, dep_item):
+							item.outdated = True
 							activate(action, subject)
 
 	def run_plan(self):
@@ -1668,6 +1703,9 @@ class Plan:
 				print('    {:14} {}'.format(Action.strings[action], subject.name), end='')
 			if self._items[(action, subject)].is_updatable:
 				print(' ({}{}updatable{})'.format(colorama.Style.BRIGHT, colorama.Fore.BLUE,
+						colorama.Style.RESET_ALL), end='')
+			elif self._items[(action, subject)].outdated:
+				print(' ({}{}outdated{})'.format(colorama.Style.BRIGHT, colorama.Fore.BLUE,
 						colorama.Style.RESET_ALL), end='')
 			print()
 
