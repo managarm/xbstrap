@@ -1700,8 +1700,12 @@ class Plan:
 		scheduled = [(action, subject) for (action, subject) in self._order
 				if self._items[(action, subject)].active]
 
-		print('{}xbstrap{}: Running the following plan:'.format(
-				colorama.Style.BRIGHT, colorama.Style.RESET_ALL))
+		if scheduled:
+			print('{}xbstrap{}: Running the following plan:'.format(
+					colorama.Style.BRIGHT, colorama.Style.RESET_ALL))
+		else:
+			print('{}xbstrap{}: Nothing to do'.format(
+					colorama.Style.BRIGHT, colorama.Style.RESET_ALL))
 		for (action, subject) in scheduled:
 			if isinstance(subject, HostStage):
 				if subject.stage_name:
