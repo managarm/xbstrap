@@ -396,7 +396,6 @@ class Source(RequirementsMixin):
 				remote_commit = get_remote_commit(ref)
 				if local_commit != remote_commit:
 					return ItemState(updatable=True)
-			return ItemState()
 		elif 'hg' in self._this_yml:
 			if not os.path.isdir(self.source_dir):
 				return ItemState(missing=True)
@@ -407,12 +406,21 @@ class Source(RequirementsMixin):
 				args.append(self._this_yml['branch'])
 			if subprocess.call(args, cwd=self.source_dir, stdout=subprocess.DEVNULL) != 0:
 				return ItemState(missing=True)
-			return ItemState()
 		else:
 			assert 'url' in self._this_yml
 			if not os.access(self.source_archive_file, os.F_OK):
 				return ItemState(missing=True)
+
+		path = os.path.join(self.source_dir, 'fetched.xbstrap')
+		try:
+			stat = os.stat(path)
+		except FileNotFoundError:
+			# This is a special case: we already found that the commit exists.
 			return ItemState()
+		return ItemState(timestamp=stat.st_mtime)
+
+	def mark_as_fetched(self):
+		touch(os.path.join(self.source_dir, 'fetched.xbstrap'))
 
 	def check_if_checkedout(self, settings):
 		path = os.path.join(self.source_dir, 'checkedout.xbstrap')
@@ -972,6 +980,8 @@ def fetch_src(cfg, src):
 		with urllib.request.urlopen(source['url']) as req:
 			with open(src.source_archive_file, 'wb') as f:
 				shutil.copyfileobj(req, f)
+
+	src.mark_as_fetched()
 
 def checkout_src(cfg, src, settings):
 	source = src._this_yml
