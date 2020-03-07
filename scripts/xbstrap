@@ -1397,6 +1397,7 @@ class PlanItem:
 			Action.CONFIGURE_PKG: lambda s, c: s.check_if_configured(c),
 			Action.BUILD_PKG: lambda s, c: s.check_staging(c),
 			Action.INSTALL_PKG: lambda s, c: s.check_if_installed(c),
+			Action.ARCHIVE_PKG: lambda s, c: ItemState(),
 			Action.RUN: lambda s, c: ItemState(),
 		}
 		self._state = visitors[self.action](self.subject, self.settings)
