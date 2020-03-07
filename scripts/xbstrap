@@ -93,13 +93,18 @@ def installtree(src_root, dest_root):
 			else:
 				shutil.copy2(src_path, dest_path)
 
+class ResetMode(Enum):
+	NONE = 0
+	RESET = 1
+	HARD_RESET = 1
+
 class ItemSettings:
 	def __init__(self):
 		# 0 = Do not check for updates.
 		# 1 = Check for updates.
 		# 2 = Check even for "crazy" updates (e.g., modification of VCS tags).
 		self.check_remotes = 0
-		self.reset = False
+		self.reset = ResetMode.NONE
 
 ItemState = namedtuple('ItemState', ['missing', 'updatable', 'timestamp'],
 		defaults=[False, False, None])
@@ -991,14 +996,16 @@ def checkout_src(cfg, src, settings):
 				cwd=src.source_dir) != 0
 
 		if 'tag' in source:
-			if init or settings.reset:
+			if not init and settings.reset == ResetMode.HARD_RESET:
+				subprocess.check_call(['git', 'reset', '--hard'], cwd=src.source_dir)
+			if init or settings.reset != ResetMode.NONE:
 				subprocess.check_call(['git', 'checkout', '--detach',
 						'refs/tags/' + source['tag']], cwd=src.source_dir)
 			else:
 				raise RuntimeError("Refusing to checkout tag '{}' of source {}".format(
 						source['tag'], src.name));
 		else:
-			if init or settings.reset:
+			if init or settings.reset != ResetMode.NONE:
 				subprocess.check_call(['git', 'checkout', '-B', source['branch'],
 						'origin/' + source['branch']], cwd=src.source_dir)
 			else:
@@ -1424,7 +1431,8 @@ class Plan:
 		self.recursive = False
 		self.paranoid = False
 		self.wanted = set()
-		self.reset = False
+		self.reset = ResetMode.NONE
+		self.hard = False
 
 	def _materialize_item(self, action, subject):
 		item = PlanItem(action, subject, self._settings)
@@ -1824,7 +1832,9 @@ def handle_plan_args(cfg, plan, args):
 	if args.paranoid:
 		plan.paranoid = True
 	if args.reset:
-		plan.reset = True
+		plan.reset = ResetMode.RESET
+	if args.hard_reset:
+		plan.reset = ResetMode.HARD_RESET
 
 handle_plan_args.parser = argparse.ArgumentParser(add_help=False)
 handle_plan_args.parser.add_argument('-n', '--dry-run', action='store_true',
@@ -1839,6 +1849,8 @@ handle_plan_args.parser.add_argument('--paranoid', action='store_true',
 		help="also consider unlikely updates (e.g., changes of git tags)")
 handle_plan_args.parser.add_argument('--reset', action='store_true',
 		help="reset repository state; risks loss of local commits!")
+handle_plan_args.parser.add_argument('--hard-reset', action='store_true',
+		help="clean and reset repository state; risks loss of local changes and commits!")
 
 def do_fetch(args):
 	cfg = config_for_dir()
