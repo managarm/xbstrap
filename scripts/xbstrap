@@ -21,7 +21,7 @@ verbosity = False
 use_xbps = False
 
 def touch(path):
-	with open(path, 'a') as f:
+	with open(path, 'w') as f:
 		pass
 
 def try_mkdir(path, recursive=False):
