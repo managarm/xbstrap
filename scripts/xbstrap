@@ -381,9 +381,11 @@ class Source(RequirementsMixin):
 				return ItemState(missing=True)
 			if 'tag' in self._this_yml:
 				ref = 'refs/tags/' + self._this_yml['tag']
+				tracking_ref = 'refs/tags/' + self._this_yml['tag']
 			else:
 				ref = 'refs/heads/' + self._this_yml['branch']
-			local_commit = get_local_commit(ref)
+				tracking_ref = 'refs/remotes/origin/' + self._this_yml['branch']
+			local_commit = get_local_commit(tracking_ref)
 			if local_commit is None:
 				return ItemState(missing=True)
 
