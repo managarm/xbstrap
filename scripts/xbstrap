@@ -1007,12 +1007,16 @@ def checkout_src(cfg, src, settings):
 				raise RuntimeError("Refusing to checkout tag '{}' of source {}".format(
 						source['tag'], src.name));
 		else:
+			commit = 'origin/' + source['branch']
+			if 'commit' in source:
+				commit = source['commit']
 			if init or settings.reset != ResetMode.NONE:
-				subprocess.check_call(['git', 'checkout', '-B', source['branch'],
-						'origin/' + source['branch']], cwd=src.source_dir)
+				subprocess.check_call(['git', 'checkout', '--no-track',
+						'-B', source['branch'], commit], cwd=src.source_dir)
+				subprocess.call(['git', 'branch',
+						'-u', 'refs/remotes/origin/' + source['branch']], cwd=src.source_dir)
 			else:
-				subprocess.check_call(['git', 'rebase',
-						'origin/' + source['branch']], cwd=src.source_dir)
+				subprocess.check_call(['git', 'rebase', commit], cwd=src.source_dir)
 	elif 'hg' in source:
 		args = ['hg', 'checkout']
 		if 'tag' in source:
