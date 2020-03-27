@@ -116,7 +116,7 @@ class Config:
 		self._tool_pkgs = dict()
 		self._tool_stages = dict()
 		self._target_pkgs = dict()
-		self._run_tasks = dict()
+		self._tasks = dict()
 
 		if 'sources' in self._root_yml and isinstance(self._root_yml['sources'], list):
 			for src_yml in self._root_yml['sources']:
@@ -145,12 +145,12 @@ class Config:
 				pkg = TargetPackage(self, pkg_yml)
 				self._target_pkgs[pkg.name] = pkg
 
-		if 'run' in self._root_yml and isinstance(self._root_yml['run'], list):
-			for task_yml in self._root_yml['run']:
+		if 'tasks' in self._root_yml and isinstance(self._root_yml['tasks'], list):
+			for task_yml in self._root_yml['tasks']:
 				if not 'name' in task_yml:
 					raise RuntimeError("no name specified for task");
-				run = RunTask(self, task_yml)
-				self._run_tasks[run.name] = run
+				task = RunTask(self, task_yml)
+				self._tasks[task.name] = task
 
 	@property
 	def repository_url(self):
@@ -215,8 +215,8 @@ class Config:
 		return self._tool_pkgs[name]
 
 	def get_task(self, name):
-		if name in self._run_tasks:
-			return self._run_tasks[name]
+		if name in self._tasks:
+			return self._tasks[name]
 
 	def all_tools(self):
 		yield from self._tool_pkgs.values()
@@ -661,7 +661,7 @@ class TargetPackage(RequirementsMixin):
 		self._this_yml = pkg_yml
 		self._configure_steps = [ ]
 		self._build_steps = [ ]
-		self._run_tasks = dict()
+		self._tasks = dict()
 
 		if 'configure' in self._this_yml:
 			for step_yml in self._this_yml['configure']:
@@ -671,11 +671,11 @@ class TargetPackage(RequirementsMixin):
 			for step_yml in self._this_yml['build']:
 				self._build_steps.append(ScriptStep(step_yml))
 
-		if 'run' in self._this_yml:
-			for task_yml in self._this_yml['run']:
+		if 'tasks' in self._this_yml:
+			for task_yml in self._this_yml['tasks']:
 				if not 'name' in task_yml:
 					raise RuntimeError("no name specified in task of package {}".format(self.name))
-				self._run_tasks[task_yml['name']] = PackageRunTask(cfg, self, task_yml)
+				self._tasks[task_yml['name']] = PackageRunTask(cfg, self, task_yml)
 
 	@property
 	def source(self):
@@ -738,8 +738,8 @@ class TargetPackage(RequirementsMixin):
 		return "0.0_0"
 
 	def get_task(self, task):
-		if task in self._run_tasks:
-			return self._run_tasks[task]
+		if task in self._tasks:
+			return self._tasks[task]
 		return False
 
 	def check_if_configured(self, settings):
@@ -828,10 +828,6 @@ class PackageRunTask(RequirementsMixin):
 	def source(self):
 		return self._pkg.source
 
-	@property
-	def check_staging(self):
-		return self._pkg.check_staging
-
 class RunTask(RequirementsMixin):
 	def __init__(self, cfg, task_yml):
 		self._cfg = cfg
@@ -852,11 +848,12 @@ class RunTask(RequirementsMixin):
 		return self.name
 
 	@property
+	def is_implicit(self):
+		return False
+
+	@property
 	def subject_type(self):
 		return 'task'
-
-	def _this_yml(self):
-		return self._this_yml
 
 def config_for_dir():
 	with open('bootstrap.link', 'r') as f:
@@ -1343,25 +1340,22 @@ def archive_pkg(cfg, pkg):
 				tar.add(os.path.join(pkg.staging_dir, ent), arcname=ent)
 
 def run_task(cfg, task):
-	if isinstance(task, PackageRunTask):
-		run_pkg_task(cfg, task)
-	elif isinstance(task, RunTask):
-		tools_required = []
-		for dep_name in task.tools_required:
-			tools_required.append(cfg.get_tool_pkg(dep_name))
+	tools_required = []
+	for dep_name in task.tools_required:
+		tools_required.append(cfg.get_tool_pkg(dep_name))
 
-		def substitute(varname):
-			if varname == 'SOURCE_ROOT':
-				return cfg.source_root
-			elif varname == 'BUILD_ROOT':
-				return cfg.build_root
-			elif varname == 'SYSROOT_DIR':
-				return cfg.sysroot_dir
-			elif varname == 'PARALLELISM':
-				nthreads = get_concurrency()
-				return str(nthreads)
+	def substitute(varname):
+		if varname == 'SOURCE_ROOT':
+			return cfg.source_root
+		elif varname == 'BUILD_ROOT':
+			return cfg.build_root
+		elif varname == 'SYSROOT_DIR':
+			return cfg.sysroot_dir
+		elif varname == 'PARALLELISM':
+			nthreads = get_concurrency()
+			return str(nthreads)
 
-		run_step(cfg, task.script_step, cfg.source_root, substitute, tools_required, for_package=False)
+	run_step(cfg, task.script_step, cfg.source_root, substitute, tools_required, for_package=False)
 
 
 def run_pkg_task(cfg, task):
@@ -1609,10 +1603,12 @@ class Plan:
 			item.build_edges.add((action.BUILD_PKG, subject))
 
 		elif action == Action.RUN:
+			add_implicit_pkgs()
+			add_pkg_dependencies(subject)
 			add_tool_dependencies(subject)
 
 		elif action == Action.RUN_PKG:
-			item.build_edges.add((action.BUILD_PKG, subject))
+			item.build_edges.add((action.BUILD_PKG, subject.pkg))
 			add_implicit_pkgs()
 			add_pkg_dependencies(subject)
 			add_tool_dependencies(subject)
@@ -2205,9 +2201,7 @@ def do_run_task(args):
 
 	plan.run_plan()
 
-do_run_task.parser = main_subparsers.add_parser('run',
-		parents=[handle_plan_args.parser,
-			reconfigure_pkgs_parser, rebuild_pkgs_parser])
+do_run_task.parser = main_subparsers.add_parser('run', parents=[handle_plan_args.parser])
 do_run_task.parser.add_argument('--pkg', nargs=1, required=False, type=str)
 do_run_task.parser.add_argument('task', nargs=1, type=str)
 
