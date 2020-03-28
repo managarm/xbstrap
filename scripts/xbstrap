@@ -304,6 +304,25 @@ class RequirementsMixin:
 
 		# TODO: Secondly, return explicit dependencies.
 
+	@property
+	def task_dependencies(self):
+		if 'tasks_required' in self._this_yml:
+			for yml in self._this_yml['tasks_required']:
+				if isinstance(yml, dict):
+					if 'order_only' not in yml or not yml['order_only']:
+						yield yml['task']
+				else:
+					assert isinstance(yml, str)
+					yield yml
+
+	@property
+	def tasks_ordered_before(self):
+		if 'tasks_required' in self._this_yml:
+			for yml in self._this_yml['tasks_required']:
+				if isinstance(yml, dict):
+					if 'order_only' in yml and yml['order_only']:
+						yield yml['task']
+
 	def xbps_dependency_string(self):
 		deps = ''
 		for dep in self.pkg_dependencies:
@@ -1475,9 +1494,9 @@ class PlanItem:
 			Action.CONFIGURE_PKG: lambda s, c: s.check_if_configured(c),
 			Action.BUILD_PKG: lambda s, c: s.check_staging(c),
 			Action.INSTALL_PKG: lambda s, c: s.check_if_installed(c),
-			Action.ARCHIVE_PKG: lambda s, c: ItemState(),
-			Action.RUN: lambda s, c: ItemState(),
-			Action.RUN_PKG: lambda s, c: ItemState(),
+			Action.ARCHIVE_PKG: lambda s, c: ItemState(missing=True),
+			Action.RUN: lambda s, c: ItemState(missing=True),
+			Action.RUN_PKG: lambda s, c: ItemState(missing=True),
 		}
 		self._state = visitors[self.action](self.subject, self.settings)
 
@@ -1535,6 +1554,14 @@ class Plan:
 				dep_pkg = self._cfg.get_target_pkg(pkg_name)
 				item.require_edges.add((action.INSTALL_PKG, dep_pkg))
 
+		def add_task_dependencies(s):
+			for task_name in s.task_dependencies:
+				dep_task = self._cfg.get_task(task_name)
+				item.require_edges.add((action.RUN, dep_task))
+			for task_name in s.tasks_ordered_before:
+				dep_task = self._cfg.get_task(task_name)
+				item.order_before_edges.add((action.RUN, dep_task))
+
 		sid = subject.subject_id
 
 		if action == Action.FETCH_SRC:
@@ -1559,6 +1586,7 @@ class Plan:
 
 			add_tool_dependencies(subject)
 			add_pkg_dependencies(subject)
+			add_task_dependencies(subject)
 
 		elif action == Action.COMPILE_TOOL_STAGE:
 			item.build_edges.add((action.CONFIGURE_TOOL, subject.pkg))
@@ -1566,6 +1594,7 @@ class Plan:
 			add_tool_dependencies(subject.pkg)
 			add_tool_dependencies(subject)
 			add_pkg_dependencies(subject)
+			add_task_dependencies(subject)
 
 		elif action == Action.INSTALL_TOOL_STAGE:
 			item.build_edges.add((action.COMPILE_TOOL_STAGE, subject))
@@ -1573,6 +1602,7 @@ class Plan:
 			add_tool_dependencies(subject.pkg)
 			add_tool_dependencies(subject)
 			add_pkg_dependencies(subject)
+			add_task_dependencies(subject)
 
 		elif action == Action.CONFIGURE_PKG:
 			src = self._cfg.get_source(subject.source)
@@ -1582,6 +1612,7 @@ class Plan:
 			add_implicit_pkgs()
 			add_pkg_dependencies(subject)
 			add_tool_dependencies(subject)
+			add_task_dependencies(subject)
 
 		elif action == Action.BUILD_PKG:
 			item.build_edges.add((action.CONFIGURE_PKG, subject))
@@ -1591,6 +1622,7 @@ class Plan:
 			add_implicit_pkgs()
 			add_pkg_dependencies(subject)
 			add_tool_dependencies(subject)
+			add_task_dependencies(subject)
 
 		elif action == Action.INSTALL_PKG:
 			item.build_edges.add((action.BUILD_PKG, subject))
@@ -1606,12 +1638,14 @@ class Plan:
 			add_implicit_pkgs()
 			add_pkg_dependencies(subject)
 			add_tool_dependencies(subject)
+			add_task_dependencies(subject)
 
 		elif action == Action.RUN_PKG:
 			item.build_edges.add((action.BUILD_PKG, subject.pkg))
 			add_implicit_pkgs()
 			add_pkg_dependencies(subject)
 			add_tool_dependencies(subject)
+			add_task_dependencies(subject)
 
 		return item
 
