@@ -2215,29 +2215,28 @@ def do_run_task(args):
 
 	cfg = config_for_dir()
 	plan = Plan(cfg)
-
-	if args.pkg:
-		sel = select_pkgs(cfg, args)
-		if not sel[0].get_task(args.task[0]):
-			raise RuntimeError("task {} of package {} not found".format(args.task[0], sel[0].name));
-	else:
-		sel = []
-
-		if not cfg.get_task(args.task[0]):
-			raise RuntimeError("task {} not found".format(args.task[0]))
-
 	handle_plan_args(cfg, plan, args)
 
 	if args.pkg:
-		plan.wanted.update([(Action.RUN_PKG, pkg.get_task(args.task[0])) for pkg in sel])
+		sel = select_pkgs(cfg, args)
+		for task_name in args.task:
+			task = sel[0].get_task(task_name)
+			if not task:
+				raise RuntimeError("task {} of package {} not found".format(
+						args.task[0], task_name));
+			plan.wanted.add((Action.RUN_PKG, task))
 	else:
-		plan.wanted.update([(Action.RUN, cfg.get_task(args.task[0]))])
+		for task_name in args.task:
+			task = cfg.get_task(task_name)
+			if not task:
+				raise RuntimeError("task {} not found".format(task_name))
+			plan.wanted.add((Action.RUN, task))
 
 	plan.run_plan()
 
 do_run_task.parser = main_subparsers.add_parser('run', parents=[handle_plan_args.parser])
 do_run_task.parser.add_argument('--pkg', nargs=1, required=False, type=str)
-do_run_task.parser.add_argument('task', nargs=1, type=str)
+do_run_task.parser.add_argument('task', nargs='+', type=str)
 
 args = main_parser.parse_args()
 
