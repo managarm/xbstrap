@@ -2288,3 +2288,5 @@ except ExecutionFailureException as e:
 	print('{}xbstrap{}: {}{}{}'.format(colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
 			colorama.Fore.RED, e, colorama.Style.RESET_ALL))
 	sys.exit(1)
+except KeyboardInterrupt as e:
+	sys.exit(1)
