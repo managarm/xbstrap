@@ -108,10 +108,10 @@ class ItemSettings:
 class ItemState:
 	__slots__ = ['missing', 'updatable', 'timestamp']
 
-	def __init__(self):
-		self.missing = False
-		self.updatable = False
-		self.timestamp = None
+	def __init__(self, missing=False, updatable=False, timestamp=None):
+		self.missing = missing
+		self.updatable = updatable
+		self.timestamp = timestamp
 
 class Config:
 	def __init__(self, root_yml):
