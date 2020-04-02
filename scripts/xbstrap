@@ -17,7 +17,6 @@ import colorama
 import yaml
 
 verbosity = False
-use_xbps = False
 
 def touch(path):
 	with open(path, 'w') as f:
@@ -114,8 +113,9 @@ class ItemState:
 		self.timestamp = timestamp
 
 class Config:
-	def __init__(self, root_yml):
+	def __init__(self, root_yml, site_yml):
 		self._root_yml = root_yml
+		self._site_yml = site_yml
 		self._sources = dict()
 		self._tool_pkgs = dict()
 		self._tool_stages = dict()
@@ -163,6 +163,14 @@ class Config:
 		if 'url' not in self._root_yml['repository']:
 			return None
 		return self._root_yml['repository']['url']
+
+	@property
+	def use_xbps(self):
+		if 'pkg_management' not in self._site_yml:
+			return False
+		if 'format' not in self._site_yml['pkg_management']:
+			return False
+		return self._site_yml['pkg_management']['format'] == 'xbps'
 
 	@property
 	def source_root(self):
@@ -785,7 +793,7 @@ class TargetPackage(RequirementsMixin):
 		return ItemState()
 
 	def check_if_installed(self, settings):
-		if use_xbps:
+		if self._cfg.use_xbps:
 			try:
 				out = subprocess.check_output(['xbps-query',
 					'-r', self._cfg.sysroot_dir,
@@ -879,8 +887,18 @@ class RunTask(RequirementsMixin):
 		return 'task'
 
 def config_for_dir():
+	root_yml = None
 	with open('bootstrap.link', 'r') as f:
-		return Config(yaml.load(f, Loader=yaml.SafeLoader))
+		root_yml = yaml.load(f, Loader=yaml.SafeLoader)
+
+	site_yml = dict()
+	try:
+		with open('bootstrap-site.yml', 'r') as f:
+			site_yml = yaml.load(f, Loader=yaml.SafeLoader)
+	except FileNotFoundError:
+		pass
+
+	return Config(root_yml, site_yml)
 
 class EnvironmentComposer:
 	def __init__(self, cfg):
@@ -1329,7 +1347,7 @@ def install_pkg(cfg, pkg):
 	# constraint: the sysroot directory must be located in the build root
 	try_mkdir(cfg.sysroot_dir)
 
-	if use_xbps:
+	if cfg.use_xbps:
 		if subprocess.call(['xbps-install', '-y',
 				'-r', cfg.sysroot_dir,
 				'--repository', cfg.xbps_repository_dir,
@@ -1340,7 +1358,7 @@ def install_pkg(cfg, pkg):
 		pkg.mark_as_installed()
 
 def archive_pkg(cfg, pkg):
-	if use_xbps:
+	if cfg.use_xbps:
 		print(pkg.xbps_dependency_string())
 		try_mkdir(cfg.xbps_repository_dir)
 		print(['xbps-create', '-A', 'x86_64',
@@ -1890,8 +1908,6 @@ class Plan:
 main_parser = argparse.ArgumentParser()
 main_parser.add_argument('-v', dest='verbose', action='store_true',
 		help="verbose")
-main_parser.add_argument('--xbps', dest='use_xbps', action='store_true',
-		help="use xbps")
 main_subparsers = main_parser.add_subparsers(dest='command')
 
 def do_runtool(args):
@@ -2248,8 +2264,6 @@ colorama.init()
 
 if args.verbose:
 	verbosity = True
-if args.use_xbps:
-	use_xbps = True
 
 try:
 	if args.command == 'init':
