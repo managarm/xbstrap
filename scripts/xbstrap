@@ -2356,7 +2356,7 @@ def do_run_task(args):
 	plan.run_plan()
 
 do_run_task.parser = main_subparsers.add_parser('run', parents=[handle_plan_args.parser])
-group = do_run_task.parser.add_mutually_exclusive_group(required=True)
+group = do_run_task.parser.add_mutually_exclusive_group(required=False)
 group.add_argument('--pkg', nargs=1, required=False, type=str)
 group.add_argument('--tool', nargs=1, required=False, type=str)
 do_run_task.parser.add_argument('task', nargs='+', type=str)
