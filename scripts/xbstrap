@@ -122,15 +122,26 @@ class Config:
 		self._target_pkgs = dict()
 		self._tasks = dict()
 
-		if 'sources' in self._root_yml and isinstance(self._root_yml['sources'], list):
-			for src_yml in self._root_yml['sources']:
+		self._parse_yml(self._root_yml)
+
+	def _parse_yml(self, current_yml):
+		if 'imports' in current_yml and isinstance(current_yml['imports'], list):
+			if current_yml is not self._root_yml:
+				raise RuntimeError("Nested imports are not supported")
+			for file_name in current_yml['imports']:
+				with open(file_name, 'r') as f:
+					import_yml = yaml.load(f, Loader=yaml.SafeLoader)
+				self._parse_yml(import_yml)
+
+		if 'sources' in current_yml and isinstance(current_yml['sources'], list):
+			for src_yml in current_yml['sources']:
 				src = Source(self, None, src_yml)
 				if src.name in self._sources:
 					raise RuntimeError("Duplicate source {}".format(src.name))
 				self._sources[src.name] = src
 
-		if 'tools' in self._root_yml and isinstance(self._root_yml['tools'], list):
-			for pkg_yml in self._root_yml['tools']:
+		if 'tools' in current_yml and isinstance(current_yml['tools'], list):
+			for pkg_yml in current_yml['tools']:
 				if 'source' in pkg_yml:
 					src = Source(self, pkg_yml['name'], pkg_yml['source'])
 					if src.name in self._sources:
@@ -139,8 +150,8 @@ class Config:
 				pkg = HostPackage(self, pkg_yml)
 				self._tool_pkgs[pkg.name] = pkg
 
-		if 'packages' in self._root_yml and isinstance(self._root_yml['packages'], list):
-			for pkg_yml in self._root_yml['packages']:
+		if 'packages' in current_yml and isinstance(current_yml['packages'], list):
+			for pkg_yml in current_yml['packages']:
 				if 'source' in pkg_yml:
 					src = Source(self, pkg_yml['name'], pkg_yml['source'])
 					if src.name in self._sources:
@@ -149,8 +160,8 @@ class Config:
 				pkg = TargetPackage(self, pkg_yml)
 				self._target_pkgs[pkg.name] = pkg
 
-		if 'tasks' in self._root_yml and isinstance(self._root_yml['tasks'], list):
-			for task_yml in self._root_yml['tasks']:
+		if 'tasks' in current_yml and isinstance(current_yml['tasks'], list):
+			for task_yml in current_yml['tasks']:
 				if not 'name' in task_yml:
 					raise RuntimeError("no name specified for task");
 				task = RunTask(self, task_yml)
