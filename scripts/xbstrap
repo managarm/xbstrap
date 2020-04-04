@@ -593,6 +593,7 @@ class HostPackage(RequirementsMixin):
 		self._this_yml = pkg_yml
 		self._configure_steps = [ ]
 		self._stages = dict()
+		self._tasks = dict()
 
 		if 'stages' in self._this_yml:
 			for stage_yml in self._this_yml['stages']:
@@ -605,6 +606,12 @@ class HostPackage(RequirementsMixin):
 		if 'configure' in self._this_yml:
 			for step_yml in self._this_yml['configure']:
 				self._configure_steps.append(ScriptStep(step_yml))
+
+		if 'tasks' in self._this_yml:
+			for task_yml in self._this_yml['tasks']:
+				if not 'name' in task_yml:
+					raise RuntimeError("no name specified in task of tool {}".format(self.name))
+				self._tasks[task_yml['name']] = PackageRunTask(cfg, self, task_yml)
 
 	@property
 	def exports_shared_libs(self):
@@ -667,6 +674,11 @@ class HostPackage(RequirementsMixin):
 
 	def get_stage(self, name):
 		return self._stages[name]
+
+	def get_task(self, task):
+		if task in self._tasks:
+			return self._tasks[task]
+		return False
 
 	@property
 	def configure_steps(self):
@@ -1425,6 +1437,32 @@ def run_pkg_task(cfg, task):
 
 	run_step(cfg, task.script_step, task.pkg.build_dir, substitute, tools_required, for_package=False)
 
+def run_tool_task(cfg, task):
+	src = cfg.get_source(task.pkg.source)
+
+	tools_required = []
+	for dep_name in task.pkg.tools_required:
+		tools_required.append(cfg.get_tool_pkg(dep_name))
+
+	def substitute(varname):
+		if varname == 'SOURCE_ROOT':
+			return cfg.source_root
+		elif varname == 'BUILD_ROOT':
+			return cfg.build_root
+		elif varname == 'SYSROOT_DIR':
+			return cfg.sysroot_dir
+		elif varname == 'THIS_SOURCE_DIR':
+			return src.source_dir
+		elif varname == 'THIS_BUILD_DIR':
+			return task._pkg.build_dir
+		elif varname == 'PREFIX':
+			return task._pkg.prefix_dir
+		elif varname == 'PARALLELISM':
+			nthreads = get_concurrency()
+			return str(nthreads)
+
+	run_step(cfg, task.script_step, task.pkg.build_dir, substitute, tools_required, for_package=False)
+
 # ---------------------------------------------------------------------------------------
 # Build planning.
 # ---------------------------------------------------------------------------------------
@@ -1447,6 +1485,7 @@ class Action(Enum):
 	ARCHIVE_PKG = 11
 	RUN = 12
 	RUN_PKG = 13
+	RUN_TOOL = 14
 
 Action.strings = {
 	Action.FETCH_SRC: 'fetch',
@@ -1462,6 +1501,7 @@ Action.strings = {
 	Action.ARCHIVE_PKG: 'archive',
 	Action.RUN: 'run',
 	Action.RUN_PKG: 'run',
+	Action.RUN_TOOL: 'run',
 }
 
 class PlanState(Enum):
@@ -1519,6 +1559,7 @@ class PlanItem:
 			Action.ARCHIVE_PKG: lambda s, c: ItemState(missing=True),
 			Action.RUN: lambda s, c: ItemState(missing=True),
 			Action.RUN_PKG: lambda s, c: ItemState(missing=True),
+			Action.RUN_TOOL: lambda s, c: ItemState(missing=True),
 		}
 		self._state = visitors[self.action](self.subject, self.settings)
 
@@ -1667,6 +1708,15 @@ class Plan:
 			add_implicit_pkgs()
 			add_pkg_dependencies(subject)
 			add_tool_dependencies(subject)
+			add_task_dependencies(subject)
+
+		elif action == Action.RUN_TOOL:
+			for stage in subject.pkg.all_stages():
+				item.build_edges.add((Action.COMPILE_TOOL_STAGE, stage))
+
+			add_tool_dependencies(subject.pkg)
+			add_tool_dependencies(subject)
+			add_pkg_dependencies(subject)
 			add_task_dependencies(subject)
 
 		return item
@@ -1896,6 +1946,8 @@ class Plan:
 					run_task(self._cfg, subject)
 				elif action == Action.RUN_PKG:
 					run_pkg_task(self._cfg, subject)
+				elif action == Action.RUN_TOOL:
+					run_tool_task(self._cfg, subject)
 				else:
 					raise AssertionError("Unexpected action")
 			except subprocess.CalledProcessError:
@@ -2245,6 +2297,15 @@ def do_run_task(args):
 				raise RuntimeError("task {} of package {} not found".format(
 						args.task[0], task_name));
 			plan.wanted.add((Action.RUN_PKG, task))
+	elif args.tool:
+		args.tools = args.tool
+		sel = select_tools(cfg, args)
+		for task_name in args.task:
+			task = sel[0].get_task(task_name)
+			if not task:
+				raise RuntimeError("task {} of tool {} not found".format(
+						args.task[0], task_name));
+			plan.wanted.add((Action.RUN_TOOL, task))
 	else:
 		for task_name in args.task:
 			task = cfg.get_task(task_name)
@@ -2255,7 +2316,9 @@ def do_run_task(args):
 	plan.run_plan()
 
 do_run_task.parser = main_subparsers.add_parser('run', parents=[handle_plan_args.parser])
-do_run_task.parser.add_argument('--pkg', nargs=1, required=False, type=str)
+group = do_run_task.parser.add_mutually_exclusive_group(required=True)
+group.add_argument('--pkg', nargs=1, required=False, type=str)
+group.add_argument('--tool', nargs=1, required=False, type=str)
 do_run_task.parser.add_argument('task', nargs='+', type=str)
 
 args = main_parser.parse_args()
