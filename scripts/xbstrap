@@ -124,18 +124,41 @@ class Config:
 
 		self._parse_yml(self._root_yml)
 
-	def _parse_yml(self, current_yml):
+	def _parse_yml(self, current_yml, filter_sources = None, filter_tools = None, filter_pkgs = None, filter_tasks = None):
 		if 'imports' in current_yml and isinstance(current_yml['imports'], list):
 			if current_yml is not self._root_yml:
 				raise RuntimeError("Nested imports are not supported")
-			for file_name in current_yml['imports']:
-				with open(file_name, 'r') as f:
+			for import_def in current_yml['imports']:
+				if 'from' not in import_def:
+					raise RuntimeError("Unexpected data in import")
+				with open(import_def['from'], 'r') as f:
 					import_yml = yaml.load(f, Loader=yaml.SafeLoader)
-				self._parse_yml(import_yml)
+
+				filtering = False
+				filters = ['sources', 'tools', 'packages', 'tasks', 'all_sources', 'all_tools', 'all_packages', 'all_tasks']
+
+				for f in filters:
+					if f in import_def:
+						filtering = True
+				if not filtering:
+					self._parse_yml(import_yml)
+				else:
+					filter = dict()
+					for f in ['sources', 'tools', 'packages', 'tasks']:
+						if "all_"+f in import_def:
+							filter[f] = None
+						elif f in import_def:
+							filter[f] = import_def[f]
+						else:
+							filter[f] = []
+					self._parse_yml(import_yml, filter_sources=filter['sources'], filter_tools=filter['tools'], filter_pkgs=filter['packages'], filter_tasks=filter['tasks'])
+
 
 		if 'sources' in current_yml and isinstance(current_yml['sources'], list):
 			for src_yml in current_yml['sources']:
 				src = Source(self, None, src_yml)
+				if not (filter_sources is None) and (src.name not in filter_sources):
+					continue
 				if src.name in self._sources:
 					raise RuntimeError("Duplicate source {}".format(src.name))
 				self._sources[src.name] = src
@@ -148,6 +171,8 @@ class Config:
 						raise RuntimeError("Duplicate source {}".format(src.name))
 					self._sources[src.name] = src
 				pkg = HostPackage(self, pkg_yml)
+				if not (filter_tools is None) and (pkg.name not in filter_tools):
+					continue
 				self._tool_pkgs[pkg.name] = pkg
 
 		if 'packages' in current_yml and isinstance(current_yml['packages'], list):
@@ -158,12 +183,16 @@ class Config:
 						raise RuntimeError("Duplicate source {}".format(src.name))
 					self._sources[src.name] = src
 				pkg = TargetPackage(self, pkg_yml)
+				if not (filter_pkgs is None) and (pkg.name not in filter_pkgs):
+					continue
 				self._target_pkgs[pkg.name] = pkg
 
 		if 'tasks' in current_yml and isinstance(current_yml['tasks'], list):
 			for task_yml in current_yml['tasks']:
 				if not 'name' in task_yml:
-					raise RuntimeError("no name specified for task");
+					raise RuntimeError("no name specified for task")
+				if not (filter_tasks is None) and (task.name not in filter_tasks):
+					continue
 				task = RunTask(self, task_yml)
 				self._tasks[task.name] = task
 
