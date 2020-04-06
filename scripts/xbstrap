@@ -129,21 +129,15 @@ class Config:
 			if current_yml is not self._root_yml:
 				raise RuntimeError("Nested imports are not supported")
 			for import_def in current_yml['imports']:
-				if 'from' not in import_def:
+				if 'from' not in import_def and 'file' not in import_def:
 					raise RuntimeError("Unexpected data in import")
-				with open(import_def['from'], 'r') as f:
-					import_yml = yaml.load(f, Loader=yaml.SafeLoader)
+				elif 'from' in import_def and 'file' in import_def:
+					raise RuntimeError("Unexpected data in import")
 
-				filtering = False
-				filters = ['sources', 'tools', 'packages', 'tasks', 'all_sources', 'all_tools', 'all_packages', 'all_tasks']
-
-				for f in filters:
-					if f in import_def:
-						filtering = True
-				if not filtering:
-					self._parse_yml(import_yml)
-				else:
+				if 'from' in import_def:
 					filter = dict()
+					with open(import_def['from'], 'r') as f:
+						import_yml = yaml.load(f, Loader=yaml.SafeLoader)
 					for f in ['sources', 'tools', 'packages', 'tasks']:
 						if "all_"+f in import_def:
 							filter[f] = None
@@ -152,6 +146,10 @@ class Config:
 						else:
 							filter[f] = []
 					self._parse_yml(import_yml, filter_sources=filter['sources'], filter_tools=filter['tools'], filter_pkgs=filter['packages'], filter_tasks=filter['tasks'])
+				elif 'file' in import_def:
+					with open(import_def['file'], 'r') as f:
+						import_yml = yaml.load(f, Loader=yaml.SafeLoader)
+					self._parse_yml(import_yml)
 
 
 		if 'sources' in current_yml and isinstance(current_yml['sources'], list):
