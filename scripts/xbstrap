@@ -373,6 +373,19 @@ class RequirementsMixin:
 					if 'order_only' in yml and yml['order_only']:
 						yield yml['task']
 
+	def discover_recursive_pkg_dependencies(self):
+		s = set()
+		stack = [self]
+		while stack:
+			subject = stack.pop()
+
+			for dep_name in subject.pkg_dependencies:
+				dep = self._cfg.get_target_pkg(dep_name)
+				if dep_name not in s:
+					stack.append(dep)
+				s.add(dep_name)
+		return s
+
 	def xbps_dependency_string(self):
 		deps = ''
 		for dep in self.pkg_dependencies:
@@ -2198,10 +2211,20 @@ def select_pkgs(cfg, args):
 		if args.command == 'run':
 			return [cfg.get_target_pkg(name) for name in args.pkg]
 		else:
-			return [cfg.get_target_pkg(name) for name in args.packages]
+			sel = [cfg.get_target_pkg(name) for name in args.packages]
+
+			for pkg_name in args.deps_of:
+				pkg = cfg.get_target_pkg(pkg_name)
+				sel.append(pkg)
+				for dep_name in pkg.discover_recursive_pkg_dependencies():
+					dep = cfg.get_target_pkg(dep_name)
+					sel.append(dep)
+
+			return sel
 
 select_pkgs.parser = argparse.ArgumentParser(add_help=False)
 select_pkgs.parser.add_argument('--all', action='store_true')
+select_pkgs.parser.add_argument('--deps-of', type=str, action='append')
 select_pkgs.parser.add_argument('packages', nargs='*', type=str)
 
 def reconfigure_and_rebuild_pkgs(plan, args, sel):
