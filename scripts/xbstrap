@@ -2276,7 +2276,7 @@ def do_download(args):
 	if cfg.repository_url is None:
 		raise RuntimeError('No repository URL in bootstrap.yml')
 
-	try_mkdir(cfg.tool_out_dir)
+	try_mkdir(cfg.package_out_dir)
 
 	for pkg in sel:
 		url = urllib.parse.urljoin(cfg.repository_url + '/', pkg.name + '.tar.gz')
