@@ -12,6 +12,7 @@ import sys
 import urllib.parse
 import urllib.request
 import tarfile
+import tempfile
 
 import colorama
 import yaml
@@ -317,6 +318,8 @@ class RequirementsMixin:
 		if 'tools_required' in self._this_yml:
 			for yml in self._this_yml['tools_required']:
 				if isinstance(yml, dict):
+					if 'virtual' in yml:
+						continue
 					yield yml['tool']
 				else:
 					assert isinstance(yml, str)
@@ -328,6 +331,8 @@ class RequirementsMixin:
 		if 'tools_required' in self._this_yml:
 			for yml in self._this_yml['tools_required']:
 				if isinstance(yml, dict):
+					if 'virtual' in yml:
+						continue
 					if 'stage_dependencies' in yml:
 						for stage_name in yml['stage_dependencies']:
 							yield (yml['tool'], stage_name)
@@ -345,6 +350,15 @@ class RequirementsMixin:
 				else:
 					assert isinstance(yml, str)
 					yield (yml, None)
+
+	@property
+	def virtual_tools(self):
+		if 'tools_required' in self._this_yml:
+			for yml in self._this_yml['tools_required']:
+				if not isinstance(yml, dict):
+					continue
+				if 'virtual' in yml:
+					yield yml
 
 	@property
 	def pkg_dependencies(self):
@@ -690,6 +704,8 @@ class HostPackage(RequirementsMixin):
 			for yml in self._this_yml['tools_required']:
 				if not isinstance(yml, dict):
 					continue
+				if 'virtual' in yml:
+					continue
 				if 'recursive' not in yml:
 					continue
 				yield yml['tool']
@@ -970,14 +986,14 @@ class EnvironmentComposer:
 		self.shared_lib_dirs = [ ]
 		self.aclocal_dirs = [ ]
 
-	def compose(self, for_package=False):
+	def compose(self, for_package=False, use_target_pkgconfig=False):
 		environ = os.environ.copy()
 
 		environ['XBSTRAP_SOURCE_ROOT'] = self.cfg.source_root
 		environ['XBSTRAP_BUILD_ROOT'] = self.cfg.build_root
 		environ['XBSTRAP_SYSROOT_DIR'] = self.cfg.sysroot_dir
 
-		if for_package:
+		if for_package and not use_target_pkgconfig:
 			pkgcfg_libdir = os.path.join(self.cfg.sysroot_dir, 'usr', 'lib', 'pkgconfig')
 			pkgcfg_libdir += ':' + os.path.join(self.cfg.sysroot_dir, 'usr', 'share', 'pkgconfig')
 
@@ -1008,10 +1024,29 @@ class EnvironmentComposer:
 		else:
 			environ[varname] = joined
 
-def run_tool(cfg, args, tool_pkgs=[], workdir=None, extra_environ=dict(),
+def run_tool(cfg, args, tool_pkgs=[], virtual_tools=[], workdir=None, extra_environ=dict(),
 		for_package=False, quiet=False):
 	pkg_queue = []
 	pkg_visited = set()
+
+	# /bin directory for virtual tools.
+	use_target_pkgconfig = False
+	vb = tempfile.TemporaryDirectory()
+
+	for yml in virtual_tools:
+		if yml['virtual'] == 'pkgconfig-for-target':
+			vscript = os.path.join(vb.name, '{}-pkg-config'.format(yml['triple']))
+			with open(vscript, 'wt') as f:
+				f.write('#!/bin/sh\n'
+					+ 'PKG_CONFIG_PATH= '
+					+ ' PKG_CONFIG_SYSROOT_DIR="${XBSTRAP_SYSROOT_DIR}"'
+					+ ' PKG_CONFIG_LIBDIR="${XBSTRAP_SYSROOT_DIR}/usr/lib/pkgconfig'
+					+ ':${XBSTRAP_SYSROOT_DIR}/usr/share/pkgconfig"'
+					+ ' pkg-config $@\n')
+			os.chmod(vscript, 0o775)
+			use_targe_pkgconfig = True
+		else:
+			raise RuntimeError("Unknown virtual tool {}".format(yml['virtual']))
 
 	for pkg in tool_pkgs:
 		assert pkg.name not in pkg_visited
@@ -1030,13 +1065,14 @@ def run_tool(cfg, args, tool_pkgs=[], workdir=None, extra_environ=dict(),
 		i += 1
 
 	composer = EnvironmentComposer(cfg)
+	composer.path_dirs.append(vb.name)
 	for pkg in pkg_queue:
 		composer.path_dirs.append(os.path.join(pkg.prefix_dir, 'bin'))
 		if pkg.exports_shared_libs:
 			composer.shared_lib_dirs.append(os.path.join(pkg.prefix_dir, 'lib'))
 		if pkg.exports_aclocal:
 			composer.aclocal_dirs.append(os.path.join(pkg.prefix_dir, 'share/aclocal'))
-	environ = composer.compose(for_package=for_package)
+	environ = composer.compose(for_package=for_package, use_target_pkgconfig=use_target_pkgconfig)
 	environ.update(extra_environ)
 
 	output = None # Default: Do not redirect output.
@@ -1049,7 +1085,7 @@ def run_tool(cfg, args, tool_pkgs=[], workdir=None, extra_environ=dict(),
 	subprocess.check_call(args, env=environ, cwd=workdir,
 			stdout=output, stderr=output)
 
-def run_step(cfg, step, default_workdir, substitute, tool_pkgs,
+def run_step(cfg, step, default_workdir, substitute, tool_pkgs, virtual_tools,
 		for_package=False):
 	if isinstance(step.args, list):
 		args = [replace_at_vars(arg, substitute) for arg in step.args]
@@ -1068,7 +1104,7 @@ def run_step(cfg, step, default_workdir, substitute, tool_pkgs,
 
 	quiet = step.quiet and not verbosity
 
-	run_tool(cfg, args, tool_pkgs=tool_pkgs, workdir=workdir,
+	run_tool(cfg, args, tool_pkgs=tool_pkgs, virtual_tools=virtual_tools, workdir=workdir,
 			extra_environ=environ, for_package=for_package,
 			quiet=quiet)
 
@@ -1236,7 +1272,7 @@ def regenerate_src(cfg, src):
 			if varname == 'THIS_SOURCE_DIR':
 				return src.source_dir
 
-		run_step(cfg, step, src.source_dir, substitute, tool_pkgs)
+		run_step(cfg, step, src.source_dir, substitute, tool_pkgs, src.virtual_tools)
 
 	src.mark_as_regenerated()
 
@@ -1272,7 +1308,7 @@ def configure_tool(cfg, pkg):
 				nthreads = get_concurrency()
 				return str(nthreads)
 
-		run_step(cfg, step, pkg.build_dir, substitute, tool_pkgs)
+		run_step(cfg, step, pkg.build_dir, substitute, tool_pkgs, pkg.virtual_tools)
 
 	pkg.mark_as_configured()
 
@@ -1302,7 +1338,7 @@ def compile_tool_stage(cfg, stage):
 				nthreads = get_concurrency()
 				return str(nthreads)
 
-		run_step(cfg, step, pkg.build_dir, substitute, tool_pkgs)
+		run_step(cfg, step, pkg.build_dir, substitute, tool_pkgs, pkg.virtual_tools)
 
 	stage.mark_as_compiled()
 
@@ -1333,7 +1369,7 @@ def install_tool_stage(cfg, stage):
 			elif varname == 'PREFIX':
 				return pkg.prefix_dir
 
-		run_step(cfg, step, pkg.build_dir, substitute, tool_pkgs)
+		run_step(cfg, step, pkg.build_dir, substitute, tool_pkgs, pkg.virtual_tools)
 
 	stage.mark_as_installed()
 
@@ -1364,7 +1400,7 @@ def configure_pkg(cfg, pkg):
 			elif varname == 'THIS_BUILD_DIR':
 				return pkg.build_dir
 
-		run_step(cfg, step, pkg.build_dir, substitute, tool_pkgs,
+		run_step(cfg, step, pkg.build_dir, substitute, tool_pkgs, pkg.virtual_tools,
 				for_package=True)
 
 	pkg.mark_as_configured()
@@ -1398,7 +1434,7 @@ def build_pkg(cfg, pkg):
 				nthreads = get_concurrency()
 				return str(nthreads)
 
-		run_step(cfg, step, pkg.build_dir, substitute, tool_pkgs,
+		run_step(cfg, step, pkg.build_dir, substitute, tool_pkgs, pkg.virtual_tools,
 				for_package=True)
 
 	postprocess_libtool(cfg, pkg)
@@ -1459,7 +1495,8 @@ def run_task(cfg, task):
 			nthreads = get_concurrency()
 			return str(nthreads)
 
-	run_step(cfg, task.script_step, cfg.source_root, substitute, tools_required, for_package=False)
+	run_step(cfg, task.script_step, cfg.source_root, substitute, tools_required, task.virtual_tools,
+			for_package=False)
 
 
 def run_pkg_task(cfg, task):
@@ -1486,7 +1523,8 @@ def run_pkg_task(cfg, task):
 			nthreads = get_concurrency()
 			return str(nthreads)
 
-	run_step(cfg, task.script_step, task.pkg.build_dir, substitute, tools_required, for_package=False)
+	run_step(cfg, task.script_step, task.pkg.build_dir, substitute, tools_required,
+			task.pkg.virtual_tools, for_package=False)
 
 def run_tool_task(cfg, task):
 	src = cfg.get_source(task.pkg.source)
@@ -1512,7 +1550,8 @@ def run_tool_task(cfg, task):
 			nthreads = get_concurrency()
 			return str(nthreads)
 
-	run_step(cfg, task.script_step, task.pkg.build_dir, substitute, tools_required, for_package=False)
+	run_step(cfg, task.script_step, task.pkg.build_dir, substitute, tools_required,
+			task.pkg.virtual_tools, for_package=False)
 
 # ---------------------------------------------------------------------------------------
 # Build planning.
