@@ -1599,6 +1599,12 @@ class PlanState(Enum):
 	EXPANDING = 1
 	ORDERED = 2
 
+class ExecutionStatus(Enum):
+	NULL = 0
+	SUCCESS = 1
+	STEP_FAILED = 2
+	PREREQS_FAILED = 3
+
 class PlanItem:
 	def __init__(self, action, subject, settings):
 		self.action = action
@@ -1612,10 +1618,13 @@ class PlanItem:
 		self.order_before_edges = set()
 		self.order_after_edges = set()
 
-		self.state = PlanState.NULL
-		self.edge_stack = []
+		self.plan_state = PlanState.NULL
+		self.edge_list = []
+		self.resolved_n = 0 # Number of resolved edges.
 		self.build_span = False
 		self.outdated = False
+
+		self.exec_status = ExecutionStatus.NULL
 
 	@property
 	def is_missing(self):
@@ -1660,6 +1669,10 @@ class ExecutionFailureException(Exception):
 		self.step = step
 		self.subject = subject
 
+class PlanFailureException(Exception):
+	def __init__(self):
+		super().__init__("Plan failed")
+
 class Plan:
 	def __init__(self, cfg):
 		self._cfg = cfg
@@ -1677,6 +1690,7 @@ class Plan:
 		self.wanted = set()
 		self.reset = ResetMode.NONE
 		self.hard = False
+		self.keep_going = False
 
 	def _materialize_item(self, action, subject):
 		item = PlanItem(action, subject, self._settings)
@@ -1823,7 +1837,7 @@ class Plan:
 			if pair not in self._items:
 				continue
 			edge_item = self._items[pair]
-			item.edge_stack.append(pair)
+			item.edge_list.append(pair)
 
 	def _do_materialization(self):
 		# First, call _materialize_item() on all (action, subject) pairs.
@@ -1850,22 +1864,22 @@ class Plan:
 
 			for pair in item.order_after_edges:
 				target_item = self._items[pair]
-				target_item.edge_stack.append((item.action, item.subject))
+				target_item.edge_list.append((item.action, item.subject))
 
 		# The following code does a topologic sort of the desired items.
 		stack = []
 
 		def visit(item):
-			if item.state == PlanState.NULL:
-				item.state = PlanState.EXPANDING
+			if item.plan_state == PlanState.NULL:
+				item.plan_state = PlanState.EXPANDING
 				stack.append(item)
-			elif item.state == PlanState.EXPANDING:
+			elif item.plan_state == PlanState.EXPANDING:
 				for circ_item in stack:
 					print(Action.strings[circ_item.action], circ_item.subject.subject_id)
 				raise RuntimeError("Package has circular dependencies")
 			else:
 				# Packages that are already ordered do not need to be considered again.
-				assert item.state == PlanState.ORDERED
+				assert item.plan_state == PlanState.ORDERED
 
 		for root_item in self._items.values():
 			visit(root_item)
@@ -1873,14 +1887,14 @@ class Plan:
 			while stack:
 				item = stack[-1]
 				(action, subject) = (item.action, item.subject)
-				if not item.edge_stack:
-					assert item.state == PlanState.EXPANDING
-					item.state = PlanState.ORDERED
+				if item.resolved_n == len(item.edge_list):
+					assert item.plan_state == PlanState.EXPANDING
+					item.plan_state = PlanState.ORDERED
 					stack.pop()
 					self._order.append((action, subject))
 				else:
-					edge_item = self._items[item.edge_stack.pop()]
-					assert edge_item
+					edge_item = self._items[item.edge_list[item.resolved_n]]
+					item.resolved_n += 1
 					visit(edge_item)
 
 	def _do_activation(self):
@@ -2004,7 +2018,30 @@ class Plan:
 		if self.dry_run:
 			return
 
+		any_failed_items = False
 		for (n, (action, subject)) in enumerate(scheduled):
+			item = self._items[(action, subject)]
+
+			# Check if any prerequisites failed; this can generally only happen with --keep-going.
+			any_failed_edges = False
+			for edge_pair in item.edge_list:
+				edge_item = self._items[edge_pair]
+				if not edge_item.active:
+					continue
+				assert edge_item.exec_status != ExecutionStatus.NULL
+				if edge_item.exec_status != ExecutionStatus.SUCCESS:
+					any_failed_edges = True
+
+			if self.keep_going and any_failed_edges:
+				print('{}xbstrap{}: Skipping action {} of {} due to failed prerequisites [{}/{}]'.format(
+						colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
+						Action.strings[action], subject.subject_id,
+						n + 1, len(scheduled)))
+				item.exec_status = ExecutionStatus.PREREQS_FAILED
+				any_failed_items = True
+				continue
+
+			assert not any_failed_edges
 			print('{}xbstrap{}: {} {} [{}/{}]'.format(
 					colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
 					Action.strings[action], subject.subject_id,
@@ -2040,8 +2077,35 @@ class Plan:
 					run_tool_task(self._cfg, subject)
 				else:
 					raise AssertionError("Unexpected action")
+				item.exec_status = ExecutionStatus.SUCCESS
 			except subprocess.CalledProcessError:
-				raise ExecutionFailureException(action, subject)
+				if not self.keep_going:
+					raise ExecutionFailureException(action, subject)
+				item.exec_status = ExecutionStatus.STEP_FAILED
+				any_failed_items = True
+
+		if any_failed_items:
+			print('{}xbstrap{}: The following steps failed:'.format(
+					colorama.Style.BRIGHT, colorama.Style.RESET_ALL))
+			for (action, subject) in scheduled:
+				item = self._items[(action, subject)]
+				assert item.exec_status != ExecutionStatus.NULL
+				if item.exec_status == ExecutionStatus.SUCCESS:
+					continue
+
+				if isinstance(subject, HostStage):
+					if subject.stage_name:
+						print('    {:14} {}, stage: {}'.format(Action.strings[action],
+								subject.pkg.name, subject.stage_name), end='')
+					else:
+						print('    {:14} {}'.format(Action.strings[action], subject.pkg.name), end='')
+				else:
+					print('    {:14} {}'.format(Action.strings[action], subject.name), end='')
+				if item.exec_status == ExecutionStatus.PREREQS_FAILED:
+					print(' (prerequisites failed)', end='')
+				print()
+
+			raise PlanFailureException()
 
 # ---------------------------------------------------------------------------------------
 # Command line parsing.
@@ -2110,6 +2174,8 @@ def handle_plan_args(cfg, plan, args):
 		plan.reset = ResetMode.RESET
 	if args.hard_reset:
 		plan.reset = ResetMode.HARD_RESET
+	if args.keep_going:
+		plan.keep_going = True
 
 handle_plan_args.parser = argparse.ArgumentParser(add_help=False)
 handle_plan_args.parser.add_argument('-n', '--dry-run', action='store_true',
@@ -2126,6 +2192,8 @@ handle_plan_args.parser.add_argument('--reset', action='store_true',
 		help="reset repository state; risks loss of local commits!")
 handle_plan_args.parser.add_argument('--hard-reset', action='store_true',
 		help="clean and reset repository state; risks loss of local changes and commits!")
+handle_plan_args.parser.add_argument('--keep-going', action='store_true',
+		help="continue running even if some build steps fail")
 
 def do_fetch(args):
 	cfg = config_for_dir()
@@ -2466,7 +2534,7 @@ try:
 		do_run_task(args)
 	else:
 		assert not "Unexpected command"
-except ExecutionFailureException as e:
+except (ExecutionFailureException, PlanFailureException) as e:
 	print('{}xbstrap{}: {}{}{}'.format(colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
 			colorama.Fore.RED, e, colorama.Style.RESET_ALL))
 	sys.exit(1)
