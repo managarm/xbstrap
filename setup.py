@@ -24,6 +24,7 @@ class CompletionInstall(install):
 
 setup(name='xbstrap',
 	version='0.12',
+	packages=['xbstrap'],
 	scripts=['scripts/xbstrap'],
 	install_requires=[
 		'colorama',
