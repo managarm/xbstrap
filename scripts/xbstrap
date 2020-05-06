@@ -871,6 +871,19 @@ class TargetPackage(RequirementsMixin):
 			return ItemState(missing=True)
 		return ItemState()
 
+	def check_if_packed(self, settings):
+		if self._cfg.use_xbps:
+			try:
+				out = subprocess.check_output(['xbps-query',
+					'--repository=' + self._cfg.xbps_repository_dir,
+					self.name
+				])
+				return ItemState()
+			except subprocess.CalledProcessError:
+				return ItemState(missing=True)
+		else:
+			raise RuntimeError('Package management configuration does not support pack')
+
 	def check_if_installed(self, settings):
 		if self._cfg.use_xbps:
 			try:
@@ -1442,21 +1455,7 @@ def build_pkg(cfg, pkg):
 	try_rmtree(pkg.staging_dir)
 	os.rename(pkg.collect_dir, pkg.staging_dir)
 
-def install_pkg(cfg, pkg):
-	# constraint: the sysroot directory must be located in the build root
-	try_mkdir(cfg.sysroot_dir)
-
-	if cfg.use_xbps:
-		if subprocess.call(['xbps-install', '-y',
-				'-r', cfg.sysroot_dir,
-				'--repository', cfg.xbps_repository_dir,
-				pkg.name]) != 0:
-			raise RuntimeError('package installation failed');
-	else:
-		installtree(pkg.staging_dir, cfg.sysroot_dir)
-		pkg.mark_as_installed()
-
-def archive_pkg(cfg, pkg):
+def pack_pkg(cfg, pkg):
 	if cfg.use_xbps:
 		print(pkg.xbps_dependency_string())
 		try_mkdir(cfg.xbps_repository_dir)
@@ -1475,9 +1474,26 @@ def archive_pkg(cfg, pkg):
 					os.path.join(cfg.xbps_repository_dir,
 						'{}-{}.x86_64.xbps'.format(pkg.name, pkg.version))])
 	else:
-		with tarfile.open(pkg.archive_file, 'w|gz') as tar:
-			for ent in os.listdir(pkg.staging_dir):
-				tar.add(os.path.join(pkg.staging_dir, ent), arcname=ent)
+		raise RuntimeError('Package management configuration does not support pack')
+
+def install_pkg(cfg, pkg):
+	# constraint: the sysroot directory must be located in the build root
+	try_mkdir(cfg.sysroot_dir)
+
+	if cfg.use_xbps:
+		if subprocess.call(['xbps-install', '-fy',
+				'-r', cfg.sysroot_dir,
+				'--repository', cfg.xbps_repository_dir,
+				pkg.name]) != 0:
+			raise RuntimeError('package installation failed');
+	else:
+		installtree(pkg.staging_dir, cfg.sysroot_dir)
+		pkg.mark_as_installed()
+
+def archive_pkg(cfg, pkg):
+	with tarfile.open(pkg.archive_file, 'w|gz') as tar:
+		for ent in os.listdir(pkg.staging_dir):
+			tar.add(os.path.join(pkg.staging_dir, ent), arcname=ent)
 
 def run_task(cfg, task):
 	tools_required = []
@@ -1571,11 +1587,12 @@ class Action(Enum):
 	# Package-related actions.
 	CONFIGURE_PKG = 8
 	BUILD_PKG = 9
-	INSTALL_PKG = 10
-	ARCHIVE_PKG = 11
-	RUN = 12
-	RUN_PKG = 13
-	RUN_TOOL = 14
+	PACK_PKG = 10
+	INSTALL_PKG = 11
+	ARCHIVE_PKG = 12
+	RUN = 13
+	RUN_PKG = 14
+	RUN_TOOL = 15
 
 Action.strings = {
 	Action.FETCH_SRC: 'fetch',
@@ -1587,6 +1604,7 @@ Action.strings = {
 	Action.INSTALL_TOOL_STAGE: 'install-tool',
 	Action.CONFIGURE_PKG: 'configure',
 	Action.BUILD_PKG: 'build',
+	Action.PACK_PKG: 'pack',
 	Action.INSTALL_PKG: 'install',
 	Action.ARCHIVE_PKG: 'archive',
 	Action.RUN: 'run',
@@ -1654,6 +1672,7 @@ class PlanItem:
 			Action.INSTALL_TOOL_STAGE: lambda s, c: s.check_if_installed(c),
 			Action.CONFIGURE_PKG: lambda s, c: s.check_if_configured(c),
 			Action.BUILD_PKG: lambda s, c: s.check_staging(c),
+			Action.PACK_PKG: lambda s, c: s.check_if_packed(c),
 			Action.INSTALL_PKG: lambda s, c: s.check_if_installed(c),
 			Action.ARCHIVE_PKG: lambda s, c: ItemState(missing=True),
 			Action.RUN: lambda s, c: ItemState(missing=True),
@@ -1791,8 +1810,14 @@ class Plan:
 			add_tool_dependencies(subject)
 			add_task_dependencies(subject)
 
-		elif action == Action.INSTALL_PKG:
+		elif action == Action.PACK_PKG:
 			item.build_edges.add((action.BUILD_PKG, subject))
+
+		elif action == Action.INSTALL_PKG:
+			if self._cfg.use_xbps:
+				item.build_edges.add((action.PACK_PKG, subject))
+			else:
+				item.build_edges.add((action.BUILD_PKG, subject))
 
 			# See Action.BUILD_PKG for rationale.
 			add_implicit_pkgs()
@@ -2065,6 +2090,8 @@ class Plan:
 					configure_pkg(self._cfg, subject)
 				elif action == Action.BUILD_PKG:
 					build_pkg(self._cfg, subject)
+				elif action == Action.PACK_PKG:
+					pack_pkg(self._cfg, subject)
 				elif action == Action.INSTALL_PKG:
 					install_pkg(self._cfg, subject)
 				elif action == Action.ARCHIVE_PKG:
@@ -2376,6 +2403,19 @@ do_build.parser = main_subparsers.add_parser('build',
 		parents=[handle_plan_args.parser,
 			reconfigure_pkgs_parser, select_pkgs.parser])
 
+def do_pack(args):
+	cfg = config_for_dir()
+	sel = select_pkgs(cfg, args)
+	plan = Plan(cfg)
+	handle_plan_args(cfg, plan, args)
+	reconfigure_and_rebuild_pkgs(plan, args, sel)
+	plan.wanted.update([(Action.PACK_PKG, pkg) for pkg in sel])
+	plan.run_plan()
+
+do_pack.parser = main_subparsers.add_parser('pack',
+		parents=[handle_plan_args.parser,
+			reconfigure_pkgs_parser, select_pkgs.parser])
+
 def do_download(args):
 	cfg = config_for_dir()
 	sel = select_pkgs(cfg, args)
@@ -2520,6 +2560,8 @@ try:
 		do_configure(args)
 	elif args.command == 'build':
 		do_build(args)
+	elif args.command == 'pack':
+		do_pack(args)
 	elif args.command == 'archive':
 		do_archive(args)
 	elif args.command == 'download':
