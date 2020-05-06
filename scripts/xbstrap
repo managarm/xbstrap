@@ -13,6 +13,7 @@ import urllib.parse
 import urllib.request
 import tarfile
 import tempfile
+import zipfile
 
 import colorama
 import yaml
@@ -1224,12 +1225,16 @@ def checkout_src(cfg, src, settings):
 	else:
 		if src.source_archive_format == 'raw' and 'filename' in source:
 			shutil.copyfile(src.source_archive_file, os.path.join(src.sub_dir, src.name, source['filename']))
+		elif src.source_archive_format.startswith('zip'):
+			with zipfile.ZipFile(src.source_archive_file, 'r') as zip_ref:
+				zip_ref.extractall(src.sub_dir)
 		else:
 			assert src.source_archive_format.startswith('tar.')
 
 			compression = {
 				'tar.gz': 'gz',
-				'tar.xz': 'xz'
+				'tar.xz': 'xz',
+				'tar.bz2': 'bz2'
 			}
 			with tarfile.open(src.source_archive_file,
 					'r|' + compression[src.source_archive_format]) as tar:
