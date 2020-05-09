@@ -2020,6 +2020,18 @@ class Plan:
 							item.outdated = True
 							activate(action, subject)
 
+	def compute_plan(self, no_ordering=False, no_activation=False):
+		self._do_materialization()
+		if no_ordering:
+			return
+		self._do_ordering()
+		if no_activation:
+			return
+		self._do_activation()
+
+	def materialized_steps(self):
+		return self._items.keys()
+
 	def run_plan(self):
 		self._settings = ItemSettings()
 		if self.update:
