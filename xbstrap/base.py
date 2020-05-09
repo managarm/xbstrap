@@ -895,7 +895,7 @@ class TargetPackage(RequirementsMixin):
 				out = subprocess.check_output(['xbps-query',
 					'-r', self._cfg.sysroot_dir,
 					self.name
-					])
+				])
 				if b'state: installed' not in out.splitlines():
 					return ItemState(missing=True)
 				return ItemState()
@@ -1466,22 +1466,31 @@ def build_pkg(cfg, pkg):
 
 def pack_pkg(cfg, pkg):
 	if cfg.use_xbps:
-		print(pkg.xbps_dependency_string())
 		try_mkdir(cfg.xbps_repository_dir)
-		print(['xbps-create', '-A', 'x86_64',
+
+		output = subprocess.DEVNULL
+		if verbosity:
+			output = None
+
+		args = ['xbps-create', '-A', 'x86_64',
 			'-s', pkg.name,
 			'-n', '{}-{}'.format(pkg.name, pkg.version),
 			'-D', pkg.xbps_dependency_string(),
-			pkg.staging_dir])
-		subprocess.call(['xbps-create', '-A', 'x86_64',
-					'-s', pkg.name,
-					'-n', '{}-{}'.format(pkg.name, pkg.version),
-					'-D', pkg.xbps_dependency_string(),
-					pkg.staging_dir],
-					cwd=cfg.xbps_repository_dir)
-		subprocess.call(['xbps-rindex', '-fa',
-					os.path.join(cfg.xbps_repository_dir,
-						'{}-{}.x86_64.xbps'.format(pkg.name, pkg.version))])
+			pkg.staging_dir
+		]
+		print("{}xbstrap{}: Running {}".format(
+				colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
+				args))
+		subprocess.call(args, cwd=cfg.xbps_repository_dir, stdout=output)
+
+		args = ['xbps-rindex', '-fa',
+				os.path.join(cfg.xbps_repository_dir,
+				'{}-{}.x86_64.xbps'.format(pkg.name, pkg.version))
+		]
+		print("{}xbstrap{}: Running {}".format(
+				colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
+				args))
+		subprocess.call(args, stdout=output)
 	else:
 		raise RuntimeError('Package management configuration does not support pack')
 
@@ -1490,11 +1499,19 @@ def install_pkg(cfg, pkg):
 	try_mkdir(cfg.sysroot_dir)
 
 	if cfg.use_xbps:
-		if subprocess.call(['xbps-install', '-fy',
-				'-r', cfg.sysroot_dir,
-				'--repository', cfg.xbps_repository_dir,
-				pkg.name]) != 0:
-			raise RuntimeError('package installation failed');
+		output = subprocess.DEVNULL
+		if verbosity:
+			output = None
+
+		args = ['xbps-install', '-fy',
+			'-r', cfg.sysroot_dir,
+			'--repository', cfg.xbps_repository_dir,
+			pkg.name
+		]
+		print("{}xbstrap{}: Running {}".format(
+				colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
+				args))
+		subprocess.check_call(args, stdout=output)
 	else:
 		installtree(pkg.staging_dir, cfg.sysroot_dir)
 		pkg.mark_as_installed()
