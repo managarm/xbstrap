@@ -102,7 +102,10 @@ def do_compute_graph(args):
 			plan.wanted.update([(xbstrap.base.Action.INSTALL_TOOL_STAGE, stage)
 					for stage in tool.all_stages()])
 		for pkg in item.job.pkgs:
-			plan.wanted.update([(xbstrap.base.Action.BUILD_PKG, pkg)])
+			if cfg.use_xbps:
+				plan.wanted.update([(xbstrap.base.Action.PACK_PKG, pkg)])
+			else:
+				plan.wanted.update([(xbstrap.base.Action.BUILD_PKG, pkg)])
 		plan.compute_plan(no_ordering=True)
 
 		for (action, subject) in plan.materialized_steps():
@@ -191,7 +194,10 @@ def do_run_job(args):
 		plan.wanted.update([(xbstrap.base.Action.INSTALL_TOOL_STAGE, stage)
 				for stage in tool.all_stages()])
 	for pkg in job.pkgs:
-		plan.wanted.update([(xbstrap.base.Action.BUILD_PKG, pkg)])
+		if cfg.use_xbps:
+			plan.wanted.update([(xbstrap.base.Action.PACK_PKG, pkg)])
+		else:
+			plan.wanted.update([(xbstrap.base.Action.BUILD_PKG, pkg)])
 	plan.run_plan()
 
 do_run_job.parser = main_subparsers.add_parser('run-job')
