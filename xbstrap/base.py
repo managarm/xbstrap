@@ -1727,6 +1727,10 @@ class Plan:
 		self.hard = False
 		self.keep_going = False
 
+	@property
+	def cfg(self):
+		return self._cfg
+
 	def _materialize_item(self, action, subject):
 		item = PlanItem(action, subject, self._settings)
 

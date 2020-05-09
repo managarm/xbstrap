@@ -239,14 +239,22 @@ select_pkgs.parser.add_argument('--all', action='store_true')
 select_pkgs.parser.add_argument('--deps-of', type=str, action='append')
 select_pkgs.parser.add_argument('packages', nargs='*', type=str)
 
-def reconfigure_and_rebuild_pkgs(plan, args, sel):
+def reconfigure_and_rebuild_pkgs(plan, args, sel, no_pack=False):
 	if args.reconfigure:
 		for pkg in sel:
 			plan.wanted.add((xbstrap.base.Action.CONFIGURE_PKG, pkg))
 			plan.wanted.add((xbstrap.base.Action.BUILD_PKG, pkg))
+			if no_pack:
+				return
+			if plan.cfg.use_xbps:
+				plan.wanted.add((xbstrap.base.Action.PACK_PKG, pkg))
 	elif args.rebuild:
 		for pkg in sel:
 			plan.wanted.add((xbstrap.base.Action.BUILD_PKG, pkg))
+			if no_pack:
+				return
+			if plan.cfg.use_xbps:
+				plan.wanted.add((xbstrap.base.Action.PACK_PKG, pkg))
 
 reconfigure_pkgs_parser = argparse.ArgumentParser(add_help=False)
 reconfigure_pkgs_parser.add_argument('--reconfigure', action='store_true')
@@ -272,7 +280,7 @@ def do_build(args):
 	sel = select_pkgs(cfg, args)
 	plan = xbstrap.base.Plan(cfg)
 	handle_plan_args(cfg, plan, args)
-	reconfigure_and_rebuild_pkgs(plan, args, sel)
+	reconfigure_and_rebuild_pkgs(plan, args, sel, no_pack=True)
 	plan.wanted.update([(xbstrap.base.Action.BUILD_PKG, pkg) for pkg in sel])
 	plan.run_plan()
 
@@ -285,7 +293,7 @@ def do_pack(args):
 	sel = select_pkgs(cfg, args)
 	plan = xbstrap.base.Plan(cfg)
 	handle_plan_args(cfg, plan, args)
-	reconfigure_and_rebuild_pkgs(plan, args, sel)
+	reconfigure_and_rebuild_pkgs(plan, args, sel, no_pack=True)
 	plan.wanted.update([(xbstrap.base.Action.PACK_PKG, pkg) for pkg in sel])
 	plan.run_plan()
 
