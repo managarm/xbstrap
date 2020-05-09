@@ -763,6 +763,13 @@ class HostPackage(RequirementsMixin):
 		else:
 			os.unlink(os.path.join(self.build_dir, 'configured.xbstrap'))
 
+	def check_if_fully_installed(self, settings):
+		for stage in self.all_stages():
+			state = stage.check_if_installed(settings)
+			if state.missing:
+				return ItemState(missing=True)
+		return ItemState()
+
 class TargetPackage(RequirementsMixin):
 	def __init__(self, cfg, pkg_yml):
 		self._cfg = cfg
@@ -1595,6 +1602,8 @@ class Action(Enum):
 	RUN = 13
 	RUN_PKG = 14
 	RUN_TOOL = 15
+	WANT_TOOL = 16
+	WANT_PKG = 17
 
 Action.strings = {
 	Action.FETCH_SRC: 'fetch',
@@ -1612,6 +1621,8 @@ Action.strings = {
 	Action.RUN: 'run',
 	Action.RUN_PKG: 'run',
 	Action.RUN_TOOL: 'run',
+	Action.WANT_TOOL: 'want-tool',
+	Action.WANT_PKG: 'want-pkg',
 }
 
 class PlanState(Enum):
@@ -1680,6 +1691,8 @@ class PlanItem:
 			Action.RUN: lambda s, c: ItemState(missing=True),
 			Action.RUN_PKG: lambda s, c: ItemState(missing=True),
 			Action.RUN_TOOL: lambda s, c: ItemState(missing=True),
+			Action.WANT_TOOL: lambda s, c: s.check_if_fully_installed(c),
+			Action.WANT_PKG: lambda s, c: s.check_staging(c),
 		}
 		self._state = visitors[self.action](self.subject, self.settings)
 
@@ -1703,6 +1716,7 @@ class Plan:
 		self._items = dict()
 		self._stack = []
 		self._settings = None
+		self.build_scope = None
 		self.dry_run = False
 		self.check = False
 		self.update = False
@@ -1730,7 +1744,9 @@ class Plan:
 		def add_tool_dependencies(s):
 			for (tool_name, stage_name) in s.tool_dependencies:
 				dep_tool = self._cfg.get_tool_pkg(tool_name)
-				if stage_name is None:
+				if self.build_scope is not None and dep_tool not in self.build_scope:
+					item.require_edges.add((action.WANT_TOOL, dep_tool))
+				elif stage_name is None:
 					item.require_edges.update([(action.INSTALL_TOOL_STAGE, stage)
 							for stage in dep_tool.all_stages()])
 				else:
@@ -1816,7 +1832,9 @@ class Plan:
 			item.build_edges.add((action.BUILD_PKG, subject))
 
 		elif action == Action.INSTALL_PKG:
-			if self._cfg.use_xbps:
+			if self.build_scope is not None and subject not in self.build_scope:
+				item.build_edges.add((action.WANT_PKG, subject))
+			elif self._cfg.use_xbps:
 				item.build_edges.add((action.PACK_PKG, subject))
 			else:
 				item.build_edges.add((action.BUILD_PKG, subject))
@@ -2104,10 +2122,18 @@ class Plan:
 					run_pkg_task(self._cfg, subject)
 				elif action == Action.RUN_TOOL:
 					run_tool_task(self._cfg, subject)
+				elif action == Action.WANT_TOOL:
+					# 'want' actions denote dependencies outside of the build scope.
+					# If they are activated, the plan fails unconditionally.
+					raise ExecutionFailureException(action, subject)
+				elif action == Action.WANT_PKG:
+					# 'want' actions denote dependencies outside of the build scope.
+					# If they are activated, the plan fails unconditionally.
+					raise ExecutionFailureException(action, subject)
 				else:
 					raise AssertionError("Unexpected action")
 				item.exec_status = ExecutionStatus.SUCCESS
-			except subprocess.CalledProcessError:
+			except (subprocess.CalledProcessError, ExecutionFailureException):
 				if not self.keep_going:
 					raise ExecutionFailureException(action, subject)
 				item.exec_status = ExecutionStatus.STEP_FAILED
