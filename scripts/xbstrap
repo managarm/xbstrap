@@ -78,6 +78,8 @@ def handle_plan_args(cfg, plan, args):
 		plan.reset = xbstrap.base.ResetMode.RESET
 	if args.hard_reset:
 		plan.reset = xbstrap.base.ResetMode.HARD_RESET
+	if args.only_wanted:
+		plan.only_wanted = True
 	if args.keep_going:
 		plan.keep_going = True
 
@@ -96,6 +98,8 @@ handle_plan_args.parser.add_argument('--reset', action='store_true',
 		help="reset repository state; risks loss of local commits!")
 handle_plan_args.parser.add_argument('--hard-reset', action='store_true',
 		help="clean and reset repository state; risks loss of local changes and commits!")
+handle_plan_args.parser.add_argument('--only-wanted', action='store_true',
+		help="fail steps that are not explicitly wanted")
 handle_plan_args.parser.add_argument('--keep-going', action='store_true',
 		help="continue running even if some build steps fail")
 

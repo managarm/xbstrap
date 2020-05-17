@@ -1652,6 +1652,7 @@ class ExecutionStatus(Enum):
 	SUCCESS = 1
 	STEP_FAILED = 2
 	PREREQS_FAILED = 3
+	NOT_WANTED = 4
 
 class PlanItem:
 	def __init__(self, action, subject, settings):
@@ -1742,6 +1743,7 @@ class Plan:
 		self.wanted = set()
 		self.reset = ResetMode.NONE
 		self.hard = False
+		self.only_wanted = False
 		self.keep_going = False
 
 	@property
@@ -2119,6 +2121,13 @@ class Plan:
 				any_failed_items = True
 				continue
 
+			if self.only_wanted and (action, subject) not in self.wanted:
+				if not self.keep_going:
+					raise ExecutionFailureException(action, subject)
+				item.exec_status = ExecutionStatus.NOT_WANTED
+				any_failed_items = True
+				continue
+
 			assert not any_failed_edges
 			print('{}xbstrap{}: {} {} [{}/{}]'.format(
 					colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
@@ -2191,6 +2200,8 @@ class Plan:
 					print('    {:14} {}'.format(Action.strings[action], subject.name), end='')
 				if item.exec_status == ExecutionStatus.PREREQS_FAILED:
 					print(' (prerequisites failed)', end='')
+				elif item.exec_status == ExecutionStatus.NOT_WANTED:
+					print(' (not wanted)', end='')
 				print()
 
 			raise PlanFailureException()
