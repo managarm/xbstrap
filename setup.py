@@ -23,7 +23,7 @@ class CompletionInstall(install):
 		install.run(self)
 
 setup(name='xbstrap',
-	version='0.13',
+	version='0.13.1',
 	packages=['xbstrap'],
 	scripts=['scripts/xbstrap', 'scripts/xbstrap-pipeline'],
 	install_requires=[
