@@ -519,6 +519,9 @@ class Source(RequirementsMixin):
 				args.append(self._this_yml['branch'])
 			if subprocess.call(args, cwd=self.source_dir, stdout=subprocess.DEVNULL) != 0:
 				return ItemState(missing=True)
+		elif 'svn' in self._this_yml:
+			if not os.path.isdir(self.source_dir):
+				return ItemState(missing=True)
 		else:
 			assert 'url' in self._this_yml
 			if not os.access(self.source_archive_file, os.F_OK):
@@ -1182,6 +1185,11 @@ def fetch_src(cfg, src):
 		try_mkdir(src.source_dir)
 		args = ['hg', 'clone', source['hg'], src.source_dir]
 		subprocess.check_call(args)
+	elif 'svn' in source:
+		try_mkdir(src.source_dir)
+		args = ['svn', 'co', source['svn'], src.source_dir]
+		print (args)
+		subprocess.check_call(args)
 	else:
 		assert 'url' in source
 
@@ -1225,6 +1233,12 @@ def checkout_src(cfg, src, settings):
 			args.append(source['tag'])
 		else:
 			args.append(source['branch'])
+		subprocess.check_call(args, cwd=src.source_dir)
+	elif 'svn' in source:
+		args = ['svn', 'update']
+		if 'rev' in source:
+			args.append('-r')
+			args.append(source['rev'])
 		subprocess.check_call(args, cwd=src.source_dir)
 	else:
 		if src.source_archive_format == 'raw' and 'filename' in source:
