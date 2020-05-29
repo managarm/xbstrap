@@ -1235,8 +1235,11 @@ def checkout_src(cfg, src, settings):
 			args.append(source['branch'])
 		subprocess.check_call(args, cwd=src.source_dir)
 	elif 'svn' in source:
-		# do nothing here? I need a no-op
-		print()
+		args = ['svn', 'update']
+		if 'rev' in source:
+			args.append('-r')
+			args.append(source['rev'])
+		subprocess.check_call(args, cwd=src.source_dir)
 	else:
 		if src.source_archive_format == 'raw' and 'filename' in source:
 			shutil.copyfile(src.source_archive_file, os.path.join(src.sub_dir, src.name, source['filename']))
