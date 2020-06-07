@@ -75,7 +75,12 @@ def installtree(src_root, dest_root):
 		src_path = os.path.join(src_root, name)
 		dest_path = os.path.join(dest_root, name)
 
-		if os.path.isdir(src_path):
+		# We do islink before isdir, as isdir resolves symlinks
+		if os.path.islink(src_path):
+			try_unlink(dest_path)
+			# Do not preserve attributes
+			os.symlink(os.readlink(src_path), dest_path)
+		elif os.path.isdir(src_path):
 			if not os.access(dest_path, os.F_OK):
 				# We only copy attributes when the directory is first created.
 				os.mkdir(dest_path)
@@ -84,11 +89,7 @@ def installtree(src_root, dest_root):
 			installtree(src_path, dest_path)
 		else:
 			try_unlink(dest_path)
-			if os.path.islink(src_path):
-				# Do not preserve attributes
-				os.symlink(os.readlink(src_path), dest_path)
-			else:
-				shutil.copy2(src_path, dest_path)
+			shutil.copy2(src_path, dest_path)
 
 class ResetMode(Enum):
 	NONE = 0
