@@ -147,7 +147,7 @@ class Config:
 							filter[f] = []
 					self._parse_yml(import_yml, filter_sources=filter['sources'], filter_tools=filter['tools'], filter_pkgs=filter['packages'], filter_tasks=filter['tasks'])
 				elif 'file' in import_def:
-					with open(import_def['file'], 'r') as f:
+					with open(os.path.join(os.getcwd(), os.path.dirname(os.readlink('bootstrap.link'))) + '/' + str(import_def['file']), 'r') as f:
 						import_yml = yaml.load(f, Loader=yaml.SafeLoader)
 					self._parse_yml(import_yml)
 
