@@ -18,18 +18,26 @@ import yaml
 
 verbosity = False
 
+global_yaml_loader = yaml.SafeLoader
 global_bootstrap_validator = None
+native_yaml_available = False
+
+try:
+	global_yaml_loader = yaml.CSafeLoader
+	native_yaml_available = True
+except AttributeError:
+	pass
 
 def load_bootstrap_yaml(path):
 	global global_bootstrap_validator
 	if not global_bootstrap_validator:
 		schema_path = os.path.join(os.path.dirname(__file__), 'schema.yml')
 		with open(schema_path, 'r') as f:
-			schema_yml = yaml.load(f, Loader=yaml.SafeLoader)
+			schema_yml = yaml.load(f, Loader=global_yaml_loader)
 		global_bootstrap_validator = jsonschema.Draft7Validator(schema_yml)
 
 	with open(path, 'r') as f:
-		yml = yaml.load(f, Loader=yaml.SafeLoader)
+		yml = yaml.load(f, Loader=global_yaml_loader)
 
 	any_errors = False
 	n = 0
@@ -171,7 +179,7 @@ class Config:
 
 		try:
 			with open(os.path.join(path, 'bootstrap-site.yml'), 'r') as f:
-				self._site_yml = yaml.load(f, Loader=yaml.SafeLoader)
+				self._site_yml = yaml.load(f, Loader=global_yaml_loader)
 		except FileNotFoundError:
 			pass
 

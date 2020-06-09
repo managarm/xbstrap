@@ -426,6 +426,12 @@ colorama.init()
 if args.verbose:
 	xbstrap.base.verbosity = True
 
+if not xbstrap.base.native_yaml_available:
+	print("{}xbstrap{}: {}Using pure Python YAML parser\n"
+			"       : Install libyaml for improved performance{}".format(
+			colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
+			colorama.Fore.YELLOW, colorama.Style.RESET_ALL))
+
 try:
 	if args.command == 'init':
 		do_init(args)
