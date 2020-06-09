@@ -50,6 +50,8 @@ definitions:
         type: object
         additionalProperties: false
         properties:
+            'name':
+                type: string
             'subdir':
                 type: string
             # URL sources.
