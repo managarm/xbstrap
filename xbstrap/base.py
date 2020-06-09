@@ -13,9 +13,49 @@ import tempfile
 import zipfile
 
 import colorama
+import jsonschema
 import yaml
 
 verbosity = False
+
+global_bootstrap_validator = None
+
+def load_bootstrap_yaml(path):
+	global global_bootstrap_validator
+	if not global_bootstrap_validator:
+		schema_path = os.path.join(os.path.dirname(__file__), 'schema.yml')
+		with open(schema_path, 'r') as f:
+			schema_yml = yaml.load(f, Loader=yaml.SafeLoader)
+		global_bootstrap_validator = jsonschema.Draft7Validator(schema_yml)
+
+	with open(path, 'r') as f:
+		yml = yaml.load(f, Loader=yaml.SafeLoader)
+
+	any_errors = False
+	n = 0
+	for e in global_bootstrap_validator.iter_errors(yml):
+		if n == 0:
+			print("{}xbstrap{}: {}Failed to validate boostrap.yml{}".format(
+					colorama.Style.BRIGHT, colorama.Style.NORMAL,
+					colorama.Fore.RED, colorama.Style.RESET_ALL))
+		print("         {}* Error in file: {}, YAML element: {}\n"
+				"           {}{}".format(colorama.Fore.RED,
+				path, '/'.join(str(elem) for elem in e.absolute_path), e.message,
+				colorama.Style.RESET_ALL))
+		any_errors = True
+		n += 1
+		if n >= 10:
+			print("{}xbstrap{}: {}Reporting only the first 10 errors{}".format(
+					colorama.Style.BRIGHT, colorama.Style.NORMAL,
+					colorama.Fore.RED, colorama.Style.RESET_ALL))
+			break
+
+	if any_errors:
+		print("{}xbstrap{}: {}Validation issues will become hard errors in the future{}".format(
+				colorama.Style.BRIGHT, colorama.Style.NORMAL, colorama.Fore.YELLOW,
+				colorama.Style.RESET_ALL))
+
+	return yml
 
 def touch(path):
 	with open(path, 'w') as f:
@@ -126,8 +166,8 @@ class Config:
 		self._bootstrap_path = os.path.join(path,
 				os.path.dirname(os.readlink(os.path.join(path, 'bootstrap.link'))))
 
-		with open(os.path.join(path, 'bootstrap.link'), 'r') as f:
-			self._root_yml = yaml.load(f, Loader=yaml.SafeLoader)
+		root_path = os.path.join(path, os.readlink(os.path.join(path, 'bootstrap.link')))
+		self._root_yml = load_bootstrap_yaml(root_path)
 
 		try:
 			with open(os.path.join(path, 'bootstrap-site.yml'), 'r') as f:
@@ -153,8 +193,7 @@ class Config:
 					import_path = os.path.join(os.path.dirname(current_path),
 							str(import_def['from']))
 					filter = dict()
-					with open(import_path, 'r') as f:
-						import_yml = yaml.load(f, Loader=yaml.SafeLoader)
+					import_yml = load_bootstrap_yaml(import_path)
 					for f in ['sources', 'tools', 'packages', 'tasks']:
 						if "all_"+f in import_def:
 							filter[f] = None
@@ -168,8 +207,7 @@ class Config:
 				elif 'file' in import_def:
 					import_path = os.path.join(os.path.dirname(current_path),
 							str(import_def['file']))
-					with open(import_path, 'r') as f:
-						import_yml = yaml.load(f, Loader=yaml.SafeLoader)
+					import_yml = load_bootstrap_yaml(import_path)
 					self._parse_yml(import_path, import_yml)
 
 		if 'sources' in current_yml and isinstance(current_yml['sources'], list):

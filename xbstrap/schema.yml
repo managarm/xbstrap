@@ -1,0 +1,228 @@
+definitions:
+    'source_deps':
+        type: array
+        items:
+            type: string
+
+    'tool_deps':
+        type: array
+        items:
+            oneOf:
+              - type: string
+              - type: object
+                additionalProperties: false
+                properties:
+                    'tool':
+                        type: string
+                    'recursive':
+                        type: boolean
+                    'stage_dependencies':
+                        type: array
+                        items:
+                            type: string
+              - type: object
+                additionalProperties: false
+                properties:
+                    'virtual':
+                        type: string
+                    'triple':
+                        type: string
+
+    'pkg_deps':
+        type: array
+        items:
+            type: string
+
+    'task_deps':
+        type: array
+        items:
+            oneOf:
+              - type: object
+                additionalProperties: false
+                properties:
+                    'task':
+                        type: string
+                    'order_only':
+                        type: boolean
+              - type: string
+
+    'nested_source':
+        type: object
+        additionalProperties: false
+        properties:
+            'subdir':
+                type: string
+            # URL sources.
+            'url':
+                type: string
+            'format':
+                type: string
+            'extract_path':
+                type: string
+            'patch-path-strip':
+                type: integer
+            # VCS sources.
+            'git':
+                type: string
+            'hg':
+                type: string
+            'tag':
+                type: string
+            'branch':
+                type: string
+            'commit':
+                type: string
+            'disable_shallow_fetch':
+                type: boolean
+            'regenerate': { $ref: '#/definitions/build_steps' }
+            'sources_required': { $ref: '#/definitions/source_deps' }
+            'tools_required': { $ref: '#/definitions/tool_deps' }
+
+    'build_steps':
+        type: array
+        items:
+          - type: object
+            additionalProperties: false
+            properties:
+                'args': { $ref: '#/definitions/args' }
+                'workdir':
+                    type: string
+                'environ':
+                    type: object
+                    additionalProperties:
+                        type: string
+                'quiet':
+                    type: boolean
+
+    'args':
+        oneOf:
+          - type: array
+            items:
+                type: string
+          - type: string
+
+type: object
+additionalProperties: false
+properties:
+    'repository':
+        type: object
+        additionalProperties: false
+        properties:
+            'url':
+                type: string
+    'imports':
+        type: array
+        items:
+            type: object
+            additionalProperties: false
+            properties:
+                'file':
+                    type: string
+    'sources':
+        type: array
+        items:
+            type: object
+            additionalProperties: false
+            required: ['name']
+            properties:
+                'name':
+                    type: string
+                'subdir':
+                    type: string
+                # URL sources.
+                'url':
+                    type: string
+                'format':
+                    type: string
+                'extract_path':
+                    type: string
+                'patch-path-strip':
+                    type: integer
+                # VCS sources.
+                'git':
+                    type: string
+                'hg':
+                    type: string
+                'tag':
+                    type: string
+                'branch':
+                    type: string
+                'commit':
+                    type: string
+                'disable_shallow_fetch':
+                    type: boolean
+                'regenerate': { $ref: '#/definitions/build_steps' }
+                'sources_required': { $ref: '#/definitions/source_deps' }
+                'tools_required': { $ref: '#/definitions/tool_deps' }
+    'tools':
+        type: array
+        items:
+            type: object
+            additionalProperties: false
+            required: ['name']
+            properties:
+                'name':
+                    type: string
+                'source': { $ref: '#/definitions/nested_source' }
+                'from_source':
+                    type: string
+                'exports_aclocal':
+                    type: boolean
+                'exports_shared_libs':
+                    type: boolean
+                'configure': { $ref: '#/definitions/build_steps' }
+                'compile': { $ref: '#/definitions/build_steps' }
+                'install': { $ref: '#/definitions/build_steps' }
+                'stages':
+                    type: array
+                    items:
+                        type: object
+                        additionalProperties: false
+                        required: ['name']
+                        properties:
+                            'name':
+                                type: string
+                            'compile': { $ref: '#/definitions/build_steps' }
+                            'install': { $ref: '#/definitions/build_steps' }
+                            'tools_required': { $ref: '#/definitions/tool_deps' }
+                            'pkgs_required': { $ref: '#/definitions/pkg_deps' }
+                'sources_required': { $ref: '#/definitions/source_deps' }
+                'tools_required': { $ref: '#/definitions/tool_deps' }
+    'packages':
+        type: array
+        items:
+            type: object
+            additionalProperties: false
+            required: ['name']
+            properties:
+                'name':
+                    type: string
+                'default':
+                    type: boolean
+                'implict_package':
+                    type: boolean
+                'source': { $ref: '#/definitions/nested_source' }
+                'from_source':
+                    type: string
+                'configure': { $ref: '#/definitions/build_steps' }
+                'build': { $ref: '#/definitions/build_steps' }
+                'install': { $ref: '#/definitions/build_steps' }
+                'sources_required': { $ref: '#/definitions/source_deps' }
+                'tools_required': { $ref: '#/definitions/tool_deps' }
+                'pkgs_required': { $ref: '#/definitions/pkg_deps' }
+    'tasks':
+        type: array
+        items:
+            type: object
+            additionalProperties: false
+            required: ['name']
+            properties:
+                'name':
+                    type: string
+                'workdir':
+                    type: string
+                'args': { $ref: '#/definitions/args' }
+                'sources_required': { $ref: '#/definitions/source_deps' }
+                'tools_required': { $ref: '#/definitions/tool_deps' }
+                'pkgs_required': { $ref: '#/definitions/pkg_deps' }
+                'tasks_required': { $ref: '#/definitions/task_deps' }

@@ -28,6 +28,7 @@ setup(name='xbstrap',
 	scripts=['scripts/xbstrap', 'scripts/xbstrap-pipeline'],
 	install_requires=[
 		'colorama',
+		'jsonschema',
 		'pyyaml'
 	],
 	cmdclass={
