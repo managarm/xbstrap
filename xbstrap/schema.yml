@@ -55,6 +55,7 @@ definitions:
             # URL sources.
             'url':
                 type: string
+            'filename': { type: string }
             'format':
                 type: string
             'extract_path':
@@ -77,6 +78,26 @@ definitions:
             'regenerate': { $ref: '#/definitions/build_steps' }
             'sources_required': { $ref: '#/definitions/source_deps' }
             'tools_required': { $ref: '#/definitions/tool_deps' }
+
+    'nested_task':
+        type: object
+        additionalProperties: false
+        required: ['name']
+        properties:
+            'name':
+                type: string
+            'workdir':
+                type: string
+            'environ':
+                type: object
+                additionalProperties:
+                    type: string
+            'args': { $ref: '#/definitions/args' }
+            'quiet': { type: boolean }
+            'sources_required': { $ref: '#/definitions/source_deps' }
+            'tools_required': { $ref: '#/definitions/tool_deps' }
+            'pkgs_required': { $ref: '#/definitions/pkg_deps' }
+            'tasks_required': { $ref: '#/definitions/task_deps' }
 
     'build_steps':
         type: array
@@ -110,6 +131,15 @@ properties:
         properties:
             'url':
                 type: string
+    'directories':
+        type: object
+        additionalProperties: false
+        properties:
+            'pkg_builds': { type: string }
+            'tool_builds': { type: string }
+            'packages': { type: string }
+            'tools': { type: string }
+            'system_root': { type: string }
     'imports':
         type: array
         items:
@@ -132,6 +162,7 @@ properties:
                 # URL sources.
                 'url':
                     type: string
+                'filename': { type: string }
                 'format':
                     type: string
                 'extract_path':
@@ -188,6 +219,9 @@ properties:
                             'pkgs_required': { $ref: '#/definitions/pkg_deps' }
                 'sources_required': { $ref: '#/definitions/source_deps' }
                 'tools_required': { $ref: '#/definitions/tool_deps' }
+                'tasks':
+                    type: array
+                    items: { $ref: '#/definitions/nested_task' }
     'packages':
         type: array
         items:
@@ -210,6 +244,9 @@ properties:
                 'sources_required': { $ref: '#/definitions/source_deps' }
                 'tools_required': { $ref: '#/definitions/tool_deps' }
                 'pkgs_required': { $ref: '#/definitions/pkg_deps' }
+                'tasks':
+                    type: array
+                    items: { $ref: '#/definitions/nested_task' }
     'tasks':
         type: array
         items:
@@ -221,7 +258,12 @@ properties:
                     type: string
                 'workdir':
                     type: string
+                'environ':
+                    type: object
+                    additionalProperties:
+                        type: string
                 'args': { $ref: '#/definitions/args' }
+                'quiet': { type: boolean }
                 'sources_required': { $ref: '#/definitions/source_deps' }
                 'tools_required': { $ref: '#/definitions/tool_deps' }
                 'pkgs_required': { $ref: '#/definitions/pkg_deps' }
