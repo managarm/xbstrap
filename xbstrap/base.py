@@ -113,18 +113,33 @@ class ItemState:
 		self.timestamp = timestamp
 
 class Config:
-	def __init__(self, root_yml, site_yml):
-		self._root_yml = root_yml
-		self._site_yml = site_yml
+	def __init__(self, path):
+		self._config_path = path
+		self._root_yml = None
+		self._site_yml = dict()
 		self._sources = dict()
 		self._tool_pkgs = dict()
 		self._tool_stages = dict()
 		self._target_pkgs = dict()
 		self._tasks = dict()
 
-		self._parse_yml(self._root_yml)
+		self._bootstrap_path = os.path.join(path,
+				os.path.dirname(os.readlink(os.path.join(path, 'bootstrap.link'))))
 
-	def _parse_yml(self, current_yml, filter_sources = None, filter_tools = None, filter_pkgs = None, filter_tasks = None):
+		with open(os.path.join(path, 'bootstrap.link'), 'r') as f:
+			self._root_yml = yaml.load(f, Loader=yaml.SafeLoader)
+
+		try:
+			with open(os.path.join(path, 'bootstrap-site.yml'), 'r') as f:
+				self._site_yml = yaml.load(f, Loader=yaml.SafeLoader)
+		except FileNotFoundError:
+			pass
+
+		self._parse_yml(os.path.join(path, os.readlink(os.path.join(path, 'bootstrap.link'))),
+				self._root_yml)
+
+	def _parse_yml(self, current_path, current_yml,
+			filter_sources = None, filter_tools = None, filter_pkgs = None, filter_tasks = None):
 		if 'imports' in current_yml and isinstance(current_yml['imports'], list):
 			if current_yml is not self._root_yml:
 				raise RuntimeError("Nested imports are not supported")
@@ -135,8 +150,10 @@ class Config:
 					raise RuntimeError("Unexpected data in import")
 
 				if 'from' in import_def:
+					import_path = os.path.join(os.path.dirname(current_path),
+							str(import_def['from']))
 					filter = dict()
-					with open(import_def['from'], 'r') as f:
+					with open(import_path, 'r') as f:
 						import_yml = yaml.load(f, Loader=yaml.SafeLoader)
 					for f in ['sources', 'tools', 'packages', 'tasks']:
 						if "all_"+f in import_def:
@@ -145,12 +162,15 @@ class Config:
 							filter[f] = import_def[f]
 						else:
 							filter[f] = []
-					self._parse_yml(import_yml, filter_sources=filter['sources'], filter_tools=filter['tools'], filter_pkgs=filter['packages'], filter_tasks=filter['tasks'])
+					self._parse_yml(import_path, import_yml,
+							filter_sources=filter['sources'], filter_tools=filter['tools'],
+							filter_pkgs=filter['packages'], filter_tasks=filter['tasks'])
 				elif 'file' in import_def:
-					with open(os.path.join(os.getcwd(), os.path.dirname(os.readlink('bootstrap.link'))) + '/' + str(import_def['file']), 'r') as f:
+					import_path = os.path.join(os.path.dirname(current_path),
+							str(import_def['file']))
+					with open(import_path, 'r') as f:
 						import_yml = yaml.load(f, Loader=yaml.SafeLoader)
-					self._parse_yml(import_yml)
-
+					self._parse_yml(import_path, import_yml)
 
 		if 'sources' in current_yml and isinstance(current_yml['sources'], list):
 			for src_yml in current_yml['sources']:
@@ -988,18 +1008,7 @@ class RunTask(RequirementsMixin):
 		return 'task'
 
 def config_for_dir():
-	root_yml = None
-	with open('bootstrap.link', 'r') as f:
-		root_yml = yaml.load(f, Loader=yaml.SafeLoader)
-
-	site_yml = dict()
-	try:
-		with open('bootstrap-site.yml', 'r') as f:
-			site_yml = yaml.load(f, Loader=yaml.SafeLoader)
-	except FileNotFoundError:
-		pass
-
-	return Config(root_yml, site_yml)
+	return Config('')
 
 class EnvironmentComposer:
 	def __init__(self, cfg):
