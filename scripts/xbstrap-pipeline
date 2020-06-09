@@ -4,6 +4,7 @@
 import argparse
 
 import colorama
+import sys
 import xbstrap.base
 import yaml
 
