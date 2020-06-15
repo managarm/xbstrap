@@ -26,7 +26,7 @@ class CompletionInstall(install):
 		install.run(self)
 
 setup(name='xbstrap',
-	version='0.13.1',
+	version='0.14',
 	packages=['xbstrap'],
 	package_data={
 		'xbstrap': ['schema.yml']
