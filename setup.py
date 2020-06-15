@@ -6,6 +6,9 @@ from setuptools import setup
 from setuptools.command.develop import develop
 from setuptools.command.install import install
 
+with open('README.md', 'r') as f:
+	readme = f.read()
+
 class CompletionDevelop(develop):
 	def run(self):
 		if(os.access('/etc/bash_completion.d', os.W_OK)):
@@ -43,6 +46,8 @@ setup(name='xbstrap',
 	author='Alexander van der Grinten',
 	author_email='alexander.vandergrinten@gmail.com',
 	license='MIT',
-	url='https://github.com/managarm/xbstrap'
+	url='https://github.com/managarm/xbstrap',
+	long_description=readme,
+	long_description_content_type='text/markdown'
 )
 
