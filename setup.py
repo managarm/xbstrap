@@ -25,6 +25,9 @@ class CompletionInstall(install):
 setup(name='xbstrap',
 	version='0.13.1',
 	packages=['xbstrap'],
+	package_data={
+		'xbstrap': ['schema.yml']
+	},
 	scripts=['scripts/xbstrap', 'scripts/xbstrap-pipeline'],
 	install_requires=[
 		'colorama',
