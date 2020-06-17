@@ -69,11 +69,15 @@ definitions:
                 type: string
             'hg':
                 type: string
+            'svn':
+                type: string
             'tag':
                 type: string
             'branch':
                 type: string
             'commit':
+                type: string
+            'rev':
                 type: string
             'disable_shallow_fetch':
                 type: boolean
@@ -176,11 +180,15 @@ properties:
                     type: string
                 'hg':
                     type: string
+                'svn':
+                    type: string
                 'tag':
                     type: string
                 'branch':
                     type: string
                 'commit':
+                    type: string
+                'rev':
                     type: string
                 'disable_shallow_fetch':
                     type: boolean
