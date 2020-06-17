@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import urllib.parse
 import urllib.request
+import sys
 import tarfile
 import tempfile
 import zipfile
@@ -45,23 +46,27 @@ def load_bootstrap_yaml(path):
 		if n == 0:
 			print("{}xbstrap{}: {}Failed to validate boostrap.yml{}".format(
 					colorama.Style.BRIGHT, colorama.Style.NORMAL,
-					colorama.Fore.RED, colorama.Style.RESET_ALL))
+					colorama.Fore.RED, colorama.Style.RESET_ALL),
+					file=sys.stderr)
 		print("         {}* Error in file: {}, YAML element: {}\n"
 				"           {}{}".format(colorama.Fore.RED,
 				path, '/'.join(str(elem) for elem in e.absolute_path), e.message,
-				colorama.Style.RESET_ALL))
+				colorama.Style.RESET_ALL),
+				file=sys.stderr)
 		any_errors = True
 		n += 1
 		if n >= 10:
 			print("{}xbstrap{}: {}Reporting only the first 10 errors{}".format(
 					colorama.Style.BRIGHT, colorama.Style.NORMAL,
-					colorama.Fore.RED, colorama.Style.RESET_ALL))
+					colorama.Fore.RED, colorama.Style.RESET_ALL),
+					file=sys.stderr)
 			break
 
 	if any_errors:
 		print("{}xbstrap{}: {}Validation issues will become hard errors in the future{}".format(
 				colorama.Style.BRIGHT, colorama.Style.NORMAL, colorama.Fore.YELLOW,
-				colorama.Style.RESET_ALL))
+				colorama.Style.RESET_ALL),
+				file=sys.stderr)
 
 	return yml
 
