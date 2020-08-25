@@ -1820,6 +1820,7 @@ class Plan:
 		self.hard = False
 		self.only_wanted = False
 		self.keep_going = False
+		self.progress_file = None
 
 	@property
 	def cfg(self):
@@ -2250,10 +2251,30 @@ class Plan:
 				else:
 					raise AssertionError("Unexpected action")
 				item.exec_status = ExecutionStatus.SUCCESS
+				if self.progress_file is not None:
+					yml = {
+						'n_this': n + 1,
+						'n_all': len(scheduled),
+						'status': 'success',
+						'action': Action.strings[action],
+						'subject': subject.subject_id
+					}
+					self.progress_file.write(yaml.dump(yml, explicit_end=True))
+					self.progress_file.flush()
 			except (subprocess.CalledProcessError, ExecutionFailureException):
+				item.exec_status = ExecutionStatus.STEP_FAILED
+				if self.progress_file is not None:
+					yml = {
+						'n_this': n + 1,
+						'n_all': len(scheduled),
+						'status': 'failure',
+						'action': Action.strings[action],
+						'subject': subject.subject_id
+					}
+					self.progress_file.write(yaml.dump(yml, explicit_end=True))
+					self.progress_file.flush()
 				if not self.keep_going:
 					raise ExecutionFailureException(action, subject)
-				item.exec_status = ExecutionStatus.STEP_FAILED
 				any_failed_items = True
 
 		if any_failed_items:

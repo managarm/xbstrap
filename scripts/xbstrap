@@ -10,6 +10,7 @@ import tarfile
 
 import colorama
 import xbstrap.base
+import xbstrap.cli_utils
 
 # ---------------------------------------------------------------------------------------
 # Command line parsing.
@@ -83,6 +84,9 @@ def handle_plan_args(cfg, plan, args):
 	if args.keep_going:
 		plan.keep_going = True
 
+	if args.progress_file is not None:
+		plan.progress_file = xbstrap.cli_utils.open_file_from_cli(args.progress_file, 'wt')
+
 handle_plan_args.parser = argparse.ArgumentParser(add_help=False)
 handle_plan_args.parser.add_argument('-n', '--dry-run', action='store_true',
 		help="compute a plan but do not execute it")
@@ -102,6 +106,8 @@ handle_plan_args.parser.add_argument('--only-wanted', action='store_true',
 		help="fail steps that are not explicitly wanted")
 handle_plan_args.parser.add_argument('--keep-going', action='store_true',
 		help="continue running even if some build steps fail")
+handle_plan_args.parser.add_argument('--progress-file', type=str,
+		help="file that receives machine-ready progress notifications")
 
 def do_fetch(args):
 	cfg = xbstrap.base.config_for_dir()
