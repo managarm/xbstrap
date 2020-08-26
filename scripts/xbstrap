@@ -32,7 +32,7 @@ def do_runtool(args):
 		pkg = cfg.get_target_pkg(args.build)
 
 		workdir = pkg.build_dir
-		tool_pkgs.extend(cfg.get_tool_pkg(name) for name in pkg.tools_required)
+		tool_pkgs.extend(cfg.get_tool_pkg(name) for name in pkg.tool_dependencies)
 		args = args.opts
 		for_package = True
 	else:

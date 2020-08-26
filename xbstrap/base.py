@@ -377,49 +377,53 @@ class ScriptStep:
 class RequirementsMixin:
 	@property
 	def source_dependencies(self):
-		# First, return automatic dependencies induced by 'sources_required'.
 		if 'sources_required' in self._this_yml:
 			yield from self._this_yml['sources_required']
 
-		# TODO: Secondly, return explicit dependencies.
-
-	@property
-	def tools_required(self):
-		if 'tools_required' in self._this_yml:
-			for yml in self._this_yml['tools_required']:
-				if isinstance(yml, dict):
-					if 'virtual' in yml:
-						continue
-					yield yml['tool']
-				else:
-					assert isinstance(yml, str)
-					yield yml
-
 	@property
 	def tool_dependencies(self):
-		# First, return automatic dependencies induced by 'tools_required'.
-		if 'tools_required' in self._this_yml:
-			for yml in self._this_yml['tools_required']:
-				if isinstance(yml, dict):
-					if 'virtual' in yml:
-						continue
-					if 'stage_dependencies' in yml:
-						for stage_name in yml['stage_dependencies']:
-							yield (yml['tool'], stage_name)
-					else:
-						yield (yml['tool'], None)
-				else:
-					assert isinstance(yml, str)
-					yield (yml, None)
+		deps = set(tool_name for tool_name, stage_name in self.tool_stage_dependencies)
+		yield from deps
 
-		# Secondly, return explicit dependencies.
-		if 'tool_dependencies' in self._this_yml:
-			for yml in self._this_yml['tool_dependencies']:
-				if isinstance(yml, dict):
-					yield (yml['tool'], yml['stage'])
+	@property
+	def tool_stage_dependencies(self):
+		tools_seen = set()
+		tools_stack = [ ]
+
+		def visit(stage):
+			if stage.subject_id in tools_seen:
+				return
+			tools_seen.add(stage.subject_id)
+			tools_stack.append(stage)
+
+		def visit_yml(yml):
+			if isinstance(yml, dict):
+				if 'virtual' in yml:
+					return
+				if 'stage_dependencies' in yml:
+					for stage_name in yml['stage_dependencies']:
+						visit(self._cfg.get_tool_pkg(yml['tool']).get_stage(stage_name))
 				else:
-					assert isinstance(yml, str)
-					yield (yml, None)
+					for stage in self._cfg.get_tool_pkg(yml['tool']).all_stages():
+						visit(stage)
+			else:
+				assert isinstance(yml, str)
+				for stage in self._cfg.get_tool_pkg(yml).all_stages():
+					visit(stage)
+
+		for yml in self._this_yml.get('tools_required', []):
+			visit_yml(yml)
+
+		while tools_stack:
+			stage = tools_stack.pop()
+			yield stage.subject_id
+
+			for yml in stage.pkg._this_yml.get('tools_required', []):
+				if not isinstance(yml, dict):
+					continue
+				if not yml.get('recursive', False):
+					continue
+				visit_yml(yml)
 
 	@property
 	def virtual_tools(self):
@@ -432,11 +436,8 @@ class RequirementsMixin:
 
 	@property
 	def pkg_dependencies(self):
-		# First, return automatic dependencies induced by 'pkgs_required'.
 		if 'pkgs_required' in self._this_yml:
 			yield from self._this_yml['pkgs_required']
-
-		# TODO: Secondly, return explicit dependencies.
 
 	@property
 	def task_dependencies(self):
@@ -1356,7 +1357,7 @@ def patch_src(cfg, src):
 def regenerate_src(cfg, src):
 	for step in src.regenerate_steps:
 		tool_pkgs = []
-		for dep_name in src.tools_required:
+		for dep_name in src.tool_dependencies:
 			tool_pkgs.append(cfg.get_tool_pkg(dep_name))
 
 		def substitute(varname):
@@ -1385,7 +1386,7 @@ def configure_tool(cfg, pkg):
 
 	for step in pkg.configure_steps:
 		tool_pkgs = []
-		for dep_name in pkg.tools_required:
+		for dep_name in pkg.tool_dependencies:
 			tool_pkgs.append(cfg.get_tool_pkg(dep_name))
 
 		def substitute(varname):
@@ -1415,7 +1416,7 @@ def compile_tool_stage(cfg, stage):
 
 	for step in stage.compile_steps:
 		tool_pkgs = []
-		for dep_name in pkg.tools_required:
+		for dep_name in pkg.tool_dependencies:
 			tool_pkgs.append(cfg.get_tool_pkg(dep_name))
 
 		def substitute(varname):
@@ -1449,7 +1450,7 @@ def install_tool_stage(cfg, stage):
 
 	for step in stage.install_steps:
 		tool_pkgs = []
-		for dep_name in pkg.tools_required:
+		for dep_name in pkg.tool_dependencies:
 			tool_pkgs.append(cfg.get_tool_pkg(dep_name))
 
 		def substitute(varname):
@@ -1482,7 +1483,7 @@ def configure_pkg(cfg, pkg):
 
 	for step in pkg.configure_steps:
 		tool_pkgs = []
-		for dep_name in pkg.tools_required:
+		for dep_name in pkg.tool_dependencies:
 			tool_pkgs.append(cfg.get_tool_pkg(dep_name))
 
 		def substitute(varname):
@@ -1511,7 +1512,7 @@ def build_pkg(cfg, pkg):
 
 	for step in pkg.build_steps:
 		tool_pkgs = []
-		for dep_name in pkg.tools_required:
+		for dep_name in pkg.tool_dependencies:
 			tool_pkgs.append(cfg.get_tool_pkg(dep_name))
 
 		def substitute(varname):
@@ -1598,7 +1599,7 @@ def archive_pkg(cfg, pkg):
 
 def run_task(cfg, task):
 	tools_required = []
-	for dep_name in task.tools_required:
+	for dep_name in task.tool_dependencies:
 		tools_required.append(cfg.get_tool_pkg(dep_name))
 
 	def substitute(varname):
@@ -1620,7 +1621,7 @@ def run_pkg_task(cfg, task):
 	src = cfg.get_source(task.pkg.source)
 
 	tools_required = []
-	for dep_name in task.pkg.tools_required:
+	for dep_name in task.pkg.tool_dependencies:
 		tools_required.append(cfg.get_tool_pkg(dep_name))
 
 	def substitute(varname):
@@ -1647,7 +1648,7 @@ def run_tool_task(cfg, task):
 	src = cfg.get_source(task.pkg.source)
 
 	tools_required = []
-	for dep_name in task.pkg.tools_required:
+	for dep_name in task.pkg.tool_dependencies:
 		tools_required.append(cfg.get_tool_pkg(dep_name))
 
 	def substitute(varname):
@@ -1841,13 +1842,10 @@ class Plan:
 				item.require_edges.add((action.PATCH_SRC, dep_source))
 
 		def add_tool_dependencies(s):
-			for (tool_name, stage_name) in s.tool_dependencies:
+			for (tool_name, stage_name) in s.tool_stage_dependencies:
 				dep_tool = self._cfg.get_tool_pkg(tool_name)
 				if self.build_scope is not None and dep_tool not in self.build_scope:
 					item.require_edges.add((action.WANT_TOOL, dep_tool))
-				elif stage_name is None:
-					item.require_edges.update([(action.INSTALL_TOOL_STAGE, stage)
-							for stage in dep_tool.all_stages()])
 				else:
 					tool_stage = dep_tool.get_stage(stage_name)
 					item.require_edges.add((action.INSTALL_TOOL_STAGE, tool_stage))
