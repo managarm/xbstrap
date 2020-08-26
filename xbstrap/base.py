@@ -793,6 +793,10 @@ class HostPackage(RequirementsMixin):
 		return os.path.join(self._cfg.tool_out_dir, self.name)
 
 	@property
+	def archive_file(self):
+		return os.path.join(self._cfg.tool_out_dir, self.name + '.tar.gz')
+
+	@property
 	def name(self):
 		return self._this_yml['name']
 
@@ -845,6 +849,13 @@ class HostPackage(RequirementsMixin):
 			if state.missing:
 				return ItemState(missing=True)
 		return ItemState()
+
+	def check_if_archived(self, settings):
+		try:
+			stat = os.stat(self.archive_file)
+		except FileNotFoundError:
+			return ItemState(missing=True)
+		return ItemState(timestamp=stat.st_mtime)
 
 class TargetPackage(RequirementsMixin):
 	def __init__(self, cfg, pkg_yml):
@@ -1471,6 +1482,11 @@ def install_tool_stage(cfg, stage):
 
 	stage.mark_as_installed()
 
+def archive_tool(cfg, tool):
+	with tarfile.open(tool.archive_file, 'w|gz') as tar:
+		for ent in os.listdir(tool.prefix_dir):
+			tar.add(os.path.join(tool.prefix_dir, ent), arcname=ent)
+
 # ---------------------------------------------------------------------------------------
 # Package building.
 # ---------------------------------------------------------------------------------------
@@ -1691,12 +1707,13 @@ class Action(Enum):
 	BUILD_PKG = 9
 	PACK_PKG = 10
 	INSTALL_PKG = 11
-	ARCHIVE_PKG = 12
-	RUN = 13
-	RUN_PKG = 14
-	RUN_TOOL = 15
-	WANT_TOOL = 16
-	WANT_PKG = 17
+	ARCHIVE_TOOL = 12
+	ARCHIVE_PKG = 13
+	RUN = 14
+	RUN_PKG = 15
+	RUN_TOOL = 16
+	WANT_TOOL = 17
+	WANT_PKG = 18
 
 Action.strings = {
 	Action.FETCH_SRC: 'fetch',
@@ -1710,6 +1727,7 @@ Action.strings = {
 	Action.BUILD_PKG: 'build',
 	Action.PACK_PKG: 'pack',
 	Action.INSTALL_PKG: 'install',
+	Action.ARCHIVE_TOOL: 'archive-tool',
 	Action.ARCHIVE_PKG: 'archive',
 	Action.RUN: 'run',
 	Action.RUN_PKG: 'run',
@@ -1781,6 +1799,7 @@ class PlanItem:
 			Action.BUILD_PKG: lambda s, c: s.check_staging(c),
 			Action.PACK_PKG: lambda s, c: s.check_if_packed(c),
 			Action.INSTALL_PKG: lambda s, c: s.check_if_installed(c),
+			Action.ARCHIVE_TOOL: lambda s, c: s.check_if_archived(c),
 			Action.ARCHIVE_PKG: lambda s, c: ItemState(missing=True),
 			Action.RUN: lambda s, c: ItemState(missing=True),
 			Action.RUN_PKG: lambda s, c: ItemState(missing=True),
@@ -1939,6 +1958,10 @@ class Plan:
 			# See Action.BUILD_PKG for rationale.
 			add_implicit_pkgs()
 			add_pkg_dependencies(subject)
+
+		elif action == Action.ARCHIVE_TOOL:
+			for stage in subject.all_stages():
+				item.build_edges.add((action.INSTALL_TOOL_STAGE, stage))
 
 		elif action == Action.ARCHIVE_PKG:
 			item.build_edges.add((action.BUILD_PKG, subject))
@@ -2230,6 +2253,8 @@ class Plan:
 					pack_pkg(self._cfg, subject)
 				elif action == Action.INSTALL_PKG:
 					install_pkg(self._cfg, subject)
+				elif action == Action.ARCHIVE_TOOL:
+					archive_tool(self._cfg, subject)
 				elif action == Action.ARCHIVE_PKG:
 					archive_pkg(self._cfg, subject)
 				elif action == Action.RUN:
