@@ -2215,6 +2215,16 @@ class Plan:
 						Action.strings[action], subject.subject_id,
 						n + 1, len(scheduled)))
 				item.exec_status = ExecutionStatus.PREREQS_FAILED
+				if self.progress_file is not None:
+					yml = {
+						'n_this': n + 1,
+						'n_all': len(scheduled),
+						'status': 'prereqs-failed',
+						'action': Action.strings[action],
+						'subject': subject.subject_id
+					}
+					self.progress_file.write(yaml.safe_dump(yml, explicit_end=True))
+					self.progress_file.flush()
 				any_failed_items = True
 				continue
 
@@ -2222,6 +2232,16 @@ class Plan:
 				if not self.keep_going:
 					raise ExecutionFailureException(action, subject)
 				item.exec_status = ExecutionStatus.NOT_WANTED
+				if self.progress_file is not None:
+					yml = {
+						'n_this': n + 1,
+						'n_all': len(scheduled),
+						'status': 'not-wanted',
+						'action': Action.strings[action],
+						'subject': subject.subject_id
+					}
+					self.progress_file.write(yaml.safe_dump(yml, explicit_end=True))
+					self.progress_file.flush()
 				any_failed_items = True
 				continue
 
@@ -2282,7 +2302,7 @@ class Plan:
 						'action': Action.strings[action],
 						'subject': subject.subject_id
 					}
-					self.progress_file.write(yaml.dump(yml, explicit_end=True))
+					self.progress_file.write(yaml.safe_dump(yml, explicit_end=True))
 					self.progress_file.flush()
 			except (subprocess.CalledProcessError, ExecutionFailureException):
 				item.exec_status = ExecutionStatus.STEP_FAILED
@@ -2294,7 +2314,7 @@ class Plan:
 						'action': Action.strings[action],
 						'subject': subject.subject_id
 					}
-					self.progress_file.write(yaml.dump(yml, explicit_end=True))
+					self.progress_file.write(yaml.safe_dump(yml, explicit_end=True))
 					self.progress_file.flush()
 				if not self.keep_going:
 					raise ExecutionFailureException(action, subject)
