@@ -52,6 +52,8 @@ definitions:
         properties:
             'name':
                 type: string
+            'version':
+                type: string
             'subdir':
                 type: string
             # URL sources.
@@ -163,6 +165,8 @@ properties:
             properties:
                 'name':
                     type: string
+                'version':
+                    type: string
                 'subdir':
                     type: string
                 # URL sources.
@@ -241,6 +245,8 @@ properties:
             properties:
                 'name':
                     type: string
+                'revision':
+                    type: integer
                 'default':
                     type: boolean
                 'implict_package':
