@@ -266,6 +266,20 @@ class Config:
 				self._tasks[task.name] = task
 
 	@property
+	def patch_author(self):
+		default = 'xbstrap'
+		if 'general' not in self._root_yml:
+			return default
+		return self._root_yml['general'].get('patch_author', default)
+
+	@property
+	def patch_email(self):
+		default = 'xbstrap@localhost'
+		if 'general' not in self._root_yml:
+			return default
+		return self._root_yml['general'].get('patch_email', default)
+
+	@property
 	def repository_url(self):
 		if 'repository' not in self._root_yml:
 			return None
@@ -1353,8 +1367,12 @@ def patch_src(cfg, src):
 		if not patch.endswith('.patch'):
 			continue
 		if 'git' in source:
-			subprocess.check_call(['git', 'am', os.path.join(src.patch_dir, patch)],
-				cwd=src.source_dir)
+			environ = os.environ.copy()
+			environ['GIT_COMMITTER_NAME'] = cfg.patch_author
+			environ['GIT_COMMITTER_EMAIL'] = cfg.patch_email
+			subprocess.check_call(['git', 'am', '--committer-date-is-author-date',
+					os.path.join(src.patch_dir, patch)],
+				env=environ, cwd=src.source_dir)
 		elif 'hg' in source:
 			subprocess.check_call(['hg', 'import', os.path.join(src.patch_dir, patch)],
 				cwd=src.source_dir)

@@ -131,6 +131,14 @@ definitions:
 type: object
 additionalProperties: false
 properties:
+    'general':
+        type: object
+        additionalProperties: false
+        properties:
+            'patch_author':
+                type: string
+            'patch_email':
+                type: string
     'repository':
         type: object
         additionalProperties: false
