@@ -1904,6 +1904,7 @@ class Plan:
 			src = self._cfg.get_source(subject.source)
 			item.build_edges.add((action.REGENERATE_SRC, src))
 
+			add_source_dependencies(subject)
 			add_tool_dependencies(subject)
 			add_pkg_dependencies(subject)
 			add_task_dependencies(subject)
@@ -1911,6 +1912,7 @@ class Plan:
 		elif action == Action.COMPILE_TOOL_STAGE:
 			item.build_edges.add((action.CONFIGURE_TOOL, subject.pkg))
 
+			add_source_dependencies(subject)
 			add_tool_dependencies(subject.pkg)
 			add_tool_dependencies(subject)
 			add_pkg_dependencies(subject)
@@ -1929,6 +1931,7 @@ class Plan:
 			item.build_edges.add((action.REGENERATE_SRC, src))
 
 			# Configuration requires all dependencies to be present.
+			add_source_dependencies(subject)
 			add_implicit_pkgs()
 			add_pkg_dependencies(subject)
 			add_tool_dependencies(subject)
@@ -1939,6 +1942,7 @@ class Plan:
 
 			# Usually dependencies will already be installed during the configuration phase.
 			# However, if the sysroot is removed, we might need to install again.
+			add_source_dependencies(subject)
 			add_implicit_pkgs()
 			add_pkg_dependencies(subject)
 			add_tool_dependencies(subject)
