@@ -520,6 +520,14 @@ class Source(RequirementsMixin):
 		return 'source'
 
 	@property
+	def has_explicit_version(self):
+		return 'version' in self._this_yml
+
+	@property
+	def version(self):
+		return self._this_yml.get('version', '0.0')
+
+	@property
 	def sub_dir(self):
 		if 'subdir' in self._this_yml:
 			return os.path.join(self._cfg.source_root, self._this_yml['subdir'])
@@ -951,7 +959,17 @@ class TargetPackage(RequirementsMixin):
 
 	@property
 	def version(self):
-		return "0.0_0"
+		source = self._cfg.get_source(self.source)
+
+		# If no version is specified, we fall back to 0.0_0.
+		if not source.has_explicit_version and 'revision' not in self._this_yml:
+			return source.version + '_0'
+
+		revision = self._this_yml.get('revision', 1)
+		if revision < 1:
+			raise RuntimeError("Package {} specifies a revision < 1".format(self.name));
+
+		return source.version + '_' + str(revision)
 
 	def get_task(self, task):
 		if task in self._tasks:
