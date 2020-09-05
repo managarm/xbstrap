@@ -103,18 +103,30 @@ def do_compute_graph(args):
 			out_job['products'] = {'tools': [], 'pkgs': []}
 			out_job['needed'] = {'tools': [], 'pkgs': []}
 			for tool in job.tools:
-				out_job['products']['tools'].append(tool.name)
+				out_job['products']['tools'].append({
+					'name': tool.name,
+					'version': tool.version
+				})
 			for pkg in job.pkgs:
-				out_job['products']['pkgs'].append(pkg.name)
+				out_job['products']['pkgs'].append({
+					'name': pkg.name,
+					'version': pkg.version
+				})
 			for (action, subject) in plan.materialized_steps():
 				if action == xbstrap.base.Action.WANT_TOOL:
 					if subject in job.tools:
 						continue
-					out_job['needed']['tools'].append(subject.name)
+					out_job['needed']['tools'].append({
+						'name': subject.name,
+						'version': subject.version
+					})
 				if action == xbstrap.base.Action.WANT_PKG:
 					if subject in job.pkgs:
 						continue
-					out_job['needed']['pkgs'].append(subject.name)
+					out_job['needed']['pkgs'].append({
+						'name': subject.name,
+						'version': subject.version
+					})
 			out_root[job.name] = out_job
 
 		if args.json:
