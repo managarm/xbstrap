@@ -216,6 +216,8 @@ properties:
             properties:
                 'name':
                     type: string
+                'revision':
+                    type: integer
                 'source': { $ref: '#/definitions/nested_source' }
                 'from_source':
                     type: string

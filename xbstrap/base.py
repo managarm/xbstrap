@@ -851,6 +851,20 @@ class HostPackage(RequirementsMixin):
 	def configure_steps(self):
 		yield from self._configure_steps
 
+	@property
+	def version(self):
+		source = self._cfg.get_source(self.source)
+
+		# If no version is specified, we fall back to 0.0_0.
+		if not source.has_explicit_version and 'revision' not in self._this_yml:
+			return source.version + '_0'
+
+		revision = self._this_yml.get('revision', 1)
+		if revision < 1:
+			raise RuntimeError("Tool {} specifies a revision < 1".format(self.name));
+
+		return source.version + '_' + str(revision)
+
 	def check_if_configured(self, settings):
 		path = os.path.join(self.build_dir, 'configured.xbstrap')
 		try:
