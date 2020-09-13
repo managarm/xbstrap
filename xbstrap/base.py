@@ -1563,6 +1563,9 @@ def configure_pkg(cfg, pkg):
 				return src.source_dir
 			elif varname == 'THIS_BUILD_DIR':
 				return pkg.build_dir
+			elif varname == 'PARALLELISM':
+				nthreads = get_concurrency()
+				return str(nthreads)
 
 		run_step(cfg, step, pkg.build_dir, substitute, tool_pkgs, pkg.virtual_tools,
 				for_package=True)
