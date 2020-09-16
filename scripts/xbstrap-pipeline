@@ -35,7 +35,7 @@ class Pipeline:
 				pkgs.append(pkg)
 				mentioned_pkgs.add(pkg)
 
-			name = job_yml['name']
+			name = 'batch:' + job_yml['name']
 			assert name not in self.jobs
 			self.jobs[name] = Job(name, tools, pkgs)
 
