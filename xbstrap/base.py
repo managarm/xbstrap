@@ -2,12 +2,14 @@
 
 from enum import Enum
 import errno
+import filecmp
 import os
 import re
 import shutil
 import subprocess
 import urllib.parse
 import urllib.request
+import stat
 import sys
 import tarfile
 import tempfile
@@ -1572,7 +1574,7 @@ def configure_pkg(cfg, pkg):
 
 	pkg.mark_as_configured()
 
-def build_pkg(cfg, pkg):
+def build_pkg(cfg, pkg, reproduce=False):
 	src = cfg.get_source(pkg.source)
 
 	try_mkdir(cfg.package_out_dir)
@@ -1606,8 +1608,62 @@ def build_pkg(cfg, pkg):
 
 	postprocess_libtool(cfg, pkg)
 
-	try_rmtree(pkg.staging_dir)
-	os.rename(pkg.collect_dir, pkg.staging_dir)
+	if not reproduce:
+		try_rmtree(pkg.staging_dir)
+		os.rename(pkg.collect_dir, pkg.staging_dir)
+	else:
+		def discover_dirtree(root):
+			s = set()
+
+			def recurse(subdir=''):
+				for dent in os.scandir(os.path.join(root, subdir)):
+					path = os.path.join(subdir, dent.name)
+					s.add(path)
+					if dent.is_dir(follow_symlinks=False):
+						recurse(path)
+
+			recurse()
+			return s
+
+		repro_paths = discover_dirtree(pkg.collect_dir)
+		exist_paths = discover_dirtree(pkg.staging_dir)
+
+		repro_only = repro_paths.difference(exist_paths)
+		exist_only = exist_paths.difference(repro_paths)
+		if repro_only:
+			raise RuntimeError("Paths {} only exist in reproducted build".format(
+					', '.join(repro_only)))
+		if exist_only:
+			raise RuntimeError("Paths {} only exist in existing build".format(
+					', '.join(repro_only)))
+
+		any_issues = False
+		for path in repro_paths:
+			repro_stat = os.stat(os.path.join(pkg.collect_dir, path))
+			exist_stat = os.stat(os.path.join(pkg.collect_dir, path))
+
+			if stat.S_IFMT(repro_stat.st_mode) != stat.S_IFMT(exist_stat.st_mode):
+				print("{}xbstrap{}: File type mismatch in file {}".format(
+						colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
+						path))
+				any_issues = True
+				continue
+
+			if stat.S_ISREG(repro_stat.st_mode):
+				if not filecmp.cmp(os.path.join(pkg.collect_dir, path),
+						os.path.join(pkg.staging_dir, path),
+						shallow=False):
+					print("{}xbstrap{}: Content mismatch in file {}".format(
+							colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
+							path))
+					any_issues = True
+					continue
+
+		if not any_issues:
+			print("{}xbstrap{}: Build was reproduced exactly".format(
+					colorama.Style.BRIGHT, colorama.Style.RESET_ALL))
+		else:
+			raise RuntimeError('Could not reproduce all files')
 
 def pack_pkg(cfg, pkg):
 	if cfg.use_xbps:
@@ -1996,7 +2052,7 @@ class Plan:
 			add_tool_dependencies(subject)
 			add_task_dependencies(subject)
 
-		elif action == Action.BUILD_PKG:
+		elif action == Action.BUILD_PKG or action == Action.REPRODUCE_BUILD_PKG:
 			item.build_edges.add((action.CONFIGURE_PKG, subject))
 
 			# Usually dependencies will already be installed during the configuration phase.
@@ -2332,6 +2388,8 @@ class Plan:
 					configure_pkg(self._cfg, subject)
 				elif action == Action.BUILD_PKG:
 					build_pkg(self._cfg, subject)
+				elif action == Action.REPRODUCE_BUILD_PKG:
+					build_pkg(self._cfg, subject, reproduce=True)
 				elif action == Action.PACK_PKG:
 					pack_pkg(self._cfg, subject)
 				elif action == Action.INSTALL_PKG:

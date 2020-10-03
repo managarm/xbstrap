@@ -298,6 +298,19 @@ do_build.parser = main_subparsers.add_parser('build',
 		parents=[handle_plan_args.parser,
 			reconfigure_pkgs_parser, select_pkgs.parser])
 
+def do_reproduce_build(args):
+	cfg = xbstrap.base.config_for_dir()
+	sel = select_pkgs(cfg, args)
+	plan = xbstrap.base.Plan(cfg)
+	handle_plan_args(cfg, plan, args)
+	reconfigure_and_rebuild_pkgs(plan, args, sel, no_pack=True)
+	plan.wanted.update([(xbstrap.base.Action.REPRODUCE_BUILD_PKG, pkg) for pkg in sel])
+	plan.run_plan()
+
+do_reproduce_build.parser = main_subparsers.add_parser('reproduce-build',
+		parents=[handle_plan_args.parser,
+			reconfigure_pkgs_parser, select_pkgs.parser])
+
 def do_pack(args):
 	cfg = xbstrap.base.config_for_dir()
 	sel = select_pkgs(cfg, args)
@@ -472,6 +485,8 @@ try:
 		do_configure(args)
 	elif args.command == 'build':
 		do_build(args)
+	elif args.command == 'reproduce-build':
+		do_reproduce_build(args)
 	elif args.command == 'pack':
 		do_pack(args)
 	elif args.command == 'archive-tool':
