@@ -1665,7 +1665,7 @@ def build_pkg(cfg, pkg, reproduce=False):
 		else:
 			raise RuntimeError('Could not reproduce all files')
 
-def pack_pkg(cfg, pkg):
+def pack_pkg(cfg, pkg, reproduce=False):
 	if cfg.use_xbps:
 		try_mkdir(cfg.xbps_repository_dir)
 
@@ -1679,19 +1679,37 @@ def pack_pkg(cfg, pkg):
 			'-D', pkg.xbps_dependency_string(),
 			pkg.staging_dir
 		]
-		print("{}xbstrap{}: Running {}".format(
-				colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
-				args))
-		subprocess.call(args, cwd=cfg.xbps_repository_dir, stdout=output)
 
-		args = ['xbps-rindex', '-fa',
-				os.path.join(cfg.xbps_repository_dir,
-				'{}-{}.x86_64.xbps'.format(pkg.name, pkg.version))
-		]
-		print("{}xbstrap{}: Running {}".format(
-				colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
-				args))
-		subprocess.call(args, stdout=output)
+		xbps_file = '{}-{}.x86_64.xbps'.format(pkg.name, pkg.version)
+
+		if not reproduce:
+			print("{}xbstrap{}: Running {}".format(
+					colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
+					args))
+			subprocess.call(args, cwd=cfg.xbps_repository_dir, stdout=output)
+
+			args = ['xbps-rindex', '-fa',
+					os.path.join(cfg.xbps_repository_dir, xbps_file)
+			]
+			print("{}xbstrap{}: Running {}".format(
+					colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
+					args))
+			subprocess.call(args, stdout=output)
+		else:
+			print("{}xbstrap{}: Running {}".format(
+					colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
+					args))
+			subprocess.call(args, cwd=cfg.package_out_dir, stdout=output)
+
+			if not filecmp.cmp(os.path.join(cfg.package_out_dir, xbps_file),
+					os.path.join(cfg.xbps_repository_dir, xbps_file),
+					shallow=False):
+				print("{}xbstrap{}: Mismatch in {}".format(
+						colorama.Style.BRIGHT, colorama.Style.RESET_ALL, xbps_file))
+				raise RuntimeError('Could not reproduce pack')
+
+			print("{}xbstrap{}: Pack was reproduced exactly".format(
+					colorama.Style.BRIGHT, colorama.Style.RESET_ALL))
 	else:
 		raise RuntimeError('Package management configuration does not support pack')
 
@@ -2063,7 +2081,7 @@ class Plan:
 			add_tool_dependencies(subject)
 			add_task_dependencies(subject)
 
-		elif action == Action.PACK_PKG:
+		elif action == Action.PACK_PKG or action == Action.REPRODUCE_PACK_PKG:
 			item.build_edges.add((action.BUILD_PKG, subject))
 
 		elif action == Action.INSTALL_PKG:
@@ -2392,6 +2410,8 @@ class Plan:
 					build_pkg(self._cfg, subject, reproduce=True)
 				elif action == Action.PACK_PKG:
 					pack_pkg(self._cfg, subject)
+				elif action == Action.REPRODUCE_PACK_PKG:
+					pack_pkg(self._cfg, subject, reproduce=True)
 				elif action == Action.INSTALL_PKG:
 					install_pkg(self._cfg, subject)
 				elif action == Action.ARCHIVE_TOOL:
