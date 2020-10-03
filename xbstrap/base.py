@@ -1758,15 +1758,17 @@ class Action(Enum):
 	# Package-related actions.
 	CONFIGURE_PKG = 8
 	BUILD_PKG = 9
-	PACK_PKG = 10
-	INSTALL_PKG = 11
-	ARCHIVE_TOOL = 12
-	ARCHIVE_PKG = 13
-	RUN = 14
-	RUN_PKG = 15
-	RUN_TOOL = 16
-	WANT_TOOL = 17
-	WANT_PKG = 18
+	REPRODUCE_BUILD_PKG = 10
+	PACK_PKG = 11
+	REPRODUCE_PACK_PKG = 12
+	INSTALL_PKG = 13
+	ARCHIVE_TOOL = 14
+	ARCHIVE_PKG = 15
+	RUN = 16
+	RUN_PKG = 17
+	RUN_TOOL = 18
+	WANT_TOOL = 19
+	WANT_PKG = 20
 
 Action.strings = {
 	Action.FETCH_SRC: 'fetch',
@@ -1778,7 +1780,9 @@ Action.strings = {
 	Action.INSTALL_TOOL_STAGE: 'install-tool',
 	Action.CONFIGURE_PKG: 'configure',
 	Action.BUILD_PKG: 'build',
+	Action.REPRODUCE_BUILD_PKG: 'reproduce-build',
 	Action.PACK_PKG: 'pack',
+	Action.REPRODUCE_PACK_PKG: 'reproduce-pack',
 	Action.INSTALL_PKG: 'install',
 	Action.ARCHIVE_TOOL: 'archive-tool',
 	Action.ARCHIVE_PKG: 'archive',
@@ -1850,7 +1854,9 @@ class PlanItem:
 			Action.INSTALL_TOOL_STAGE: lambda s, c: s.check_if_installed(c),
 			Action.CONFIGURE_PKG: lambda s, c: s.check_if_configured(c),
 			Action.BUILD_PKG: lambda s, c: s.check_staging(c),
+			Action.REPRODUCE_BUILD_PKG: lambda s, c: ItemState(missing=True),
 			Action.PACK_PKG: lambda s, c: s.check_if_packed(c),
+			Action.REPRODUCE_PACK_PKG: lambda s, c: ItemState(missing=True),
 			Action.INSTALL_PKG: lambda s, c: s.check_if_installed(c),
 			Action.ARCHIVE_TOOL: lambda s, c: s.check_if_archived(c),
 			Action.ARCHIVE_PKG: lambda s, c: ItemState(missing=True),
