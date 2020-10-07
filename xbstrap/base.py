@@ -1386,7 +1386,10 @@ def checkout_src(cfg, src, settings):
 			with tarfile.open(src.source_archive_file,
 					'r|' + compression[src.source_archive_format]) as tar:
 				for info in tar:
-					prefix = source['extract_path'] + '/'
+					if 'extract_path' not in source:
+						prefix = ''
+					else:
+						prefix = source['extract_path'] + '/'
 					if info.name.startswith(prefix):
 						info.name = src.name + '/' + info.name[len(prefix):]
 						tar.extract(info, src.sub_dir)
