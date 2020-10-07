@@ -838,6 +838,10 @@ class HostPackage(RequirementsMixin):
 			return True
 		return self._this_yml['default']
 
+	@property
+	def stability_level(self):
+		return self._this_yml.get('stability_level', 'stable')
+
 	def all_stages(self):
 		yield from self._stages.values()
 
@@ -958,6 +962,10 @@ class TargetPackage(RequirementsMixin):
 		if 'default' not in self._this_yml:
 			return True
 		return self._this_yml['default']
+
+	@property
+	def stability_level(self):
+		return self._this_yml.get('stability_level', 'stable')
 
 	@property
 	def is_implicit(self):

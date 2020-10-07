@@ -44,17 +44,28 @@ class Pipeline:
 				continue
 			if not tool.is_default:
 				continue
+			if tool.stability_level == 'broken':
+				raise RuntimeError('wtf')
+				continue
 			name = 'tool:' + tool.name
 			assert name not in self.jobs
-			self.jobs[name] = Job(name, [tool], [])
+			job = Job(name, [tool], [])
+			if tool.stability_level == 'unstable':
+				job.unstable = True
+			self.jobs[name] = job
 		for pkg in cfg.all_pkgs():
 			if pkg in mentioned_pkgs:
 				continue
 			if not pkg.is_default:
 				continue
+			if pkg.stability_level == 'broken':
+				continue
 			name ='package:' + pkg.name
 			assert name not in self.jobs
-			self.jobs[name] = Job(name, [], [pkg])
+			job = Job(name, [], [pkg])
+			if pkg.stability_level == 'unstable':
+				job.unstable = True
+			self.jobs[name] = job
 
 	def all_jobs(self):
 		return self.jobs.values()
@@ -67,6 +78,7 @@ class Job:
 		self.name = name
 		self.tools = set(tools)
 		self.pkgs = set(pkgs)
+		self.unstable = False
 
 def pipeline_for_dir(cfg):
 	with open('pipeline.yml', 'r') as f:
@@ -99,7 +111,7 @@ def do_compute_graph(args):
 					plan.wanted.update([(xbstrap.base.Action.BUILD_PKG, pkg)])
 			plan.compute_plan(no_ordering=True)
 
-			out_job = dict()
+			out_job = {'unstable': job.unstable}
 			out_job['products'] = {'tools': [], 'pkgs': []}
 			out_job['needed'] = {'tools': [], 'pkgs': []}
 			for tool in job.tools:

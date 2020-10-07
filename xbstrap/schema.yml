@@ -218,6 +218,9 @@ properties:
                     type: string
                 'revision':
                     type: integer
+                'stability_level':
+                    type: string
+                    enum: ['stable', 'unstable', 'broken']
                 'source': { $ref: '#/definitions/nested_source' }
                 'from_source':
                     type: string
@@ -259,6 +262,9 @@ properties:
                     type: integer
                 'default':
                     type: boolean
+                'stability_level':
+                    type: string
+                    enum: ['stable', 'unstable', 'broken']
                 'implict_package':
                     type: boolean
                 'source': { $ref: '#/definitions/nested_source' }
