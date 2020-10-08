@@ -45,7 +45,6 @@ class Pipeline:
 			if not tool.is_default:
 				continue
 			if tool.stability_level == 'broken':
-				raise RuntimeError('wtf')
 				continue
 			name = 'tool:' + tool.name
 			assert name not in self.jobs
