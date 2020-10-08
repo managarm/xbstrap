@@ -100,6 +100,23 @@ def do_compute_graph(args):
 	if args.artifacts:
 		out_root = dict()
 		for job in pipe.all_jobs():
+			if args.version_file:
+				with xbstrap.cli_utils.open_file_from_cli(args.version_file, 'rt') as f:
+					version_yml = yaml.load(f, yaml.SafeLoader)
+
+				up2date = True
+				if len(job.tools): # For now, tools are always rebuilt.
+					up2date = False
+				for pkg in job.pkgs:
+					if pkg.name not in version_yml['pkgs']:
+						up2date = False
+						break
+					if pkg.version != version_yml['pkgs'][pkg.name]:
+						up2date = False
+						break
+				if up2date:
+					continue
+
 			plan = xbstrap.base.Plan(cfg)
 			plan.build_scope = set().union(job.tools, job.pkgs)
 			for tool in job.tools:
@@ -241,6 +258,8 @@ do_compute_graph.parser.add_argument('--artifacts', action='store_true')
 do_compute_graph.parser.add_argument('--linear', action='store_true')
 do_compute_graph.parser.add_argument('--gv', action='store_true')
 do_compute_graph.parser.add_argument('--json', action='store_true')
+do_compute_graph.parser.add_argument('--version-file', type=str,
+		help="file that reports existing file versions")
 
 def do_run_job(args):
 	cfg = xbstrap.base.config_for_dir()
