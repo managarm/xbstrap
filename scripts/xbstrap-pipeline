@@ -42,8 +42,6 @@ class Pipeline:
 		for tool in cfg.all_tools():
 			if tool in mentioned_tools:
 				continue
-			if not tool.is_default:
-				continue
 			if tool.stability_level == 'broken':
 				continue
 			name = 'tool:' + tool.name
@@ -54,8 +52,6 @@ class Pipeline:
 			self.jobs[name] = job
 		for pkg in cfg.all_pkgs():
 			if pkg in mentioned_pkgs:
-				continue
-			if not pkg.is_default:
 				continue
 			if pkg.stability_level == 'broken':
 				continue
