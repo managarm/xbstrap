@@ -282,6 +282,12 @@ class Config:
 		return self._root_yml['general'].get('patch_email', default)
 
 	@property
+	def everything_by_default(self):
+		if 'general' not in self._root_yml:
+			return True
+		return self._root_yml['general'].get('everything_by_default', True)
+
+	@property
 	def repository_url(self):
 		if 'repository' not in self._root_yml:
 			return None
@@ -835,7 +841,7 @@ class HostPackage(RequirementsMixin):
 	@property
 	def is_default(self):
 		if 'default' not in self._this_yml:
-			return True
+			return self._cfg.everything_by_default
 		return self._this_yml['default']
 
 	@property
@@ -960,7 +966,7 @@ class TargetPackage(RequirementsMixin):
 	@property
 	def is_default(self):
 		if 'default' not in self._this_yml:
-			return True
+			return self._cfg.everything_by_default
 		return self._this_yml['default']
 
 	@property

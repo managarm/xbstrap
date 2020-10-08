@@ -141,6 +141,8 @@ properties:
                 type: string
             'patch_email':
                 type: string
+            'everything_by_default':
+                type: boolean
     'repository':
         type: object
         additionalProperties: false
