@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: MIT
 
+import collections
 from enum import Enum
 import errno
 import filecmp
@@ -166,6 +167,8 @@ class ItemState:
 		self.missing = missing
 		self.updatable = updatable
 		self.timestamp = timestamp
+
+ArtifactFile = collections.namedtuple('ArtifactFile', ['name', 'filepath'])
 
 class Config:
 	def __init__(self, path):
@@ -1131,6 +1134,21 @@ class RunTask(RequirementsMixin):
 	@property
 	def subject_type(self):
 		return 'task'
+
+	@property
+	def artifact_files(self):
+		def substitute(varname):
+			if varname == 'SOURCE_ROOT':
+				return self._cfg.source_root
+			elif varname == 'BUILD_ROOT':
+				return self._cfg.build_root
+			elif varname == 'SYSROOT_DIR':
+				return self._cfg.sysroot_dir
+
+		entries = self._this_yml.get('artifact_files', [])
+		for e in entries:
+			path = replace_at_vars(e['path'], substitute)
+			yield ArtifactFile(e['name'], os.path.join(path, e['name']))
 
 def config_for_dir():
 	return Config('')
@@ -2363,22 +2381,29 @@ class Plan:
 				if edge_item.exec_status != ExecutionStatus.SUCCESS:
 					any_failed_edges = True
 
+			def emit_progress(status):
+				if self.progress_file is not None:
+					yml = {
+						'n_this': n + 1,
+						'n_all': len(scheduled),
+						'status': status,
+						'action': Action.strings[action],
+						'subject': subject.subject_id,
+						'artifact_files': []
+					}
+					if action == Action.RUN:
+						for af in subject.artifact_files:
+							yml['artifact_files'].append({'name': af.name, 'filepath': af.filepath})
+					self.progress_file.write(yaml.safe_dump(yml, explicit_end=True))
+					self.progress_file.flush()
+
 			if self.keep_going and any_failed_edges:
 				print('{}xbstrap{}: Skipping action {} of {} due to failed prerequisites [{}/{}]'.format(
 						colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
 						Action.strings[action], subject.subject_id,
 						n + 1, len(scheduled)))
 				item.exec_status = ExecutionStatus.PREREQS_FAILED
-				if self.progress_file is not None:
-					yml = {
-						'n_this': n + 1,
-						'n_all': len(scheduled),
-						'status': 'prereqs-failed',
-						'action': Action.strings[action],
-						'subject': subject.subject_id
-					}
-					self.progress_file.write(yaml.safe_dump(yml, explicit_end=True))
-					self.progress_file.flush()
+				emit_progress('prereqs-failed')
 				any_failed_items = True
 				continue
 
@@ -2386,16 +2411,7 @@ class Plan:
 				if not self.keep_going:
 					raise ExecutionFailureException(action, subject)
 				item.exec_status = ExecutionStatus.NOT_WANTED
-				if self.progress_file is not None:
-					yml = {
-						'n_this': n + 1,
-						'n_all': len(scheduled),
-						'status': 'not-wanted',
-						'action': Action.strings[action],
-						'subject': subject.subject_id
-					}
-					self.progress_file.write(yaml.safe_dump(yml, explicit_end=True))
-					self.progress_file.flush()
+				emit_progress('not-wanted')
 				any_failed_items = True
 				continue
 
@@ -2452,28 +2468,10 @@ class Plan:
 				else:
 					raise AssertionError("Unexpected action")
 				item.exec_status = ExecutionStatus.SUCCESS
-				if self.progress_file is not None:
-					yml = {
-						'n_this': n + 1,
-						'n_all': len(scheduled),
-						'status': 'success',
-						'action': Action.strings[action],
-						'subject': subject.subject_id
-					}
-					self.progress_file.write(yaml.safe_dump(yml, explicit_end=True))
-					self.progress_file.flush()
+				emit_progress('success')
 			except (subprocess.CalledProcessError, ExecutionFailureException):
 				item.exec_status = ExecutionStatus.STEP_FAILED
-				if self.progress_file is not None:
-					yml = {
-						'n_this': n + 1,
-						'n_all': len(scheduled),
-						'status': 'failure',
-						'action': Action.strings[action],
-						'subject': subject.subject_id
-					}
-					self.progress_file.write(yaml.safe_dump(yml, explicit_end=True))
-					self.progress_file.flush()
+				emit_progress('failure')
 				if not self.keep_going:
 					raise ExecutionFailureException(action, subject)
 				any_failed_items = True

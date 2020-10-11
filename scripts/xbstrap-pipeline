@@ -131,7 +131,7 @@ def do_compute_graph(args):
 			plan.compute_plan(no_ordering=True)
 
 			out_job = {'unstable': job.unstable}
-			out_job['products'] = {'tools': [], 'pkgs': []}
+			out_job['products'] = {'tools': [], 'pkgs': [], 'files': []}
 			out_job['needed'] = {'tools': [], 'pkgs': []}
 			for tool in job.tools:
 				out_job['products']['tools'].append({
@@ -143,6 +143,9 @@ def do_compute_graph(args):
 					'name': pkg.name,
 					'version': pkg.version
 				})
+			for task in job.tasks:
+				for af in task.artifact_files:
+					out_job['products']['files'].append({'name': af.name, 'filepath': af.filepath})
 			for (action, subject) in plan.materialized_steps():
 				if action == xbstrap.base.Action.WANT_TOOL:
 					if subject in job.tools:

@@ -296,6 +296,17 @@ properties:
                     type: object
                     additionalProperties:
                         type: string
+                'artifact_files':
+                    type: array
+                    items:
+                        type: object
+                        additionalProperties: false
+                        required: ['name', 'path']
+                        properties:
+                            'name':
+                                type: string
+                            'path':
+                                type: string
                 'args': { $ref: '#/definitions/args' }
                 'quiet': { type: boolean }
                 'sources_required': { $ref: '#/definitions/source_deps' }
