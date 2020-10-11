@@ -37,7 +37,11 @@ class Pipeline:
 
 			name = 'batch:' + job_yml['name']
 			assert name not in self.jobs
-			self.jobs[name] = Job(name, tools, pkgs)
+			job = Job(name, tools, pkgs)
+			self.jobs[name] = job
+
+			for name in job_yml.get('tasks', []):
+				job.tasks.add(cfg.get_task(name))
 
 		for tool in cfg.all_tools():
 			if tool in mentioned_tools:
@@ -73,6 +77,7 @@ class Job:
 		self.name = name
 		self.tools = set(tools)
 		self.pkgs = set(pkgs)
+		self.tasks = set()
 		self.unstable = False
 
 def pipeline_for_dir(cfg):
@@ -121,6 +126,8 @@ def do_compute_graph(args):
 					plan.wanted.update([(xbstrap.base.Action.PACK_PKG, pkg)])
 				else:
 					plan.wanted.update([(xbstrap.base.Action.BUILD_PKG, pkg)])
+			for task in job.tasks:
+				plan.wanted.update([(xbstrap.base.Action.RUN, task)])
 			plan.compute_plan(no_ordering=True)
 
 			out_job = {'unstable': job.unstable}
@@ -181,6 +188,8 @@ def do_compute_graph(args):
 					plan.wanted.update([(xbstrap.base.Action.PACK_PKG, pkg)])
 				else:
 					plan.wanted.update([(xbstrap.base.Action.BUILD_PKG, pkg)])
+			for task in item.job.tasks:
+				plan.wanted.update([(xbstrap.base.Action.RUN, task)])
 			plan.compute_plan(no_ordering=True)
 
 			for (action, subject) in plan.materialized_steps():
@@ -280,6 +289,8 @@ def do_run_job(args):
 			plan.wanted.update([(xbstrap.base.Action.PACK_PKG, pkg)])
 		else:
 			plan.wanted.update([(xbstrap.base.Action.BUILD_PKG, pkg)])
+	for task in job.tasks:
+		plan.wanted.update([(xbstrap.base.Action.RUN, task)])
 	plan.run_plan()
 
 do_run_job.parser = main_subparsers.add_parser('run-job')
