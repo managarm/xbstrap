@@ -109,53 +109,129 @@ handle_plan_args.parser.add_argument('--keep-going', action='store_true',
 handle_plan_args.parser.add_argument('--progress-file', type=str,
 		help="file that receives machine-ready progress notifications")
 
+# DCC
+def do_list_srcs(args):
+	cfg = xbstrap.base.config_for_dir()
+	plan = xbstrap.base.Plan(cfg)
+	settings = plan.Settings()
+	for src in cfg.all_sources():
+		state = src.check_if_fetched(settings)
+		if (state.missing):
+			print("Unavailable  {}".format(src.name))
+		else:
+			print("Available    {}".format(src.name))
+
+do_list_srcs.parser = main_subparsers.add_parser('list-srcs')
+
+
+# DCC
 def do_fetch(args):
 	cfg = xbstrap.base.config_for_dir()
-	src = cfg.get_source(args.source)
 	plan = xbstrap.base.Plan(cfg)
 	handle_plan_args(cfg, plan, args);
-	plan.wanted.add((xbstrap.base.Action.FETCH_SRC, src))
+
+	if args.all:
+		settings = plan.Settings() # ItemSettings() is not available directly as an initialization... so new member of Plan
+		for src in cfg.all_sources(): # all_sources() is like all_pkgs() except.. it returns Sources... so new member of Config 
+			state = src.check_if_fetched(settings)
+			if (state.missing):
+				print("Fetching  {}".format(src.name))
+				plan.wanted.add((xbstrap.base.Action.FETCH_SRC, src))
+			else:
+				print("Available {}".format(src.name))
+	else:
+		src = cfg.get_source(args.source)
+		plan.wanted.add((xbstrap.base.Action.FETCH_SRC, src))
+
 	plan.run_plan()
 
 do_fetch.parser = main_subparsers.add_parser('fetch',
 		parents=[handle_plan_args.parser])
-do_fetch.parser.add_argument('source', type=str)
+do_fetch.parser.add_argument('--all', action='store_true')
+do_fetch.parser.add_argument('source', nargs='*', type=str) # not sure nargs='*' is appropriate... how to make optional when --all specified?
 
+
+# DCC
 def do_checkout(args):
 	cfg = xbstrap.base.config_for_dir()
-	src = cfg.get_source(args.source)
 	plan = xbstrap.base.Plan(cfg)
 	handle_plan_args(cfg, plan, args);
-	plan.wanted.add((xbstrap.base.Action.CHECKOUT_SRC, src))
+
+	if args.all:
+		settings = plan.Settings()
+		for src in cfg.all_sources(): 
+			state = src.check_if_checkedout(settings)
+			if (state.missing):
+				print("Checking Out  {}".format(src.name))
+				plan.wanted.add((xbstrap.base.Action.CHECKOUT_SRC, src))
+			else:
+				print("Checked Out   {}".format(src.name))
+	else:
+		src = cfg.get_source(args.source)
+		plan.wanted.add((xbstrap.base.Action.CHECKOUT_SRC, src))
+
 	plan.run_plan()
+
 
 do_checkout.parser = main_subparsers.add_parser('checkout',
 		parents=[handle_plan_args.parser])
-do_checkout.parser.add_argument('source', type=str)
+do_checkout.parser.add_argument('--all', action='store_true')
+do_checkout.parser.add_argument('source', nargs='*', type=str)
 
+
+# DCC
 def do_patch(args):
 	cfg = xbstrap.base.config_for_dir()
-	src = cfg.get_source(args.source)
 	plan = xbstrap.base.Plan(cfg)
 	handle_plan_args(cfg, plan, args);
-	plan.wanted.add((xbstrap.base.Action.PATCH_SRC, src))
+
+	if args.all:
+		settings = plan.Settings()
+		for src in cfg.all_sources():
+			state = src.check_if_patched(settings)
+			if (state.missing):
+				print("Patching  {}".format(src.name))
+				plan.wanted.add((xbstrap.base.Action.PATCH_SRC, src))
+			else:
+				print("Applied   {}".format(src.name))
+	else:
+		src = cfg.get_source(args.source)
+		plan.wanted.add((xbstrap.base.Action.PATCH_SRC, src))
+
 	plan.run_plan()
 
 do_patch.parser = main_subparsers.add_parser('patch',
 		parents=[handle_plan_args.parser])
-do_patch.parser.add_argument('source', type=str)
+do_patch.parser.add_argument('--all', action='store_true')
+do_patch.parser.add_argument('source', nargs='*', type=str)
 
+# DCC
 def do_regenerate(args):
 	cfg = xbstrap.base.config_for_dir()
-	src = cfg.get_source(args.source)
 	plan = xbstrap.base.Plan(cfg)
 	handle_plan_args(cfg, plan, args);
-	plan.wanted.add((xbstrap.base.Action.REGENERATE_SRC, src))
+
+	if args.all:
+		settings = plan.Settings() 
+		for src in cfg.all_sources(): 
+			state = src.check_if_regenerated(settings)
+			if (state.missing):
+				print("Regenerating  {}".format(src.name))
+				plan.wanted.add((xbstrap.base.Action.REGENERATE_SRC, src))
+			else:
+				print("Regenerated   {}".format(src.name))
+	else:
+		src = cfg.get_source(args.source)
+		plan.wanted.add((xbstrap.base.Action.REGENERATE_SRC, src))
+
 	plan.run_plan()
 
 do_regenerate.parser = main_subparsers.add_parser('regenerate',
 		parents=[handle_plan_args.parser])
-do_regenerate.parser.add_argument('source', type=str)
+do_regenerate.parser.add_argument('--all', action='store_true')
+do_regenerate.parser.add_argument('source', nargs='*', type=str)
+
+
 
 def select_tools(cfg, args):
 	if args.all:
@@ -516,6 +592,9 @@ try:
 		do_list_tools(args)
 	elif args.command == 'list-pkgs':
 		do_list_pkgs(args)
+# DCC
+	elif args.command == 'list-srcs':
+		do_list_srcs(args)
 	elif args.command == 'run':
 		do_run_task(args)
 	else:
