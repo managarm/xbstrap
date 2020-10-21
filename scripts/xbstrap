@@ -109,7 +109,6 @@ handle_plan_args.parser.add_argument('--keep-going', action='store_true',
 handle_plan_args.parser.add_argument('--progress-file', type=str,
 		help="file that receives machine-ready progress notifications")
 
-# DCC
 def do_list_srcs(args):
 	cfg = xbstrap.base.config_for_dir()
 	plan = xbstrap.base.Plan(cfg)
@@ -123,8 +122,6 @@ def do_list_srcs(args):
 
 do_list_srcs.parser = main_subparsers.add_parser('list-srcs')
 
-
-# DCC
 def do_fetch(args):
 	cfg = xbstrap.base.config_for_dir()
 	plan = xbstrap.base.Plan(cfg)
@@ -133,12 +130,8 @@ def do_fetch(args):
 	if args.all:
 		settings = plan.Settings() # ItemSettings() is not available directly as an initialization... so new member of Plan
 		for src in cfg.all_sources(): # all_sources() is like all_pkgs() except.. it returns Sources... so new member of Config 
-			state = src.check_if_fetched(settings)
-			if (state.missing):
-				print("Fetching  {}".format(src.name))
-				plan.wanted.add((xbstrap.base.Action.FETCH_SRC, src))
-			else:
-				print("Available {}".format(src.name))
+			print("Fetching  {}".format(src.name))
+			plan.wanted.add((xbstrap.base.Action.FETCH_SRC, src))
 	else:
 		src = cfg.get_source(args.source)
 		plan.wanted.add((xbstrap.base.Action.FETCH_SRC, src))
@@ -151,7 +144,6 @@ do_fetch.parser.add_argument('--all', action='store_true')
 do_fetch.parser.add_argument('source', nargs='*', type=str) # not sure nargs='*' is appropriate... how to make optional when --all specified?
 
 
-# DCC
 def do_checkout(args):
 	cfg = xbstrap.base.config_for_dir()
 	plan = xbstrap.base.Plan(cfg)
@@ -160,12 +152,8 @@ def do_checkout(args):
 	if args.all:
 		settings = plan.Settings()
 		for src in cfg.all_sources(): 
-			state = src.check_if_checkedout(settings)
-			if (state.missing):
-				print("Checking Out  {}".format(src.name))
-				plan.wanted.add((xbstrap.base.Action.CHECKOUT_SRC, src))
-			else:
-				print("Checked Out   {}".format(src.name))
+			print("Checking Out  {}".format(src.name))
+			plan.wanted.add((xbstrap.base.Action.CHECKOUT_SRC, src))
 	else:
 		src = cfg.get_source(args.source)
 		plan.wanted.add((xbstrap.base.Action.CHECKOUT_SRC, src))
@@ -179,7 +167,6 @@ do_checkout.parser.add_argument('--all', action='store_true')
 do_checkout.parser.add_argument('source', nargs='*', type=str)
 
 
-# DCC
 def do_patch(args):
 	cfg = xbstrap.base.config_for_dir()
 	plan = xbstrap.base.Plan(cfg)
@@ -188,12 +175,8 @@ def do_patch(args):
 	if args.all:
 		settings = plan.Settings()
 		for src in cfg.all_sources():
-			state = src.check_if_patched(settings)
-			if (state.missing):
-				print("Patching  {}".format(src.name))
-				plan.wanted.add((xbstrap.base.Action.PATCH_SRC, src))
-			else:
-				print("Applied   {}".format(src.name))
+			print("Patching  {}".format(src.name))
+			plan.wanted.add((xbstrap.base.Action.PATCH_SRC, src))
 	else:
 		src = cfg.get_source(args.source)
 		plan.wanted.add((xbstrap.base.Action.PATCH_SRC, src))
@@ -205,7 +188,7 @@ do_patch.parser = main_subparsers.add_parser('patch',
 do_patch.parser.add_argument('--all', action='store_true')
 do_patch.parser.add_argument('source', nargs='*', type=str)
 
-# DCC
+
 def do_regenerate(args):
 	cfg = xbstrap.base.config_for_dir()
 	plan = xbstrap.base.Plan(cfg)
@@ -214,12 +197,8 @@ def do_regenerate(args):
 	if args.all:
 		settings = plan.Settings() 
 		for src in cfg.all_sources(): 
-			state = src.check_if_regenerated(settings)
-			if (state.missing):
-				print("Regenerating  {}".format(src.name))
-				plan.wanted.add((xbstrap.base.Action.REGENERATE_SRC, src))
-			else:
-				print("Regenerated   {}".format(src.name))
+			print("Regenerating  {}".format(src.name))
+			plan.wanted.add((xbstrap.base.Action.REGENERATE_SRC, src))
 	else:
 		src = cfg.get_source(args.source)
 		plan.wanted.add((xbstrap.base.Action.REGENERATE_SRC, src))
@@ -230,7 +209,6 @@ do_regenerate.parser = main_subparsers.add_parser('regenerate',
 		parents=[handle_plan_args.parser])
 do_regenerate.parser.add_argument('--all', action='store_true')
 do_regenerate.parser.add_argument('source', nargs='*', type=str)
-
 
 
 def select_tools(cfg, args):
@@ -592,7 +570,6 @@ try:
 		do_list_tools(args)
 	elif args.command == 'list-pkgs':
 		do_list_pkgs(args)
-# DCC
 	elif args.command == 'list-srcs':
 		do_list_srcs(args)
 	elif args.command == 'run':

@@ -364,7 +364,6 @@ class Config:
 		if name in self._tasks:
 			return self._tasks[name]
 
-# DCC
 	def all_sources(self):
 		yield from self._sources.values()
 
@@ -622,10 +621,7 @@ class Source(RequirementsMixin):
 		elif 'hg' in self._this_yml:
 			if not os.path.isdir(self.source_dir):
 				return ItemState(missing=True)
-#DCC			args = ['hg', 'manifest', '--pager', 'never', '-r',]
-# my hg complained heavily of --pager not being recognized - don't know if this is local problem...
-			args = ['hg', 'manifest',  '-r',]
-
+			args = ['hg', 'manifest', '--pager', 'never', '-r',]
 			if 'tag' in self._this_yml:
 				args.append(self._this_yml['tag'])
 			else:
@@ -2020,11 +2016,6 @@ class Plan:
 	@property
 	def cfg(self):
 		return self._cfg
-
-# DCC
-	def Settings(self):
-		return ItemSettings()
-
 
 	def _materialize_item(self, action, subject):
 		item = PlanItem(action, subject, self._settings)
