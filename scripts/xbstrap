@@ -128,8 +128,8 @@ def do_fetch(args):
 	handle_plan_args(cfg, plan, args);
 
 	if args.all:
-		settings = plan.Settings() # ItemSettings() is not available directly as an initialization... so new member of Plan
-		for src in cfg.all_sources(): # all_sources() is like all_pkgs() except.. it returns Sources... so new member of Config 
+		settings = plan.Settings() 
+		for src in cfg.all_sources():  
 			print("Fetching  {}".format(src.name))
 			plan.wanted.add((xbstrap.base.Action.FETCH_SRC, src))
 	else:
@@ -141,7 +141,7 @@ def do_fetch(args):
 do_fetch.parser = main_subparsers.add_parser('fetch',
 		parents=[handle_plan_args.parser])
 do_fetch.parser.add_argument('--all', action='store_true')
-do_fetch.parser.add_argument('source', nargs='*', type=str) # not sure nargs='*' is appropriate... how to make optional when --all specified?
+do_fetch.parser.add_argument('source', nargs='*', type=str) 
 
 
 def do_checkout(args):
