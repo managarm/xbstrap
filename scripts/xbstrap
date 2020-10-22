@@ -123,7 +123,6 @@ def do_fetch(args):
 	handle_plan_args(cfg, plan, args);
 
 	if args.all:
-		settings = plan.Settings() 
 		for src in cfg.all_sources():  
 			print("Fetching  {}".format(src.name))
 			plan.wanted.add((xbstrap.base.Action.FETCH_SRC, src))
@@ -145,7 +144,6 @@ def do_checkout(args):
 	handle_plan_args(cfg, plan, args);
 
 	if args.all:
-		settings = plan.Settings()
 		for src in cfg.all_sources(): 
 			print("Checking Out  {}".format(src.name))
 			plan.wanted.add((xbstrap.base.Action.CHECKOUT_SRC, src))
@@ -168,7 +166,6 @@ def do_patch(args):
 	handle_plan_args(cfg, plan, args);
 
 	if args.all:
-		settings = plan.Settings()
 		for src in cfg.all_sources():
 			print("Patching  {}".format(src.name))
 			plan.wanted.add((xbstrap.base.Action.PATCH_SRC, src))
@@ -190,7 +187,6 @@ def do_regenerate(args):
 	handle_plan_args(cfg, plan, args);
 
 	if args.all:
-		settings = plan.Settings() 
 		for src in cfg.all_sources(): 
 			print("Regenerating  {}".format(src.name))
 			plan.wanted.add((xbstrap.base.Action.REGENERATE_SRC, src))
