@@ -112,13 +112,8 @@ handle_plan_args.parser.add_argument('--progress-file', type=str,
 def do_list_srcs(args):
 	cfg = xbstrap.base.config_for_dir()
 	plan = xbstrap.base.Plan(cfg)
-	settings = plan.Settings()
 	for src in cfg.all_sources():
-		state = src.check_if_fetched(settings)
-		if (state.missing):
-			print("Unavailable  {}".format(src.name))
-		else:
-			print("Available    {}".format(src.name))
+		print("Source: {}".format(src.name))
 
 do_list_srcs.parser = main_subparsers.add_parser('list-srcs')
 
