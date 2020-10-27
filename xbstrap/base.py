@@ -364,6 +364,9 @@ class Config:
 		if name in self._tasks:
 			return self._tasks[name]
 
+	def all_sources(self):
+		yield from self._sources.values()
+
 	def all_tools(self):
 		yield from self._tool_pkgs.values()
 
