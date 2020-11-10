@@ -320,6 +320,12 @@ class Config:
 		return self._site_yml['pkg_management']['format'] == 'xbps'
 
 	@property
+	def container_runtime(self):
+		if 'container' not in self._site_yml:
+			return None
+		return self._site_yml['container'].get('runtime')
+
+	@property
 	def source_root(self):
 		return os.path.join(os.getcwd(),
 				os.path.dirname(os.readlink('bootstrap.link')))
@@ -1356,9 +1362,6 @@ def run_program(cfg, args, tool_pkgs=[], virtual_tools=[], workdir=None, extra_e
 		if pkg.exports_aclocal:
 			aclocal_dirs.append(os.path.join(pkg.prefix_dir, 'share/aclocal'))
 
-	print("{}xbstrap{}: Running {} (tools: {})".format(
-			colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
-			args, [tool.name for tool in pkg_queue]))
 	manifest = {
 		'args': args,
 		'workdir': workdir,
@@ -1380,7 +1383,19 @@ def run_program(cfg, args, tool_pkgs=[], virtual_tools=[], workdir=None, extra_e
 			'prefix_dir': tool.prefix_dir
 		})
 
-	execute_manifest(manifest)
+	print("{}xbstrap{}: Running {} (tools: {})".format(
+			colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
+			args, [tool.name for tool in pkg_queue]))
+
+	runtime = cfg.container_runtime
+	if runtime == 'dummy':
+		proc = subprocess.Popen(['xbstrap', 'execute-manifest'],
+				stdin=subprocess.PIPE, text=True)
+		proc.communicate(yaml.dump(manifest))
+		assert proc.returncode == 0
+	else:
+		assert not runtime
+		execute_manifest(manifest)
 
 def run_step(cfg, step, default_workdir, substitute, tool_pkgs, virtual_tools,
 		for_package=False):
