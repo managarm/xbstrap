@@ -1221,7 +1221,7 @@ def run_tool(cfg, args, tool_pkgs=[], virtual_tools=[], workdir=None, extra_envi
 					+ ':${XBSTRAP_SYSROOT_DIR}/usr/share/pkgconfig"'
 					+ ' pkg-config $@\n')
 			os.chmod(vscript, 0o775)
-			use_targe_pkgconfig = True
+			use_target_pkgconfig = True
 		else:
 			raise RuntimeError("Unknown virtual tool {}".format(yml['virtual']))
 
