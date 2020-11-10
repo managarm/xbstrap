@@ -19,7 +19,7 @@ import colorama
 import jsonschema
 import yaml
 
-from . import util
+from . import util as _util
 
 verbosity = False
 
@@ -1263,83 +1263,18 @@ class RunTask(RequirementsMixin):
 def config_for_dir():
 	return Config('')
 
-class EnvironmentComposer:
-	def __init__(self, cfg):
-		self.cfg = cfg
-		self.path_dirs = [ ]
-		self.shared_lib_dirs = [ ]
-		self.aclocal_dirs = [ ]
-
-	def compose(self, for_package=False, explicit_pkgconfig=False):
-		environ = os.environ.copy()
-
-		environ['XBSTRAP_SOURCE_ROOT'] = self.cfg.source_root
-		environ['XBSTRAP_BUILD_ROOT'] = self.cfg.build_root
-		environ['XBSTRAP_SYSROOT_DIR'] = self.cfg.sysroot_dir
-
-		if for_package and not explicit_pkgconfig:
-			pkgcfg_libdir = os.path.join(self.cfg.sysroot_dir, 'usr', 'lib', 'pkgconfig')
-			pkgcfg_libdir += ':' + os.path.join(self.cfg.sysroot_dir, 'usr', 'share', 'pkgconfig')
-
-			environ.pop('PKG_CONFIG_PATH', None)
-			environ['PKG_CONFIG_SYSROOT_DIR'] = self.cfg.sysroot_dir
-			environ['PKG_CONFIG_LIBDIR'] = pkgcfg_libdir
-
-		self._prepend_dirs(environ, 'PATH', self.path_dirs)
-		self._prepend_dirs(environ, 'LD_LIBRARY_PATH', self.shared_lib_dirs)
-		self._prepend_dirs(environ, 'ACLOCAL_PATH', self.aclocal_dirs)
-		return environ
-
-	def _prepend_dirs(self, environ, varname, dirs):
-		if not dirs:
-			return
-		joined = ':'.join(dirs)
-		if varname in environ and environ[varname]:
-			environ[varname] = joined + ':' + environ[varname]
-		else:
-			environ[varname] = joined
-
-	def _append_dirs(self, environ, varname, dirs):
-		if not dirs:
-			return
-		joined = ':'.join(dirs)
-		if varname in environ and environ[varname]:
-			environ[varname] += ':' + joined
-		else:
-			environ[varname] = joined
-
-def run_tool(cfg, args, tool_pkgs=[], virtual_tools=[], workdir=None, extra_environ=dict(),
-		for_package=False, quiet=False):
-	pkg_queue = []
-	pkg_visited = set()
-
-	for pkg in tool_pkgs:
-		assert pkg.name not in pkg_visited
-		pkg_queue.append(pkg)
-		pkg_visited.add(pkg.name)
-
-	i = 0 # Need index-based loop as pkg_queue is mutated in the loop.
-	while i < len(pkg_queue):
-		pkg = pkg_queue[i]
-		for dep_name in pkg.recursive_tools_required:
-			if dep_name in pkg_visited:
-				continue
-			dep_pkg = cfg.get_tool_pkg(dep_name)
-			pkg_queue.append(dep_pkg)
-			pkg_visited.add(dep_name)
-		i += 1
-
+def execute_manifest(manifest):
 	# /bin directory for virtual tools.
 	explicit_pkgconfig = False
 	vb = tempfile.TemporaryDirectory()
 
-	for yml in virtual_tools:
+	for yml in manifest['virtual_tools']:
 		if yml['virtual'] == 'pkgconfig-for-host':
 			vscript = os.path.join(vb.name, yml['program_name'])
 			paths = []
-			for tool in pkg_queue:
-				paths.append(tool.prefix_dir + '/lib/pkgconfig')
-				paths.append(tool.prefix_dir + '/share/pkgconfig')
+			for tool_yml in manifest['tools']:
+				paths.append(tool_yml['prefix_dir'] + '/lib/pkgconfig')
+				paths.append(tool_yml['prefix_dir'] + '/share/pkgconfig')
 			with open(vscript, 'wt') as f:
 				f.write('#!/bin/sh\n'
 					+ 'PKG_CONFIG_PATH=' + ':'.join(paths)
@@ -1360,26 +1295,92 @@ def run_tool(cfg, args, tool_pkgs=[], virtual_tools=[], workdir=None, extra_envi
 		else:
 			raise RuntimeError("Unknown virtual tool {}".format(yml['virtual']))
 
-	composer = EnvironmentComposer(cfg)
-	composer.path_dirs.append(vb.name)
-	for pkg in pkg_queue:
-		composer.path_dirs.append(os.path.join(pkg.prefix_dir, 'bin'))
-		if pkg.exports_shared_libs:
-			composer.shared_lib_dirs.append(os.path.join(pkg.prefix_dir, 'lib'))
-		if pkg.exports_aclocal:
-			composer.aclocal_dirs.append(os.path.join(pkg.prefix_dir, 'share/aclocal'))
-	environ = composer.compose(for_package=for_package, explicit_pkgconfig=explicit_pkgconfig)
-	environ.update(extra_environ)
+	# Build the environment
+	environ = os.environ.copy()
 
+	_util.build_environ_paths(environ, 'PATH', prepend=manifest['path_dirs'] + [vb.name])
+	_util.build_environ_paths(environ, 'LD_LIBRARY_PATH', prepend=manifest['ldso_dirs'])
+	_util.build_environ_paths(environ, 'ACLOCAL_PATH', prepend=manifest['aclocal_dirs'])
+
+	if manifest['for_package'] and not explicit_pkgconfig:
+		pkgcfg_libdir = os.path.join(manifest['sysroot_dir'], 'usr', 'lib', 'pkgconfig')
+		pkgcfg_libdir += ':' + os.path.join(manifest['sysroot_dir'], 'usr', 'share', 'pkgconfig')
+
+		environ.pop('PKG_CONFIG_PATH', None)
+		environ['PKG_CONFIG_SYSROOT_DIR'] = manifest['sysroot_dir']
+		environ['PKG_CONFIG_LIBDIR'] = pkgcfg_libdir
+
+	environ['XBSTRAP_SOURCE_ROOT'] = manifest['source_root']
+	environ['XBSTRAP_BUILD_ROOT'] = manifest['build_root']
+	environ['XBSTRAP_SYSROOT_DIR'] = manifest['sysroot_dir']
+
+	environ.update(manifest['extra_environ'])
+
+	# Determine the stdout sink.
 	output = None # Default: Do not redirect output.
-	if quiet:
+	if manifest['quiet']:
 		output = subprocess.DEVNULL
+
+	subprocess.check_call(manifest['args'],
+			env=environ, cwd=manifest['workdir'],
+			stdout=output, stderr=output)
+
+def run_program(cfg, args, tool_pkgs=[], virtual_tools=[], workdir=None, extra_environ=dict(),
+		for_package=False, quiet=False):
+	pkg_queue = []
+	pkg_visited = set()
+
+	for pkg in tool_pkgs:
+		assert pkg.name not in pkg_visited
+		pkg_queue.append(pkg)
+		pkg_visited.add(pkg.name)
+
+	i = 0 # Need index-based loop as pkg_queue is mutated in the loop.
+	while i < len(pkg_queue):
+		pkg = pkg_queue[i]
+		for dep_name in pkg.recursive_tools_required:
+			if dep_name in pkg_visited:
+				continue
+			dep_pkg = cfg.get_tool_pkg(dep_name)
+			pkg_queue.append(dep_pkg)
+			pkg_visited.add(dep_name)
+		i += 1
+
+	path_dirs = []
+	ldso_dirs = []
+	aclocal_dirs = []
+	for pkg in pkg_queue:
+		path_dirs.append(os.path.join(pkg.prefix_dir, 'bin'))
+		if pkg.exports_shared_libs:
+			ldso_dirs.append(os.path.join(pkg.prefix_dir, 'lib'))
+		if pkg.exports_aclocal:
+			aclocal_dirs.append(os.path.join(pkg.prefix_dir, 'share/aclocal'))
 
 	print("{}xbstrap{}: Running {} (tools: {})".format(
 			colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
 			args, [tool.name for tool in pkg_queue]))
-	subprocess.check_call(args, env=environ, cwd=workdir,
-			stdout=output, stderr=output)
+	manifest = {
+		'args': args,
+		'workdir': workdir,
+		'extra_environ': extra_environ,
+		'quiet': quiet,
+		'for_package': for_package,
+		'virtual_tools': list(virtual_tools),
+		'tools': [],
+		'path_dirs': path_dirs,
+		'ldso_dirs': ldso_dirs,
+		'aclocal_dirs': aclocal_dirs,
+		'source_root': cfg.source_root,
+		'build_root': cfg.build_root,
+		'sysroot_dir': cfg.sysroot_dir
+	}
+
+	for tool in pkg_queue:
+		manifest['tools'].append({
+			'prefix_dir': tool.prefix_dir
+		})
+
+	execute_manifest(manifest)
 
 def run_step(cfg, step, default_workdir, substitute, tool_pkgs, virtual_tools,
 		for_package=False):
@@ -1400,7 +1401,7 @@ def run_step(cfg, step, default_workdir, substitute, tool_pkgs, virtual_tools,
 
 	quiet = step.quiet and not verbosity
 
-	run_tool(cfg, args, tool_pkgs=tool_pkgs, virtual_tools=virtual_tools, workdir=workdir,
+	run_program(cfg, args, tool_pkgs=tool_pkgs, virtual_tools=virtual_tools, workdir=workdir,
 			extra_environ=environ, for_package=for_package,
 			quiet=quiet)
 
@@ -1975,7 +1976,7 @@ def pull_pkg_pack(cfg, pkg):
 	print('{}xbstrap{}: Downloading x86_64-repodata from {}'.format(
 			colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
 			repo_url))
-	util.interactive_download(rd_url, rd_path)
+	_util.interactive_download(rd_url, rd_path)
 
 	# Find the package within the repodata's index file.
 	index = _xbps_utils.read_repodata(rd_path)
@@ -1989,7 +1990,7 @@ def pull_pkg_pack(cfg, pkg):
 	print('{}xbstrap{}: Downloading {} from {}'.format(
 			colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
 			xbps_file, repo_url))
-	util.interactive_download(pkg_url, os.path.join(cfg.xbps_repository_dir, xbps_file))
+	_util.interactive_download(pkg_url, os.path.join(cfg.xbps_repository_dir, xbps_file))
 
 	# Run xbps-rindex.
 	output = subprocess.DEVNULL
