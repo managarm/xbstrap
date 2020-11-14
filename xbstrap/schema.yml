@@ -25,6 +25,8 @@ definitions:
                 properties:
                     'virtual':
                         type: string
+                    'program_name':
+                        type: string
                     'triple':
                         type: string
 

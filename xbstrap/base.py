@@ -1163,14 +1163,14 @@ class EnvironmentComposer:
 		self.shared_lib_dirs = [ ]
 		self.aclocal_dirs = [ ]
 
-	def compose(self, for_package=False, use_target_pkgconfig=False):
+	def compose(self, for_package=False, explicit_pkgconfig=False):
 		environ = os.environ.copy()
 
 		environ['XBSTRAP_SOURCE_ROOT'] = self.cfg.source_root
 		environ['XBSTRAP_BUILD_ROOT'] = self.cfg.build_root
 		environ['XBSTRAP_SYSROOT_DIR'] = self.cfg.sysroot_dir
 
-		if for_package and not use_target_pkgconfig:
+		if for_package and not explicit_pkgconfig:
 			pkgcfg_libdir = os.path.join(self.cfg.sysroot_dir, 'usr', 'lib', 'pkgconfig')
 			pkgcfg_libdir += ':' + os.path.join(self.cfg.sysroot_dir, 'usr', 'share', 'pkgconfig')
 
@@ -1206,25 +1206,6 @@ def run_tool(cfg, args, tool_pkgs=[], virtual_tools=[], workdir=None, extra_envi
 	pkg_queue = []
 	pkg_visited = set()
 
-	# /bin directory for virtual tools.
-	use_target_pkgconfig = False
-	vb = tempfile.TemporaryDirectory()
-
-	for yml in virtual_tools:
-		if yml['virtual'] == 'pkgconfig-for-target':
-			vscript = os.path.join(vb.name, '{}-pkg-config'.format(yml['triple']))
-			with open(vscript, 'wt') as f:
-				f.write('#!/bin/sh\n'
-					+ 'PKG_CONFIG_PATH= '
-					+ ' PKG_CONFIG_SYSROOT_DIR="${XBSTRAP_SYSROOT_DIR}"'
-					+ ' PKG_CONFIG_LIBDIR="${XBSTRAP_SYSROOT_DIR}/usr/lib/pkgconfig'
-					+ ':${XBSTRAP_SYSROOT_DIR}/usr/share/pkgconfig"'
-					+ ' pkg-config $@\n')
-			os.chmod(vscript, 0o775)
-			use_target_pkgconfig = True
-		else:
-			raise RuntimeError("Unknown virtual tool {}".format(yml['virtual']))
-
 	for pkg in tool_pkgs:
 		assert pkg.name not in pkg_visited
 		pkg_queue.append(pkg)
@@ -1241,6 +1222,37 @@ def run_tool(cfg, args, tool_pkgs=[], virtual_tools=[], workdir=None, extra_envi
 			pkg_visited.add(dep_name)
 		i += 1
 
+	# /bin directory for virtual tools.
+	explicit_pkgconfig = False
+	vb = tempfile.TemporaryDirectory()
+
+	for yml in virtual_tools:
+		if yml['virtual'] == 'pkgconfig-for-host':
+			vscript = os.path.join(vb.name, yml['program_name'])
+			paths = []
+			for tool in pkg_queue:
+				paths.append(tool.prefix_dir + '/lib/pkgconfig')
+				paths.append(tool.prefix_dir + '/share/pkgconfig')
+			with open(vscript, 'wt') as f:
+				f.write('#!/bin/sh\n'
+					+ 'PKG_CONFIG_PATH=' + ':'.join(paths)
+					+ ' pkg-config $@\n')
+			os.chmod(vscript, 0o775)
+			explicit_pkgconfig = True
+		elif yml['virtual'] == 'pkgconfig-for-target':
+			vscript = os.path.join(vb.name, '{}-pkg-config'.format(yml['triple']))
+			with open(vscript, 'wt') as f:
+				f.write('#!/bin/sh\n'
+					+ 'PKG_CONFIG_PATH= '
+					+ ' PKG_CONFIG_SYSROOT_DIR="${XBSTRAP_SYSROOT_DIR}"'
+					+ ' PKG_CONFIG_LIBDIR="${XBSTRAP_SYSROOT_DIR}/usr/lib/pkgconfig'
+					+ ':${XBSTRAP_SYSROOT_DIR}/usr/share/pkgconfig"'
+					+ ' pkg-config $@\n')
+			os.chmod(vscript, 0o775)
+			explicit_pkgconfig = True
+		else:
+			raise RuntimeError("Unknown virtual tool {}".format(yml['virtual']))
+
 	composer = EnvironmentComposer(cfg)
 	composer.path_dirs.append(vb.name)
 	for pkg in pkg_queue:
@@ -1249,7 +1261,7 @@ def run_tool(cfg, args, tool_pkgs=[], virtual_tools=[], workdir=None, extra_envi
 			composer.shared_lib_dirs.append(os.path.join(pkg.prefix_dir, 'lib'))
 		if pkg.exports_aclocal:
 			composer.aclocal_dirs.append(os.path.join(pkg.prefix_dir, 'share/aclocal'))
-	environ = composer.compose(for_package=for_package, use_target_pkgconfig=use_target_pkgconfig)
+	environ = composer.compose(for_package=for_package, explicit_pkgconfig=explicit_pkgconfig)
 	environ.update(extra_environ)
 
 	output = None # Default: Do not redirect output.
