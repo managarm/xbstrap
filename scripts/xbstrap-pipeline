@@ -102,6 +102,7 @@ def do_compute_graph(args):
 	if args.artifacts:
 		out_root = dict()
 		for job in pipe.all_jobs():
+			up2date = False
 			if args.version_file:
 				up2date = True
 				if len(job.tools): # For now, tools are always rebuilt.
@@ -113,8 +114,6 @@ def do_compute_graph(args):
 					if pkg.version != version_yml['pkgs'][pkg.name]:
 						up2date = False
 						break
-				if up2date:
-					continue
 
 			plan = xbstrap.base.Plan(cfg)
 			plan.build_scope = set().union(job.tools, job.pkgs)
@@ -129,7 +128,10 @@ def do_compute_graph(args):
 				plan.wanted.update([(xbstrap.base.Action.RUN, task)])
 			plan.compute_plan(no_ordering=True)
 
-			out_job = {'unstable': job.unstable}
+			out_job = {
+				'unstable': job.unstable,
+				'up2date': up2date
+			}
 			out_job['products'] = {'tools': [], 'pkgs': [], 'files': []}
 			out_job['needed'] = {'tools': [], 'pkgs': []}
 			for tool in job.tools:
