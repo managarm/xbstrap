@@ -127,8 +127,9 @@ def do_fetch(args):
 			print("Fetching  {}".format(src.name))
 			plan.wanted.add((xbstrap.base.Action.FETCH_SRC, src))
 	else:
-		src = cfg.get_source(args.source)
-		plan.wanted.add((xbstrap.base.Action.FETCH_SRC, src))
+		for src_name in args.source:
+			src = cfg.get_source(src_name)
+			plan.wanted.add((xbstrap.base.Action.FETCH_SRC, src))
 
 	plan.run_plan()
 
@@ -148,8 +149,9 @@ def do_checkout(args):
 			print("Checking Out  {}".format(src.name))
 			plan.wanted.add((xbstrap.base.Action.CHECKOUT_SRC, src))
 	else:
-		src = cfg.get_source(args.source)
-		plan.wanted.add((xbstrap.base.Action.CHECKOUT_SRC, src))
+		for src_name in args.source:
+			src = cfg.get_source(src_name)
+			plan.wanted.add((xbstrap.base.Action.CHECKOUT_SRC, src))
 
 	plan.run_plan()
 
@@ -170,8 +172,9 @@ def do_patch(args):
 			print("Patching  {}".format(src.name))
 			plan.wanted.add((xbstrap.base.Action.PATCH_SRC, src))
 	else:
-		src = cfg.get_source(args.source)
-		plan.wanted.add((xbstrap.base.Action.PATCH_SRC, src))
+		for src_name in args.source:
+			src = cfg.get_source(src_name)
+			plan.wanted.add((xbstrap.base.Action.PATCH_SRC, src))
 
 	plan.run_plan()
 
@@ -191,8 +194,9 @@ def do_regenerate(args):
 			print("Regenerating  {}".format(src.name))
 			plan.wanted.add((xbstrap.base.Action.REGENERATE_SRC, src))
 	else:
-		src = cfg.get_source(args.source)
-		plan.wanted.add((xbstrap.base.Action.REGENERATE_SRC, src))
+		for src_name in args.source:
+			src = cfg.get_source(src_name)
+			plan.wanted.add((xbstrap.base.Action.REGENERATE_SRC, src))
 
 	plan.run_plan()
 
