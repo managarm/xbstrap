@@ -97,13 +97,12 @@ def do_compute_graph(args):
 	cfg = xbstrap.base.config_for_dir()
 	pipe = pipeline_for_dir(cfg)
 
+	with xbstrap.cli_utils.open_file_from_cli(args.version_file, 'rt') as f:
+		version_yml = yaml.load(f, yaml.SafeLoader)
 	if args.artifacts:
 		out_root = dict()
 		for job in pipe.all_jobs():
 			if args.version_file:
-				with xbstrap.cli_utils.open_file_from_cli(args.version_file, 'rt') as f:
-					version_yml = yaml.load(f, yaml.SafeLoader)
-
 				up2date = True
 				if len(job.tools): # For now, tools are always rebuilt.
 					up2date = False
