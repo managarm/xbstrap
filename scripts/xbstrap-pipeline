@@ -97,15 +97,17 @@ def do_compute_graph(args):
 	cfg = xbstrap.base.config_for_dir()
 	pipe = pipeline_for_dir(cfg)
 
+	with xbstrap.cli_utils.open_file_from_cli(args.version_file, 'rt') as f:
+		version_yml = yaml.load(f, yaml.SafeLoader)
 	if args.artifacts:
 		out_root = dict()
 		for job in pipe.all_jobs():
+			up2date = False
 			if args.version_file:
-				with xbstrap.cli_utils.open_file_from_cli(args.version_file, 'rt') as f:
-					version_yml = yaml.load(f, yaml.SafeLoader)
-
 				up2date = True
 				if len(job.tools): # For now, tools are always rebuilt.
+					up2date = False
+				if len(job.tasks): # For now, tasks are also always rebuilt.
 					up2date = False
 				for pkg in job.pkgs:
 					if pkg.name not in version_yml['pkgs']:
@@ -114,8 +116,6 @@ def do_compute_graph(args):
 					if pkg.version != version_yml['pkgs'][pkg.name]:
 						up2date = False
 						break
-				if up2date:
-					continue
 
 			plan = xbstrap.base.Plan(cfg)
 			plan.build_scope = set().union(job.tools, job.pkgs)
@@ -130,7 +130,10 @@ def do_compute_graph(args):
 				plan.wanted.update([(xbstrap.base.Action.RUN, task)])
 			plan.compute_plan(no_ordering=True)
 
-			out_job = {'unstable': job.unstable}
+			out_job = {
+				'unstable': job.unstable,
+				'up2date': up2date
+			}
 			out_job['products'] = {'tools': [], 'pkgs': [], 'files': []}
 			out_job['needed'] = {'tools': [], 'pkgs': []}
 			for tool in job.tools:
