@@ -124,7 +124,7 @@ def replace_at_vars(string, resolve):
 			raise RuntimeError("Unexpected substitution {}".format(varname))
 		return result
 
-	return re.sub(r'@(\w+)@', do_substitute, string)
+	return re.sub(r'@([\w:-]+)@', do_substitute, string)
 
 def installtree(src_root, dest_root):
 	for name in os.listdir(src_root):
@@ -353,6 +353,21 @@ class Config:
 			return os.path.join(self.build_root, 'packages')
 		else:
 			return os.path.join(self.build_root, self._root_yml['directories']['packages'])
+
+	def get_option_value(self, name):
+		decl = None
+		for yml in self._root_yml.get('declare_options', []):
+			if yml['name'] == name:
+				assert not decl
+				decl = yml
+		if not decl:
+			raise KeyError()
+
+		defns = self._site_yml.get('define_options', dict())
+		if name in defns:
+			return defns[name]
+		else:
+			return decl.get('default', None)
 
 	def get_source(self, name):
 		return self._sources[name]
@@ -1518,6 +1533,8 @@ def configure_tool(cfg, pkg):
 			elif varname == 'PARALLELISM':
 				nthreads = get_concurrency()
 				return str(nthreads)
+			elif varname.startswith('OPTION:'):
+				return cfg.get_option_value(varname[7:])
 
 		run_step(cfg, step, pkg.build_dir, substitute, tool_pkgs, pkg.virtual_tools)
 
@@ -1618,6 +1635,8 @@ def configure_pkg(cfg, pkg):
 			elif varname == 'PARALLELISM':
 				nthreads = get_concurrency()
 				return str(nthreads)
+			elif varname.startswith('OPTION:'):
+				return cfg.get_option_value(varname[7:])
 
 		run_step(cfg, step, pkg.build_dir, substitute, tool_pkgs, pkg.virtual_tools,
 				for_package=True)

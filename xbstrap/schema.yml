@@ -168,6 +168,16 @@ properties:
             properties:
                 'file':
                     type: string
+    'declare_options':
+        type: array
+        items:
+            type: object
+            additionalProperties: false
+            required: ['name']
+            properties:
+                'name':
+                    type: string
+                'default': { }
     'sources':
         type: array
         items:
