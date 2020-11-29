@@ -1162,6 +1162,8 @@ class RunTask(RequirementsMixin):
 				return self._cfg.build_root
 			elif varname == 'SYSROOT_DIR':
 				return self._cfg.sysroot_dir
+			elif varname.startswith('OPTION:'):
+				return cfg.get_option_value(varname[7:])
 
 		entries = self._this_yml.get('artifact_files', [])
 		for e in entries:
@@ -1495,8 +1497,10 @@ def regenerate_src(cfg, src):
 				return cfg.build_root
 			elif varname == 'SYSROOT_DIR':
 				return cfg.sysroot_dir
-			if varname == 'THIS_SOURCE_DIR':
+			elif varname == 'THIS_SOURCE_DIR':
 				return src.source_dir
+			elif varname.startswith('OPTION:'):
+				return cfg.get_option_value(varname[7:])
 
 		run_step(cfg, step, src.source_dir, substitute, tool_pkgs, src.virtual_tools)
 
@@ -1565,6 +1569,8 @@ def compile_tool_stage(cfg, stage):
 			elif varname == 'PARALLELISM':
 				nthreads = get_concurrency()
 				return str(nthreads)
+			elif varname.startswith('OPTION:'):
+				return cfg.get_option_value(varname[7:])
 
 		run_step(cfg, step, pkg.build_dir, substitute, tool_pkgs, pkg.virtual_tools)
 
@@ -1596,6 +1602,8 @@ def install_tool_stage(cfg, stage):
 				return pkg.build_dir
 			elif varname == 'PREFIX':
 				return pkg.prefix_dir
+			elif varname.startswith('OPTION:'):
+				return cfg.get_option_value(varname[7:])
 
 		run_step(cfg, step, pkg.build_dir, substitute, tool_pkgs, pkg.virtual_tools)
 
@@ -1637,6 +1645,8 @@ def configure_pkg(cfg, pkg):
 				return str(nthreads)
 			elif varname.startswith('OPTION:'):
 				return cfg.get_option_value(varname[7:])
+			elif varname.startswith('OPTION:'):
+				return cfg.get_option_value(varname[7:])
 
 		run_step(cfg, step, pkg.build_dir, substitute, tool_pkgs, pkg.virtual_tools,
 				for_package=True)
@@ -1671,6 +1681,8 @@ def build_pkg(cfg, pkg, reproduce=False):
 			elif varname == 'PARALLELISM':
 				nthreads = get_concurrency()
 				return str(nthreads)
+			elif varname.startswith('OPTION:'):
+				return cfg.get_option_value(varname[7:])
 
 		run_step(cfg, step, pkg.build_dir, substitute, tool_pkgs, pkg.virtual_tools,
 				for_package=True)
@@ -1824,6 +1836,8 @@ def run_task(cfg, task):
 		elif varname == 'PARALLELISM':
 			nthreads = get_concurrency()
 			return str(nthreads)
+		elif varname.startswith('OPTION:'):
+			return cfg.get_option_value(varname[7:])
 
 	run_step(cfg, task.script_step, cfg.source_root, substitute, tools_required, task.virtual_tools,
 			for_package=False)
@@ -1852,6 +1866,8 @@ def run_pkg_task(cfg, task):
 		elif varname == 'PARALLELISM':
 			nthreads = get_concurrency()
 			return str(nthreads)
+		elif varname.startswith('OPTION:'):
+			return cfg.get_option_value(varname[7:])
 
 	run_step(cfg, task.script_step, task.pkg.build_dir, substitute, tools_required,
 			task.pkg.virtual_tools, for_package=False)
@@ -1879,6 +1895,8 @@ def run_tool_task(cfg, task):
 		elif varname == 'PARALLELISM':
 			nthreads = get_concurrency()
 			return str(nthreads)
+		elif varname.startswith('OPTION:'):
+			return cfg.get_option_value(varname[7:])
 
 	run_step(cfg, task.script_step, task.pkg.build_dir, substitute, tools_required,
 			task.pkg.virtual_tools, for_package=False)
