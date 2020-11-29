@@ -22,6 +22,7 @@ import yaml
 from . import util as _util
 
 verbosity = False
+debug_manifests = False
 
 global_yaml_loader = yaml.SafeLoader
 global_bootstrap_validator = None
@@ -372,6 +373,11 @@ class Config:
 			return os.path.join(self.build_root, 'packages')
 		else:
 			return os.path.join(self.build_root, self._root_yml['directories']['packages'])
+
+	@property
+	def all_options(self):
+		for yml in self._root_yml.get('declare_options', []):
+			yield yml['name']
 
 	def get_option_value(self, name):
 		decl = None
@@ -1270,6 +1276,37 @@ def config_for_dir():
 	return Config('')
 
 def execute_manifest(manifest):
+	def substitute(varname):
+		if varname == 'SOURCE_ROOT':
+			return manifest['source_root']
+		elif varname == 'BUILD_ROOT':
+			return manifest['build_root']
+		elif varname == 'SYSROOT_DIR':
+			return manifest['sysroot_dir']
+		elif varname == 'PARALLELISM':
+			nthreads = get_concurrency()
+			return str(nthreads)
+		elif varname.startswith('OPTION:'):
+			return manifest['option_values'][varname[7:]]
+
+		if manifest['context'] == 'source':
+			if varname == 'THIS_SOURCE_DIR':
+				return manifest['subject']['source_dir']
+		elif manifest['context'] == 'tool' or manifest['context'] == 'tool-stage':
+			if varname == 'THIS_SOURCE_DIR':
+				return manifest['subject']['source_dir']
+			elif varname == 'THIS_BUILD_DIR':
+				return manifest['subject']['build_dir']
+			elif varname == 'PREFIX':
+				return manifest['subject']['prefix_dir']
+		elif manifest['context'] == 'pkg':
+			if varname == 'THIS_SOURCE_DIR':
+				return manifest['subject']['source_dir']
+			elif varname == 'THIS_BUILD_DIR':
+				return manifest['subject']['build_dir']
+			elif varname == 'THIS_COLLECT_DIR':
+				return manifest['subject']['collect_dir']
+
 	# /bin directory for virtual tools.
 	explicit_pkgconfig = False
 	vb = tempfile.TemporaryDirectory()
@@ -1301,6 +1338,13 @@ def execute_manifest(manifest):
 		else:
 			raise RuntimeError("Unknown virtual tool {}".format(yml['virtual']))
 
+	# Determine the arguments.
+	if isinstance(manifest['args'], list):
+		args = [replace_at_vars(arg, substitute) for arg in manifest['args']]
+	else:
+		assert isinstance(manifest['args'], str)
+		args = ['/bin/bash', '-c', replace_at_vars(manifest['args'], substitute)]
+
 	# Build the environment
 	environ = os.environ.copy()
 
@@ -1320,18 +1364,23 @@ def execute_manifest(manifest):
 	environ['XBSTRAP_BUILD_ROOT'] = manifest['build_root']
 	environ['XBSTRAP_SYSROOT_DIR'] = manifest['sysroot_dir']
 
-	environ.update(manifest['extra_environ'])
+	for key, value in manifest['extra_environ'].items():
+		environ[key] = replace_at_vars(value, substitute)
 
 	# Determine the stdout sink.
 	output = None # Default: Do not redirect output.
 	if manifest['quiet']:
 		output = subprocess.DEVNULL
 
-	subprocess.check_call(manifest['args'],
-			env=environ, cwd=manifest['workdir'],
+	# Determine the working directory.
+	workdir = replace_at_vars(manifest['workdir'], substitute)
+
+	subprocess.check_call(args,
+			env=environ, cwd=workdir,
 			stdout=output, stderr=output)
 
-def run_program(cfg, args, tool_pkgs=[], virtual_tools=[], workdir=None, extra_environ=dict(),
+def run_program(cfg, context, subject, args,
+		tool_pkgs=[], virtual_tools=[], workdir=None, extra_environ=dict(),
 		for_package=False, quiet=False):
 	pkg_queue = []
 	pkg_visited = set()
@@ -1363,6 +1412,7 @@ def run_program(cfg, args, tool_pkgs=[], virtual_tools=[], workdir=None, extra_e
 			aclocal_dirs.append(os.path.join(pkg.prefix_dir, 'share/aclocal'))
 
 	manifest = {
+		'context': context,
 		'args': args,
 		'workdir': workdir,
 		'extra_environ': extra_environ,
@@ -1375,8 +1425,52 @@ def run_program(cfg, args, tool_pkgs=[], virtual_tools=[], workdir=None, extra_e
 		'aclocal_dirs': aclocal_dirs,
 		'source_root': cfg.source_root,
 		'build_root': cfg.build_root,
-		'sysroot_dir': cfg.sysroot_dir
+		'sysroot_dir': cfg.sysroot_dir,
+		'option_values': {name: cfg.get_option_value(name) for name in cfg.all_options}
 	}
+
+	if context == 'source':
+		manifest['subject'] = {
+			'source_dir': subject.source_dir
+		}
+	elif context == 'tool':
+		src = cfg.get_source(subject.source)
+		manifest['subject'] = {
+			'source_dir': src.source_dir,
+			'build_dir': subject.build_dir,
+			'prefix_dir': subject.prefix_dir
+		}
+	elif context == 'tool-stage':
+		tool = subject.pkg
+		src = cfg.get_source(tool.source)
+		manifest['subject'] = {
+			'source_dir': src.source_dir,
+			'build_dir': tool.build_dir,
+			'prefix_dir': tool.prefix_dir
+		}
+	elif context == 'pkg':
+		src = cfg.get_source(subject.source)
+		manifest['subject'] = {
+			'source_dir': src.source_dir,
+			'build_dir': subject.build_dir,
+			'collect_dir': subject.collect_dir
+		}
+	elif context == 'tool-task':
+		tool = subject.pkg
+		src = cfg.get_source(tool.source)
+		manifest['subject'] = {
+			'source_dir': src.source_dir,
+			'build_dir': tool.build_dir,
+			'prefix_dir': tool.prefix_dir
+		}
+	elif context == 'pkg-task':
+		pkg = subject.pkg
+		src = cfg.get_source(pkg.source)
+		manifest['subject'] = {
+			'source_dir': src.source_dir,
+			'build_dir': pkg.build_dir,
+			'collect_dir': pkg.collect_dir
+		}
 
 	for tool in pkg_queue:
 		manifest['tools'].append({
@@ -1386,6 +1480,9 @@ def run_program(cfg, args, tool_pkgs=[], virtual_tools=[], workdir=None, extra_e
 	print("{}xbstrap{}: Running {} (tools: {})".format(
 			colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
 			args, [tool.name for tool in pkg_queue]))
+
+	if debug_manifests:
+		print(yaml.dump(manifest))
 
 	runtime = cfg.container_runtime
 	if runtime == 'dummy':
@@ -1397,28 +1494,16 @@ def run_program(cfg, args, tool_pkgs=[], virtual_tools=[], workdir=None, extra_e
 		assert not runtime
 		execute_manifest(manifest)
 
-def run_step(cfg, step, default_workdir, substitute, tool_pkgs, virtual_tools,
+def run_step(cfg, context, subject, step, default_workdir, tool_pkgs, virtual_tools,
 		for_package=False):
-	if isinstance(step.args, list):
-		args = [replace_at_vars(arg, substitute) for arg in step.args]
-	else:
-		assert isinstance(step.args, str)
-		args = ['/bin/bash', '-c', replace_at_vars(step.args, substitute)]
+	workdir = default_workdir
+	if step.workdir:
+		workdir = step.workdir
 
-	environ = dict()
-	for (key, value) in step.environ.items():
-		environ[key] = replace_at_vars(value, substitute)
-
-	if step.workdir is not None:
-		workdir = replace_at_vars(step.workdir, substitute)
-	else:
-		workdir = default_workdir
-
-	quiet = step.quiet and not verbosity
-
-	run_program(cfg, args, tool_pkgs=tool_pkgs, virtual_tools=virtual_tools, workdir=workdir,
-			extra_environ=environ, for_package=for_package,
-			quiet=quiet)
+	run_program(cfg, context, subject, step.args,
+			tool_pkgs=tool_pkgs, virtual_tools=virtual_tools, workdir=workdir,
+			extra_environ=step.environ, for_package=for_package,
+			quiet=step.quiet and not verbosity)
 
 def postprocess_libtool(cfg, pkg):
 	for libdir in ['lib', 'lib64', 'lib32', 'usr/lib', 'usr/lib64', 'usr/lib32']:
@@ -1614,19 +1699,7 @@ def regenerate_src(cfg, src):
 		for dep_name in src.tool_dependencies:
 			tool_pkgs.append(cfg.get_tool_pkg(dep_name))
 
-		def substitute(varname):
-			if varname == 'SOURCE_ROOT':
-				return cfg.source_root
-			elif varname == 'BUILD_ROOT':
-				return cfg.build_root
-			elif varname == 'SYSROOT_DIR':
-				return cfg.sysroot_dir
-			elif varname == 'THIS_SOURCE_DIR':
-				return src.source_dir
-			elif varname.startswith('OPTION:'):
-				return cfg.get_option_value(varname[7:])
-
-		run_step(cfg, step, src.source_dir, substitute, tool_pkgs, src.virtual_tools)
+		run_step(cfg, 'source', src, step, src.source_dir, tool_pkgs, src.virtual_tools)
 
 	src.mark_as_regenerated()
 
@@ -1645,26 +1718,7 @@ def configure_tool(cfg, pkg):
 		for dep_name in pkg.tool_dependencies:
 			tool_pkgs.append(cfg.get_tool_pkg(dep_name))
 
-		def substitute(varname):
-			if varname == 'SOURCE_ROOT':
-				return cfg.source_root
-			elif varname == 'BUILD_ROOT':
-				return cfg.build_root
-			elif varname == 'SYSROOT_DIR':
-				return cfg.sysroot_dir
-			elif varname == 'THIS_SOURCE_DIR':
-				return src.source_dir
-			elif varname == 'THIS_BUILD_DIR':
-				return pkg.build_dir
-			elif varname == 'PREFIX':
-				return pkg.prefix_dir
-			elif varname == 'PARALLELISM':
-				nthreads = get_concurrency()
-				return str(nthreads)
-			elif varname.startswith('OPTION:'):
-				return cfg.get_option_value(varname[7:])
-
-		run_step(cfg, step, pkg.build_dir, substitute, tool_pkgs, pkg.virtual_tools)
+		run_step(cfg, 'tool', pkg, step, pkg.build_dir, tool_pkgs, pkg.virtual_tools)
 
 	pkg.mark_as_configured()
 
@@ -1677,26 +1731,7 @@ def compile_tool_stage(cfg, stage):
 		for dep_name in pkg.tool_dependencies:
 			tool_pkgs.append(cfg.get_tool_pkg(dep_name))
 
-		def substitute(varname):
-			if varname == 'SOURCE_ROOT':
-				return cfg.source_root
-			elif varname == 'BUILD_ROOT':
-				return cfg.build_root
-			elif varname == 'SYSROOT_DIR':
-				return cfg.sysroot_dir
-			elif varname == 'THIS_SOURCE_DIR':
-				return src.source_dir
-			elif varname == 'THIS_BUILD_DIR':
-				return pkg.build_dir
-			elif varname == 'PREFIX':
-				return pkg.prefix_dir
-			elif varname == 'PARALLELISM':
-				nthreads = get_concurrency()
-				return str(nthreads)
-			elif varname.startswith('OPTION:'):
-				return cfg.get_option_value(varname[7:])
-
-		run_step(cfg, step, pkg.build_dir, substitute, tool_pkgs, pkg.virtual_tools)
+		run_step(cfg, 'tool-stage', stage, step, pkg.build_dir, tool_pkgs, pkg.virtual_tools)
 
 	stage.mark_as_compiled()
 
@@ -1733,23 +1768,7 @@ def install_tool_stage(cfg, stage):
 		for dep_name in tool.tool_dependencies:
 			tool_pkgs.append(cfg.get_tool_pkg(dep_name))
 
-		def substitute(varname):
-			if varname == 'SOURCE_ROOT':
-				return cfg.source_root
-			elif varname == 'BUILD_ROOT':
-				return cfg.build_root
-			elif varname == 'SYSROOT_DIR':
-				return cfg.sysroot_dir
-			elif varname == 'THIS_SOURCE_DIR':
-				return src.source_dir
-			elif varname == 'THIS_BUILD_DIR':
-				return tool.build_dir
-			elif varname == 'PREFIX':
-				return tool.prefix_dir
-			elif varname.startswith('OPTION:'):
-				return cfg.get_option_value(varname[7:])
-
-		run_step(cfg, step, tool.build_dir, substitute, tool_pkgs, tool.virtual_tools)
+		run_step(cfg, 'tool-stage', stage, step, tool.build_dir, tool_pkgs, tool.virtual_tools)
 
 	stage.mark_as_installed()
 
@@ -1773,26 +1792,7 @@ def configure_pkg(cfg, pkg):
 		for dep_name in pkg.tool_dependencies:
 			tool_pkgs.append(cfg.get_tool_pkg(dep_name))
 
-		def substitute(varname):
-			if varname == 'SOURCE_ROOT':
-				return cfg.source_root
-			elif varname == 'BUILD_ROOT':
-				return cfg.build_root
-			elif varname == 'SYSROOT_DIR':
-				return cfg.sysroot_dir
-			elif varname == 'THIS_SOURCE_DIR':
-				return src.source_dir
-			elif varname == 'THIS_BUILD_DIR':
-				return pkg.build_dir
-			elif varname == 'PARALLELISM':
-				nthreads = get_concurrency()
-				return str(nthreads)
-			elif varname.startswith('OPTION:'):
-				return cfg.get_option_value(varname[7:])
-			elif varname.startswith('OPTION:'):
-				return cfg.get_option_value(varname[7:])
-
-		run_step(cfg, step, pkg.build_dir, substitute, tool_pkgs, pkg.virtual_tools,
+		run_step(cfg, 'pkg', pkg, step, pkg.build_dir, tool_pkgs, pkg.virtual_tools,
 				for_package=True)
 
 	pkg.mark_as_configured()
@@ -1809,26 +1809,7 @@ def build_pkg(cfg, pkg, reproduce=False):
 		for dep_name in pkg.tool_dependencies:
 			tool_pkgs.append(cfg.get_tool_pkg(dep_name))
 
-		def substitute(varname):
-			if varname == 'SOURCE_ROOT':
-				return cfg.source_root
-			elif varname == 'BUILD_ROOT':
-				return cfg.build_root
-			elif varname == 'SYSROOT_DIR':
-				return cfg.sysroot_dir
-			elif varname == 'THIS_SOURCE_DIR':
-				return src.source_dir
-			elif varname == 'THIS_BUILD_DIR':
-				return pkg.build_dir
-			elif varname == 'THIS_COLLECT_DIR':
-				return pkg.collect_dir
-			elif varname == 'PARALLELISM':
-				nthreads = get_concurrency()
-				return str(nthreads)
-			elif varname.startswith('OPTION:'):
-				return cfg.get_option_value(varname[7:])
-
-		run_step(cfg, step, pkg.build_dir, substitute, tool_pkgs, pkg.virtual_tools,
+		run_step(cfg, 'pkg', pkg, step, pkg.build_dir, tool_pkgs, pkg.virtual_tools,
 				for_package=True)
 
 	postprocess_libtool(cfg, pkg)
@@ -2025,20 +2006,7 @@ def run_task(cfg, task):
 	for dep_name in task.tool_dependencies:
 		tools_required.append(cfg.get_tool_pkg(dep_name))
 
-	def substitute(varname):
-		if varname == 'SOURCE_ROOT':
-			return cfg.source_root
-		elif varname == 'BUILD_ROOT':
-			return cfg.build_root
-		elif varname == 'SYSROOT_DIR':
-			return cfg.sysroot_dir
-		elif varname == 'PARALLELISM':
-			nthreads = get_concurrency()
-			return str(nthreads)
-		elif varname.startswith('OPTION:'):
-			return cfg.get_option_value(varname[7:])
-
-	run_step(cfg, task.script_step, cfg.source_root, substitute, tools_required, task.virtual_tools,
+	run_step(cfg, 'task', task, task.script_step, cfg.source_root, tools_required, task.virtual_tools,
 			for_package=False)
 
 
@@ -2049,26 +2017,7 @@ def run_pkg_task(cfg, task):
 	for dep_name in task.pkg.tool_dependencies:
 		tools_required.append(cfg.get_tool_pkg(dep_name))
 
-	def substitute(varname):
-		if varname == 'SOURCE_ROOT':
-			return cfg.source_root
-		elif varname == 'BUILD_ROOT':
-			return cfg.build_root
-		elif varname == 'SYSROOT_DIR':
-			return cfg.sysroot_dir
-		elif varname == 'THIS_SOURCE_DIR':
-			return src.source_dir
-		elif varname == 'THIS_BUILD_DIR':
-			return task._pkg.build_dir
-		elif varname == 'PREFIX':
-			return task._pkg.prefix_dir
-		elif varname == 'PARALLELISM':
-			nthreads = get_concurrency()
-			return str(nthreads)
-		elif varname.startswith('OPTION:'):
-			return cfg.get_option_value(varname[7:])
-
-	run_step(cfg, task.script_step, task.pkg.build_dir, substitute, tools_required,
+	run_step(cfg, 'pkg-task', task, task.script_step, task.pkg.build_dir, tools_required,
 			task.pkg.virtual_tools, for_package=False)
 
 def run_tool_task(cfg, task):
@@ -2078,26 +2027,7 @@ def run_tool_task(cfg, task):
 	for dep_name in task.pkg.tool_dependencies:
 		tools_required.append(cfg.get_tool_pkg(dep_name))
 
-	def substitute(varname):
-		if varname == 'SOURCE_ROOT':
-			return cfg.source_root
-		elif varname == 'BUILD_ROOT':
-			return cfg.build_root
-		elif varname == 'SYSROOT_DIR':
-			return cfg.sysroot_dir
-		elif varname == 'THIS_SOURCE_DIR':
-			return src.source_dir
-		elif varname == 'THIS_BUILD_DIR':
-			return task._pkg.build_dir
-		elif varname == 'PREFIX':
-			return task._pkg.prefix_dir
-		elif varname == 'PARALLELISM':
-			nthreads = get_concurrency()
-			return str(nthreads)
-		elif varname.startswith('OPTION:'):
-			return cfg.get_option_value(varname[7:])
-
-	run_step(cfg, task.script_step, task.pkg.build_dir, substitute, tools_required,
+	run_step(cfg, 'tool-task', task, task.script_step, task.pkg.build_dir, tools_required,
 			task.pkg.virtual_tools, for_package=False)
 
 # ---------------------------------------------------------------------------------------

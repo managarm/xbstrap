@@ -52,7 +52,7 @@ def do_runtool(args):
 		for name in tools:
 			tool_pkgs.append(cfg.get_tool_pkg(name))
 
-	xbstrap.base.run_program(cfg, args, tool_pkgs=tool_pkgs, workdir=workdir,
+	xbstrap.base.run_program(cfg, None, None, args, tool_pkgs=tool_pkgs, workdir=workdir,
 			for_package=for_package)
 
 do_runtool.parser = main_subparsers.add_parser('runtool')
