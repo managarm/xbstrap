@@ -361,6 +361,14 @@ class Config:
 			return os.path.join(self.build_root, self._root_yml['directories']['pkg_builds'])
 
 	@property
+	def tool_out_subdir(self):
+		if 'directories' not in self._root_yml or 'tools' not in self._root_yml['directories']:
+			return 'tools'
+		else:
+			return self._root_yml['directories']['tools']
+
+	# tool_out_dir = build_root + tool_out_subdir
+	@property
 	def tool_out_dir(self):
 		if 'directories' not in self._root_yml or 'tools' not in self._root_yml['directories']:
 			return os.path.join(self.build_root, 'tools')
@@ -1298,7 +1306,8 @@ def execute_manifest(manifest):
 			elif varname == 'THIS_BUILD_DIR':
 				return manifest['subject']['build_dir']
 			elif varname == 'PREFIX':
-				return manifest['subject']['prefix_dir']
+				return os.path.join(manifest['build_root'], manifest['tool_subdir'],
+						manifest['subject']['name'])
 		elif manifest['context'] == 'pkg':
 			if varname == 'THIS_SOURCE_DIR':
 				return manifest['subject']['source_dir']
@@ -1316,8 +1325,10 @@ def execute_manifest(manifest):
 			vscript = os.path.join(vb.name, yml['program_name'])
 			paths = []
 			for tool_yml in manifest['tools']:
-				paths.append(tool_yml['prefix_dir'] + '/lib/pkgconfig')
-				paths.append(tool_yml['prefix_dir'] + '/share/pkgconfig')
+				paths.append(os.path.join(manifest['build_root'], manifest['tool_subdir'],
+						'lib/pkgconfig'))
+				paths.append(os.path.join(manifest['build_root'], manifest['tool_subdir'],
+						'share/pkgconfig'))
 			with open(vscript, 'wt') as f:
 				f.write('#!/bin/sh\n'
 					+ 'PKG_CONFIG_PATH=' + ':'.join(paths)
@@ -1425,6 +1436,7 @@ def run_program(cfg, context, subject, args,
 		'aclocal_dirs': aclocal_dirs,
 		'source_root': cfg.source_root,
 		'build_root': cfg.build_root,
+		'tool_subdir': cfg.tool_out_subdir,
 		'sysroot_dir': cfg.sysroot_dir,
 		'option_values': {name: cfg.get_option_value(name) for name in cfg.all_options}
 	}
@@ -1436,17 +1448,17 @@ def run_program(cfg, context, subject, args,
 	elif context == 'tool':
 		src = cfg.get_source(subject.source)
 		manifest['subject'] = {
+			'name': subject.name,
 			'source_dir': src.source_dir,
-			'build_dir': subject.build_dir,
-			'prefix_dir': subject.prefix_dir
+			'build_dir': subject.build_dir
 		}
 	elif context == 'tool-stage':
 		tool = subject.pkg
 		src = cfg.get_source(tool.source)
 		manifest['subject'] = {
+			'name': tool.name,
 			'source_dir': src.source_dir,
-			'build_dir': tool.build_dir,
-			'prefix_dir': tool.prefix_dir
+			'build_dir': tool.build_dir
 		}
 	elif context == 'pkg':
 		src = cfg.get_source(subject.source)
@@ -1459,9 +1471,9 @@ def run_program(cfg, context, subject, args,
 		tool = subject.pkg
 		src = cfg.get_source(tool.source)
 		manifest['subject'] = {
+			'name': tool.name,
 			'source_dir': src.source_dir,
-			'build_dir': tool.build_dir,
-			'prefix_dir': tool.prefix_dir
+			'build_dir': tool.build_dir
 		}
 	elif context == 'pkg-task':
 		pkg = subject.pkg
@@ -1474,7 +1486,7 @@ def run_program(cfg, context, subject, args,
 
 	for tool in pkg_queue:
 		manifest['tools'].append({
-			'prefix_dir': tool.prefix_dir
+			'name': tool.name
 		})
 
 	print("{}xbstrap{}: Running {} (tools: {})".format(
