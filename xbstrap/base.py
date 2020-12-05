@@ -554,7 +554,17 @@ class Source(RequirementsMixin):
 
 	@property
 	def version(self):
-		return self._this_yml.get('version', '0.0')
+		def substitute(varname):
+			if varname == 'VCS_NUM_COMMITS':
+				if 'git' in self._this_yml:
+					count = int(subprocess.check_output(['git', 'rev-list', '--count', 'HEAD'],
+							cwd=self.source_dir, stderr=subprocess.DEVNULL).decode().strip())
+					# Make sure that we get a valid number.
+					return str(count)
+				else:
+					raise RuntimeError('@VCS_NUM_COMMITS@ requires git')
+
+		return replace_at_vars(self._this_yml.get('version', '0.0'), substitute)
 
 	@property
 	def sub_dir(self):
