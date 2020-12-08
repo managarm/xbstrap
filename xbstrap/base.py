@@ -147,6 +147,10 @@ def installtree(src_root, dest_root):
 			try_unlink(dest_path)
 			shutil.copy2(src_path, dest_path)
 
+class RollingIdUnavailableException(Exception):
+	def __init__(self, name):
+		super().__init__("No rolling_id specified for source {}".format(name))
+
 class ResetMode(Enum):
 	NONE = 0
 	RESET = 1
@@ -565,7 +569,7 @@ class Source(RequirementsMixin):
 		commit_yml = self._cfg._commit_yml.get('commits', dict()).get(self._name, dict())
 		rolling_id = commit_yml.get('rolling_id')
 		if rolling_id is None:
-			raise RuntimeError("No rolling_id specified for source {}".format(self._name))
+			raise RollingIdUnavailableException(self._name)
 		return rolling_id
 
 	def determine_rolling_id(self):
@@ -599,13 +603,25 @@ class Source(RequirementsMixin):
 	def has_explicit_version(self):
 		return 'version' in self._this_yml
 
-	@property
-	def version(self):
+	def compute_version(self, override_rolling_id=None):
+		if self.is_rolling_version:
+			if override_rolling_id is not None:
+				rolling_id = override_rolling_id
+			else:
+				rolling_id = self.rolling_id
+		else:
+			assert override_rolling_id is None
+
 		def substitute(varname):
 			if varname == 'ROLLING_ID':
-				return self.rolling_id
+				assert self.is_rolling_version
+				return rolling_id
 
 		return replace_at_vars(self._this_yml.get('version', '0.0'), substitute)
+
+	@property
+	def version(self):
+		return self.compute_version()
 
 	@property
 	def sub_dir(self):
@@ -935,19 +951,22 @@ class HostPackage(RequirementsMixin):
 	def configure_steps(self):
 		yield from self._configure_steps
 
-	@property
-	def version(self):
+	def compute_version(self, **kwargs):
 		source = self._cfg.get_source(self.source)
 
 		# If no version is specified, we fall back to 0.0_0.
 		if not source.has_explicit_version and 'revision' not in self._this_yml:
-			return source.version + '_0'
+			return source.compute_version(**kwargs) + '_0'
 
 		revision = self._this_yml.get('revision', 1)
 		if revision < 1:
 			raise RuntimeError("Tool {} specifies a revision < 1".format(self.name));
 
-		return source.version + '_' + str(revision)
+		return source.compute_version(**kwargs) + '_' + str(revision)
+
+	@property
+	def version(self):
+		return self.compute_version()
 
 	def check_if_configured(self, settings):
 		path = os.path.join(self.build_dir, 'configured.xbstrap')
@@ -1059,19 +1078,22 @@ class TargetPackage(RequirementsMixin):
 	def build_steps(self):
 		yield from self._build_steps
 
-	@property
-	def version(self):
+	def compute_version(self, **kwargs):
 		source = self._cfg.get_source(self.source)
 
 		# If no version is specified, we fall back to 0.0_0.
 		if not source.has_explicit_version and 'revision' not in self._this_yml:
-			return source.version + '_0'
+			return source.compute_version(**kwargs) + '_0'
 
 		revision = self._this_yml.get('revision', 1)
 		if revision < 1:
 			raise RuntimeError("Package {} specifies a revision < 1".format(self.name));
 
-		return source.version + '_' + str(revision)
+		return source.compute_version(**kwargs) + '_' + str(revision)
+
+	@property
+	def version(self):
+		return self.compute_version()
 
 	def get_task(self, task):
 		if task in self._tasks:
@@ -1806,8 +1828,15 @@ def pack_pkg(cfg, pkg, reproduce=False):
 	src = cfg.get_source(pkg.source)
 	if src.is_rolling_version:
 		actual_rolling_id = src.determine_rolling_id()
-		if src.rolling_id != actual_rolling_id:
-			raise RuntimeError("Rolling ID of package {} does not match true rolling ID".format(pkg.name))
+		try:
+			if src.rolling_id != actual_rolling_id:
+				raise RuntimeError("Rolling ID of package {} does not match true rolling ID".format(pkg.name))
+		except RollingIdUnavailableException:
+			pass
+	else:
+		actual_rolling_id = None
+
+	version = pkg.compute_version(override_rolling_id=actual_rolling_id)
 
 	if cfg.use_xbps:
 		try_mkdir(cfg.xbps_repository_dir)
@@ -1818,12 +1847,12 @@ def pack_pkg(cfg, pkg, reproduce=False):
 
 		args = ['xbps-create', '-A', 'x86_64',
 			'-s', pkg.name,
-			'-n', '{}-{}'.format(pkg.name, pkg.version),
+			'-n', '{}-{}'.format(pkg.name, version),
 			'-D', pkg.xbps_dependency_string(),
 			pkg.staging_dir
 		]
 
-		xbps_file = '{}-{}.x86_64.xbps'.format(pkg.name, pkg.version)
+		xbps_file = '{}-{}.x86_64.xbps'.format(pkg.name, version)
 
 		if not reproduce:
 			print("{}xbstrap{}: Running {}".format(
