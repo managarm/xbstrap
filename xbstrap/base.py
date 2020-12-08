@@ -175,6 +175,7 @@ class Config:
 		self._config_path = path
 		self._root_yml = None
 		self._site_yml = dict()
+		self._commit_yml = dict()
 		self._sources = dict()
 		self._tool_pkgs = dict()
 		self._tool_stages = dict()
@@ -190,6 +191,13 @@ class Config:
 		try:
 			with open(os.path.join(path, 'bootstrap-site.yml'), 'r') as f:
 				self._site_yml = yaml.load(f, Loader=global_yaml_loader)
+		except FileNotFoundError:
+			pass
+
+		commit_path = os.path.join(self._bootstrap_path, 'bootstrap-commits.yml')
+		try:
+			with open(commit_path, 'r') as f:
+				self._commit_yml = yaml.load(f, Loader=global_yaml_loader)
 		except FileNotFoundError:
 			pass
 
@@ -549,6 +557,45 @@ class Source(RequirementsMixin):
 		return 'source'
 
 	@property
+	def is_rolling_version(self):
+		return self._this_yml.get('rolling_version', False)
+
+	@property
+	def rolling_id(self):
+		commit_yml = self._cfg._commit_yml.get('commits', dict()).get(self._name, dict())
+		rolling_id = commit_yml.get('rolling_id')
+		if rolling_id is None:
+			raise RuntimeError("No rolling_id specified for source {}".format(self._name))
+		return rolling_id
+
+	def determine_rolling_id(self):
+		if 'git' in self._this_yml:
+			# Do some sanity checking: make sure that the repository is not shallow.
+			shallow_stdout = subprocess.check_output(['git', 'rev-parse', '--is-shallow-repository'],
+					cwd=self.source_dir).decode().strip()
+			if shallow_stdout == 'true':
+				raise RuntimeError("Cannot determine rolling version ID of source {} form shallow Git repository".format(self._name))
+			else:
+				assert shallow_stdout == 'false'
+
+			# Now count the number of commits.
+			if 'tag' in self._this_yml:
+				tracking_ref = 'refs/tags/' + self._this_yml['tag']
+			else:
+				ref = 'refs/heads/' + self._this_yml['branch']
+				tracking_ref = 'refs/remotes/origin/' + self._this_yml['branch']
+
+			try:
+				count_out = subprocess.check_output(['git', 'rev-list', '--count', tracking_ref],
+						cwd=self.source_dir).decode().strip()
+			except subprocess.CalledProcessError:
+				raise RuntimeError("Unable to determine rolling version ID of source {} via Git".format(self._name))
+			# Make sure that we get a valid number.
+			return str(int(count_out))
+		else:
+			raise RuntimeError('@ROLLING_ID@ requires git')
+
+	@property
 	def has_explicit_version(self):
 		return 'version' in self._this_yml
 
@@ -556,13 +603,7 @@ class Source(RequirementsMixin):
 	def version(self):
 		def substitute(varname):
 			if varname == 'ROLLING_ID':
-				if 'git' in self._this_yml:
-					count = int(subprocess.check_output(['git', 'rev-list', '--count', 'HEAD'],
-							cwd=self.source_dir, stderr=subprocess.DEVNULL).decode().strip())
-					# Make sure that we get a valid number.
-					return str(count)
-				else:
-					raise RuntimeError('@ROLLING_ID@ requires git')
+				return self.rolling_id
 
 		return replace_at_vars(self._this_yml.get('version', '0.0'), substitute)
 

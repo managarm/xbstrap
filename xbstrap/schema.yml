@@ -58,6 +58,8 @@ definitions:
                 type: string
             'subdir':
                 type: string
+            'rolling_version':
+                type: boolean
             # URL sources.
             'url':
                 type: string
@@ -191,6 +193,8 @@ properties:
                     type: string
                 'subdir':
                     type: string
+                'rolling_version':
+                    type: boolean
                 # URL sources.
                 'url':
                     type: string
