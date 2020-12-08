@@ -1802,6 +1802,13 @@ def build_pkg(cfg, pkg, reproduce=False):
 			raise RuntimeError('Could not reproduce all files')
 
 def pack_pkg(cfg, pkg, reproduce=False):
+	# Sanity checking: make sure that the rolling ID matches the expected one.
+	src = cfg.get_source(pkg.source)
+	if src.is_rolling_version:
+		actual_rolling_id = src.determine_rolling_id()
+		if src.rolling_id != actual_rolling_id:
+			raise RuntimeError("Rolling ID of package {} does not match true rolling ID".format(pkg.name))
+
 	if cfg.use_xbps:
 		try_mkdir(cfg.xbps_repository_dir)
 
