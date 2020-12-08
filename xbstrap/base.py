@@ -1397,6 +1397,10 @@ def fetch_src(cfg, src):
 					cwd=src.source_dir)
 
 		shallow = not source.get('disable_shallow_fetch', False)
+		# We have to disable shallow fetches to get rolling versions right.
+		if src.is_rolling_version:
+			shallow = False
+
 		args = ['git', 'fetch']
 		if 'tag' in source:
 			if shallow:
