@@ -11,6 +11,7 @@ import tarfile
 import colorama
 import xbstrap.base
 import xbstrap.cli_utils
+import yaml
 
 # ---------------------------------------------------------------------------------------
 # Command line parsing.
@@ -511,6 +512,40 @@ group.add_argument('--pkg', nargs=1, required=False, type=str)
 group.add_argument('--tool', nargs=1, required=False, type=str)
 do_run_task.parser.add_argument('task', nargs='+', type=str)
 
+rolling_parser = main_subparsers.add_parser('rolling-versions')
+rolling_subparsers = rolling_parser.add_subparsers(dest='command')
+
+def do_rolling_fetch(args):
+	cfg = xbstrap.base.config_for_dir()
+	plan = xbstrap.base.Plan(cfg)
+	handle_plan_args(cfg, plan, args);
+
+	for src in cfg.all_sources():
+		if not src.is_rolling_version:
+			continue
+		plan.wanted.add((xbstrap.base.Action.FETCH_SRC, src))
+
+	plan.run_plan()
+
+do_rolling_fetch.parser = rolling_subparsers.add_parser('fetch',
+		parents=[handle_plan_args.parser])
+do_rolling_fetch.parser.set_defaults(_impl=do_rolling_fetch)
+
+def do_rolling_determine(args):
+	cfg = xbstrap.base.config_for_dir()
+	out_yml = dict()
+	for src in cfg.all_sources():
+		if not src.is_rolling_version:
+			continue
+		out_yml[src.name] = src.determine_rolling_id()
+
+	print(yaml.dump(out_yml), end='')
+
+do_rolling_determine.parser = rolling_subparsers.add_parser('determine')
+do_rolling_determine.parser.set_defaults(_impl=do_rolling_determine)
+
+# Here we perform actual argument parsing.
+
 args = main_parser.parse_args()
 
 colorama.init()
@@ -525,7 +560,9 @@ if not xbstrap.base.native_yaml_available:
 			colorama.Fore.YELLOW, colorama.Style.RESET_ALL))
 
 try:
-	if args.command == 'init':
+	if hasattr(args, '_impl'):
+		args._impl(args)
+	elif args.command == 'init':
 		do_init(args)
 	elif args.command == 'runtool':
 		do_runtool(args)
