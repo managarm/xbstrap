@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: MIT
 
 import argparse
+import json
 import os
 import sys
 import urllib.parse
@@ -539,9 +540,13 @@ def do_rolling_determine(args):
 			continue
 		out_yml[src.name] = src.determine_rolling_id()
 
-	print(yaml.dump(out_yml), end='')
+	if args.json:
+		json.dump(out_yml, sys.stdout)
+	else:
+		print(yaml.dump(out_yml), end='')
 
 do_rolling_determine.parser = rolling_subparsers.add_parser('determine')
+do_rolling_determine.parser.add_argument("--json", action="store_true")
 do_rolling_determine.parser.set_defaults(_impl=do_rolling_determine)
 
 # Here we perform actual argument parsing.
