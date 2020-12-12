@@ -1548,7 +1548,7 @@ def patch_src(cfg, src):
 			environ = os.environ.copy()
 			environ['GIT_COMMITTER_NAME'] = cfg.patch_author
 			environ['GIT_COMMITTER_EMAIL'] = cfg.patch_email
-			subprocess.check_call(['git', 'am', '-3', '--committer-date-is-author-date',
+			subprocess.check_call(['git', 'am', '-3', '--no-gpg-sign', '--committer-date-is-author-date',
 					os.path.join(src.patch_dir, patch)],
 				env=environ, cwd=src.source_dir)
 		elif 'hg' in source:
