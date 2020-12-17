@@ -955,10 +955,10 @@ class HostPackage(RequirementsMixin):
 		source = self._cfg.get_source(self.source)
 
 		# If no version is specified, we fall back to 0.0_0.
-		if not source.has_explicit_version and 'rev' not in self._this_yml:
+		if not source.has_explicit_version and 'revision' not in self._this_yml:
 			return source.compute_version(**kwargs) + '_0'
 
-		revision = self._this_yml.get('rev', 1)
+		revision = self._this_yml.get('revision', 1)
 		if revision < 1:
 			raise RuntimeError("Tool {} specifies a revision < 1".format(self.name));
 
@@ -1082,10 +1082,10 @@ class TargetPackage(RequirementsMixin):
 		source = self._cfg.get_source(self.source)
 
 		# If no version is specified, we fall back to 0.0_0.
-		if not source.has_explicit_version and 'rev' not in self._this_yml:
+		if not source.has_explicit_version and 'revision' not in self._this_yml:
 			return source.compute_version(**kwargs) + '_0'
 
-		revision = self._this_yml.get('rev', 1)
+		revision = self._this_yml.get('revision', 1)
 		if revision < 1:
 			raise RuntimeError("Package {} specifies a revision < 1".format(self.name));
 
