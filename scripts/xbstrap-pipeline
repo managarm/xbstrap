@@ -106,9 +106,15 @@ def do_compute_graph(args):
 			up2date = False
 			if args.version_file:
 				up2date = True
-				if len(job.tools): # For now, tools are always rebuilt.
-					up2date = False
 				if len(job.tasks): # For now, tasks are also always rebuilt.
+					up2date = False
+				for tool in job.tools:
+					if tool.name not in version_yml['tools']:
+						up2date = False
+						break
+					if tool.version != version_yml['tools'][tool.name]:
+						up2date = False
+						break
 					up2date = False
 				for pkg in job.pkgs:
 					if pkg.name not in version_yml['pkgs']:
