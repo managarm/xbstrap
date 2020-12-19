@@ -1654,16 +1654,36 @@ def compile_tool_stage(cfg, stage):
 	stage.mark_as_compiled()
 
 def install_tool_stage(cfg, stage):
-	pkg = stage.pkg
-	src = cfg.get_source(pkg.source)
+	tool = stage.pkg
+	src = cfg.get_source(tool.source)
+
+	# Sanity checking: make sure that the rolling ID matches the expected one.
+	src = cfg.get_source(tool.source)
+	if src.is_rolling_version:
+		actual_rolling_id = src.determine_rolling_id()
+		try:
+			if src.rolling_id != actual_rolling_id:
+				raise RuntimeError("Rolling ID of tool {} does not match true rolling ID".format(tool.name))
+		except RollingIdUnavailableException:
+			pass
+	else:
+		actual_rolling_id = None
+
+	version = tool.compute_version(override_rolling_id=actual_rolling_id)
 
 	try_mkdir(cfg.tool_out_dir)
-#	try_rmtree(pkg.prefix_dir)
-	try_mkdir(pkg.prefix_dir)
+#	try_rmtree(tool.prefix_dir)
+	try_mkdir(tool.prefix_dir)
+
+	try_mkdir(os.path.join(tool.prefix_dir, 'xbstrap'))
+	with open(os.path.join(tool.prefix_dir, 'xbstrap/tool-metadata.yml'), 'w') as f:
+		f.write(yaml.safe_dump({
+			'version': version
+		}))
 
 	for step in stage.install_steps:
 		tool_pkgs = []
-		for dep_name in pkg.tool_dependencies:
+		for dep_name in tool.tool_dependencies:
 			tool_pkgs.append(cfg.get_tool_pkg(dep_name))
 
 		def substitute(varname):
@@ -1676,13 +1696,13 @@ def install_tool_stage(cfg, stage):
 			elif varname == 'THIS_SOURCE_DIR':
 				return src.source_dir
 			elif varname == 'THIS_BUILD_DIR':
-				return pkg.build_dir
+				return tool.build_dir
 			elif varname == 'PREFIX':
-				return pkg.prefix_dir
+				return tool.prefix_dir
 			elif varname.startswith('OPTION:'):
 				return cfg.get_option_value(varname[7:])
 
-		run_step(cfg, step, pkg.build_dir, substitute, tool_pkgs, pkg.virtual_tools)
+		run_step(cfg, step, tool.build_dir, substitute, tool_pkgs, tool.virtual_tools)
 
 	stage.mark_as_installed()
 
