@@ -1469,7 +1469,13 @@ def checkout_src(cfg, src, settings):
 		init = subprocess.call(['git', 'show-ref', '--verify', '-q', 'HEAD'],
 				cwd=src.source_dir) != 0
 
+		commit_yml = cfg._commit_yml.get('commits', dict()).get(src.name, dict())
+		fixed_commit = commit_yml.get('fixed_commit', None)
+
 		if 'tag' in source:
+			if fixed_commit is not None:
+				raise RuntimeError("Commit of source {} cannot be fixed in bootstrap-commits.yml: source builds form a branch".format(src.name));
+
 			if not init and settings.reset == ResetMode.HARD_RESET:
 				subprocess.check_call(['git', 'reset', '--hard'], cwd=src.source_dir)
 			if init or settings.reset != ResetMode.NONE:
@@ -1482,6 +1488,11 @@ def checkout_src(cfg, src, settings):
 			commit = 'origin/' + source['branch']
 			if 'commit' in source:
 				commit = source['commit']
+				if fixed_commit is not None:
+					raise RuntimeError("Commit of source {} cannot be fixed in bootstrap-commits.yml: commit is already fixed in bootstrap.yml".format(src.name));
+			else:
+				if fixed_commit is not None:
+					commit = fixed_commit
 			if init or settings.reset != ResetMode.NONE:
 				subprocess.check_call(['git', 'checkout', '--no-track',
 						'-B', source['branch'], commit], cwd=src.source_dir)
