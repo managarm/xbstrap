@@ -513,6 +513,47 @@ group.add_argument('--pkg', nargs=1, required=False, type=str)
 group.add_argument('--tool', nargs=1, required=False, type=str)
 do_run_task.parser.add_argument('task', nargs='+', type=str)
 
+#----------------------------------------------------------------------------------------
+
+var_commits_parser = main_subparsers.add_parser('variable-commits')
+var_commits_subparsers = var_commits_parser.add_subparsers(dest='command')
+
+def do_var_commits_fetch(args):
+	cfg = xbstrap.base.config_for_dir()
+	plan = xbstrap.base.Plan(cfg)
+	handle_plan_args(cfg, plan, args);
+
+	for src in cfg.all_sources():
+		if not src.has_variable_checkout_commit:
+			continue
+		plan.wanted.add((xbstrap.base.Action.FETCH_SRC, src))
+
+	plan.run_plan()
+
+do_var_commits_fetch.parser = var_commits_subparsers.add_parser('fetch',
+		parents=[handle_plan_args.parser])
+do_var_commits_fetch.parser.set_defaults(_impl=do_var_commits_fetch)
+
+def do_var_commits_determine(args):
+	cfg = xbstrap.base.config_for_dir()
+
+	out_yml = dict()
+	for src in cfg.all_sources():
+		if not src.has_variable_checkout_commit:
+			continue
+		out_yml[src.name] = src.determine_variable_checkout_commit()
+
+	if args.json:
+		json.dump(out_yml, sys.stdout)
+	else:
+		print(yaml.dump(out_yml), end='')
+
+var_commits_determine_parser = var_commits_subparsers.add_parser('determine')
+var_commits_determine_parser.set_defaults(_impl=do_var_commits_determine)
+var_commits_determine_parser.add_argument("--json", action="store_true")
+
+#----------------------------------------------------------------------------------------
+
 rolling_parser = main_subparsers.add_parser('rolling-versions')
 rolling_subparsers = rolling_parser.add_subparsers(dest='command')
 

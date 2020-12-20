@@ -561,6 +561,22 @@ class Source(RequirementsMixin):
 		return 'source'
 
 	@property
+	def has_variable_checkout_commit(self):
+		if 'git' in self._this_yml:
+			return 'branch' in self._this_yml and 'commit' not in self._this_yml
+		return False
+
+	def determine_variable_checkout_commit(self):
+		if 'git' in self._this_yml and 'branch' in self._this_yml and 'commit' not in self._this_yml:
+			out = subprocess.check_output(['git', 'show-ref', '-s', '--verify',
+					'refs/remotes/origin/' + self._this_yml['branch']],
+					cwd=self.source_dir, stderr=subprocess.DEVNULL).decode().splitlines()
+			assert len(out) == 1
+			return out[0]
+		else:
+			raise RuntimeError("Source {} does not have a variable checkout commit".format(self.name))
+
+	@property
 	def is_rolling_version(self):
 		return self._this_yml.get('rolling_version', False)
 
