@@ -6,12 +6,12 @@ import json
 import os
 import sys
 import urllib.parse
-import urllib.request
 import tarfile
 
 import colorama
 import xbstrap.base
 import xbstrap.cli_utils
+import xbstrap.util
 import yaml
 
 # ---------------------------------------------------------------------------------------
@@ -399,22 +399,10 @@ def do_download(args):
 
 	for pkg in sel:
 		url = urllib.parse.urljoin(cfg.repository_url + '/', pkg.name + '.tar.gz')
-		temp_archive = pkg.archive_file + '.download'
 		print('{}xbstrap{}: Downloading package {} from {}'.format(
 				colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
 				pkg.name, url))
-
-		print('...', end='') # This will become the status line.
-
-		def show_progress(num_blocks, block_size, file_size):
-			progress = min(num_blocks * block_size, file_size)
-			print('\r\x1b[K{:8.0f} KiB / {:8.0f} KiB, {:7.2f}%'.format(progress / 1024,
-					file_size / 1024,
-					progress / file_size * 100), end='')
-
-		urllib.request.urlretrieve(url, temp_archive, show_progress)
-		os.rename(temp_archive, pkg.archive_file)
-		print()
+		xbstrap.util.interactive_download(url, pkg.archive_file)
 
 		xbstrap.base.try_rmtree(pkg.staging_dir)
 		os.mkdir(pkg.staging_dir)
