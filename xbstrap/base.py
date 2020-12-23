@@ -1405,7 +1405,23 @@ def execute_manifest(manifest):
 		output = subprocess.DEVNULL
 
 	# Determine the working directory.
-	workdir = replace_at_vars(manifest['workdir'], substitute)
+	if manifest['workdir'] is not None:
+		workdir = replace_at_vars(manifest['workdir'], substitute)
+	else:
+		if manifest['context'] == 'source':
+			workdir = manifest['subject']['source_dir']
+		elif manifest['context'] == 'tool' or manifest['context'] == 'tool-stage':
+			workdir = manifest['subject']['build_dir']
+		elif manifest['context'] == 'pkg':
+			workdir = manifest['subject']['build_dir']
+		elif manifest['context'] == 'task':
+			workdir = manifest['source_root']
+		elif manifest['context'] == 'tool-task':
+			workdir = manifest['subject']['build_dir']
+		elif manifest['context'] == 'pkg-task':
+			workdir = manifest['subject']['build_dir']
+		else:
+			raise RuntimeError("Unexpected context")
 
 	subprocess.check_call(args,
 			env=environ, cwd=workdir,
@@ -1516,14 +1532,10 @@ def run_program(cfg, context, subject, args,
 		assert not runtime
 		execute_manifest(manifest)
 
-def run_step(cfg, context, subject, step, default_workdir, tool_pkgs, virtual_tools,
+def run_step(cfg, context, subject, step, tool_pkgs, virtual_tools,
 		for_package=False):
-	workdir = default_workdir
-	if step.workdir:
-		workdir = step.workdir
-
 	run_program(cfg, context, subject, step.args,
-			tool_pkgs=tool_pkgs, virtual_tools=virtual_tools, workdir=workdir,
+			tool_pkgs=tool_pkgs, virtual_tools=virtual_tools, workdir=step.workdir,
 			extra_environ=step.environ, for_package=for_package,
 			quiet=step.quiet and not verbosity)
 
@@ -1721,7 +1733,7 @@ def regenerate_src(cfg, src):
 		for dep_name in src.tool_dependencies:
 			tool_pkgs.append(cfg.get_tool_pkg(dep_name))
 
-		run_step(cfg, 'source', src, step, src.source_dir, tool_pkgs, src.virtual_tools)
+		run_step(cfg, 'source', src, step, tool_pkgs, src.virtual_tools)
 
 	src.mark_as_regenerated()
 
@@ -1740,7 +1752,7 @@ def configure_tool(cfg, pkg):
 		for dep_name in pkg.tool_dependencies:
 			tool_pkgs.append(cfg.get_tool_pkg(dep_name))
 
-		run_step(cfg, 'tool', pkg, step, pkg.build_dir, tool_pkgs, pkg.virtual_tools)
+		run_step(cfg, 'tool', pkg, step, tool_pkgs, pkg.virtual_tools)
 
 	pkg.mark_as_configured()
 
@@ -1753,7 +1765,7 @@ def compile_tool_stage(cfg, stage):
 		for dep_name in pkg.tool_dependencies:
 			tool_pkgs.append(cfg.get_tool_pkg(dep_name))
 
-		run_step(cfg, 'tool-stage', stage, step, pkg.build_dir, tool_pkgs, pkg.virtual_tools)
+		run_step(cfg, 'tool-stage', stage, step, tool_pkgs, pkg.virtual_tools)
 
 	stage.mark_as_compiled()
 
@@ -1790,7 +1802,7 @@ def install_tool_stage(cfg, stage):
 		for dep_name in tool.tool_dependencies:
 			tool_pkgs.append(cfg.get_tool_pkg(dep_name))
 
-		run_step(cfg, 'tool-stage', stage, step, tool.build_dir, tool_pkgs, tool.virtual_tools)
+		run_step(cfg, 'tool-stage', stage, step, tool_pkgs, tool.virtual_tools)
 
 	stage.mark_as_installed()
 
@@ -1814,7 +1826,7 @@ def configure_pkg(cfg, pkg):
 		for dep_name in pkg.tool_dependencies:
 			tool_pkgs.append(cfg.get_tool_pkg(dep_name))
 
-		run_step(cfg, 'pkg', pkg, step, pkg.build_dir, tool_pkgs, pkg.virtual_tools,
+		run_step(cfg, 'pkg', pkg, step, tool_pkgs, pkg.virtual_tools,
 				for_package=True)
 
 	pkg.mark_as_configured()
@@ -1831,7 +1843,7 @@ def build_pkg(cfg, pkg, reproduce=False):
 		for dep_name in pkg.tool_dependencies:
 			tool_pkgs.append(cfg.get_tool_pkg(dep_name))
 
-		run_step(cfg, 'pkg', pkg, step, pkg.build_dir, tool_pkgs, pkg.virtual_tools,
+		run_step(cfg, 'pkg', pkg, step, tool_pkgs, pkg.virtual_tools,
 				for_package=True)
 
 	postprocess_libtool(cfg, pkg)
@@ -2028,7 +2040,7 @@ def run_task(cfg, task):
 	for dep_name in task.tool_dependencies:
 		tools_required.append(cfg.get_tool_pkg(dep_name))
 
-	run_step(cfg, 'task', task, task.script_step, cfg.source_root, tools_required, task.virtual_tools,
+	run_step(cfg, 'task', task, task.script_step, tools_required, task.virtual_tools,
 			for_package=False)
 
 
@@ -2039,7 +2051,7 @@ def run_pkg_task(cfg, task):
 	for dep_name in task.pkg.tool_dependencies:
 		tools_required.append(cfg.get_tool_pkg(dep_name))
 
-	run_step(cfg, 'pkg-task', task, task.script_step, task.pkg.build_dir, tools_required,
+	run_step(cfg, 'pkg-task', task, task.script_step, tools_required,
 			task.pkg.virtual_tools, for_package=False)
 
 def run_tool_task(cfg, task):
@@ -2049,7 +2061,7 @@ def run_tool_task(cfg, task):
 	for dep_name in task.pkg.tool_dependencies:
 		tools_required.append(cfg.get_tool_pkg(dep_name))
 
-	run_step(cfg, 'tool-task', task, task.script_step, task.pkg.build_dir, tools_required,
+	run_step(cfg, 'tool-task', task, task.script_step, tools_required,
 			task.pkg.virtual_tools, for_package=False)
 
 # ---------------------------------------------------------------------------------------
