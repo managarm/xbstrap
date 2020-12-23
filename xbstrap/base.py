@@ -1359,9 +1359,20 @@ def execute_manifest(manifest):
 	# Build the environment
 	environ = os.environ.copy()
 
-	_util.build_environ_paths(environ, 'PATH', prepend=manifest['path_dirs'] + [vb.name])
-	_util.build_environ_paths(environ, 'LD_LIBRARY_PATH', prepend=manifest['ldso_dirs'])
-	_util.build_environ_paths(environ, 'ACLOCAL_PATH', prepend=manifest['aclocal_dirs'])
+	path_dirs = [vb.name]
+	ldso_dirs = []
+	aclocal_dirs = []
+	for yml in manifest['tools']:
+		prefix_dir = os.path.join(manifest['build_root'], manifest['tool_subdir'], yml['name'])
+		path_dirs.append(os.path.join(prefix_dir, 'bin'))
+		if yml['exports_shared_libs']:
+			ldso_dirs.append(os.path.join(prefix_dir, 'lib'))
+		if yml['exports_aclocal']:
+			aclocal_dirs.append(os.path.join(prefix_dir, 'share/aclocal'))
+
+	_util.build_environ_paths(environ, 'PATH', prepend=path_dirs)
+	_util.build_environ_paths(environ, 'LD_LIBRARY_PATH', prepend=ldso_dirs)
+	_util.build_environ_paths(environ, 'ACLOCAL_PATH', prepend=aclocal_dirs)
 
 	if manifest['for_package'] and not explicit_pkgconfig:
 		pkgcfg_libdir = os.path.join(manifest['sysroot_dir'], 'usr', 'lib', 'pkgconfig')
@@ -1412,16 +1423,6 @@ def run_program(cfg, context, subject, args,
 			pkg_visited.add(dep_name)
 		i += 1
 
-	path_dirs = []
-	ldso_dirs = []
-	aclocal_dirs = []
-	for pkg in pkg_queue:
-		path_dirs.append(os.path.join(pkg.prefix_dir, 'bin'))
-		if pkg.exports_shared_libs:
-			ldso_dirs.append(os.path.join(pkg.prefix_dir, 'lib'))
-		if pkg.exports_aclocal:
-			aclocal_dirs.append(os.path.join(pkg.prefix_dir, 'share/aclocal'))
-
 	manifest = {
 		'context': context,
 		'args': args,
@@ -1431,9 +1432,6 @@ def run_program(cfg, context, subject, args,
 		'for_package': for_package,
 		'virtual_tools': list(virtual_tools),
 		'tools': [],
-		'path_dirs': path_dirs,
-		'ldso_dirs': ldso_dirs,
-		'aclocal_dirs': aclocal_dirs,
 		'source_root': cfg.source_root,
 		'build_root': cfg.build_root,
 		'tool_subdir': cfg.tool_out_subdir,
@@ -1486,7 +1484,9 @@ def run_program(cfg, context, subject, args,
 
 	for tool in pkg_queue:
 		manifest['tools'].append({
-			'name': tool.name
+			'name': tool.name,
+			'exports_shared_libs': tool.exports_shared_libs,
+			'exports_aclocal': tool.exports_aclocal
 		})
 
 	print("{}xbstrap{}: Running {} (tools: {})".format(
