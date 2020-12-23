@@ -336,6 +336,14 @@ class Config:
 		return os.getcwd()
 
 	@property
+	def sysroot_subdir(self):
+		if 'directories' not in self._root_yml or 'system_root' not in self._root_yml['directories']:
+			return 'system-root'
+		else:
+			return self._root_yml['directories']['system_root']
+
+	# sysroot_dir = build_root + sysroot_subdir
+	@property
 	def sysroot_dir(self):
 		if 'directories' not in self._root_yml or 'system_root' not in self._root_yml['directories']:
 			return os.path.join(self.build_root, 'system-root')
@@ -1284,13 +1292,15 @@ def config_for_dir():
 	return Config('')
 
 def execute_manifest(manifest):
+	sysroot_dir = os.path.join(manifest['build_root'], manifest['sysroot_subdir'])
+
 	def substitute(varname):
 		if varname == 'SOURCE_ROOT':
 			return manifest['source_root']
 		elif varname == 'BUILD_ROOT':
 			return manifest['build_root']
 		elif varname == 'SYSROOT_DIR':
-			return manifest['sysroot_dir']
+			return sysroot_dir
 		elif varname == 'PARALLELISM':
 			nthreads = get_concurrency()
 			return str(nthreads)
@@ -1375,16 +1385,16 @@ def execute_manifest(manifest):
 	_util.build_environ_paths(environ, 'ACLOCAL_PATH', prepend=aclocal_dirs)
 
 	if manifest['for_package'] and not explicit_pkgconfig:
-		pkgcfg_libdir = os.path.join(manifest['sysroot_dir'], 'usr', 'lib', 'pkgconfig')
-		pkgcfg_libdir += ':' + os.path.join(manifest['sysroot_dir'], 'usr', 'share', 'pkgconfig')
+		pkgcfg_libdir = os.path.join(sysroot_dir, 'usr', 'lib', 'pkgconfig')
+		pkgcfg_libdir += ':' + os.path.join(sysroot_dir, 'usr', 'share', 'pkgconfig')
 
 		environ.pop('PKG_CONFIG_PATH', None)
-		environ['PKG_CONFIG_SYSROOT_DIR'] = manifest['sysroot_dir']
+		environ['PKG_CONFIG_SYSROOT_DIR'] = sysroot_dir
 		environ['PKG_CONFIG_LIBDIR'] = pkgcfg_libdir
 
 	environ['XBSTRAP_SOURCE_ROOT'] = manifest['source_root']
 	environ['XBSTRAP_BUILD_ROOT'] = manifest['build_root']
-	environ['XBSTRAP_SYSROOT_DIR'] = manifest['sysroot_dir']
+	environ['XBSTRAP_SYSROOT_DIR'] = sysroot_dir
 
 	for key, value in manifest['extra_environ'].items():
 		environ[key] = replace_at_vars(value, substitute)
@@ -1435,7 +1445,7 @@ def run_program(cfg, context, subject, args,
 		'source_root': cfg.source_root,
 		'build_root': cfg.build_root,
 		'tool_subdir': cfg.tool_out_subdir,
-		'sysroot_dir': cfg.sysroot_dir,
+		'sysroot_subdir': cfg.sysroot_subdir,
 		'option_values': {name: cfg.get_option_value(name) for name in cfg.all_options}
 	}
 
