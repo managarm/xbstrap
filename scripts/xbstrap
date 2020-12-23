@@ -448,6 +448,22 @@ def do_archive(args):
 do_archive.parser = main_subparsers.add_parser('archive',
 		parents=[handle_plan_args.parser, select_pkgs.parser])
 
+#----------------------------------------------------------------------------------------
+
+def do_pull_pack(args):
+	cfg = xbstrap.base.config_for_dir()
+	sel = select_pkgs(cfg, args)
+	plan = xbstrap.base.Plan(cfg)
+	handle_plan_args(cfg, plan, args);
+	plan.wanted.update([(xbstrap.base.Action.PULL_PKG_PACK, pkg) for pkg in sel])
+	plan.run_plan()
+
+pull_pack_parser = main_subparsers.add_parser('pull-pack',
+		parents=[handle_plan_args.parser, select_pkgs.parser])
+pull_pack_parser.set_defaults(_impl=do_pull_pack)
+
+#----------------------------------------------------------------------------------------
+
 def do_list_tools(args):
 	cfg = xbstrap.base.config_for_dir()
 	for tool in cfg.all_tools():

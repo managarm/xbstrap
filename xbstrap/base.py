@@ -8,7 +8,6 @@ import os
 import re
 import shutil
 import subprocess
-import urllib.parse
 import urllib.request
 import stat
 import sys
@@ -19,6 +18,8 @@ import zipfile
 import colorama
 import jsonschema
 import yaml
+
+from . import util
 
 verbosity = False
 
@@ -1959,6 +1960,29 @@ def archive_pkg(cfg, pkg):
 		for ent in os.listdir(pkg.staging_dir):
 			tar.add(os.path.join(pkg.staging_dir, ent), arcname=ent)
 
+def pull_pkg_pack(cfg, pkg):
+	# Download the xbps file.
+	xbps_file = '{}-{}.x86_64.xbps'.format(pkg.name, pkg.version)
+	repo_url = cfg._root_yml['repositories']['xbps']
+	url = urllib.parse.urljoin(repo_url + '/', xbps_file)
+	print('{}xbstrap{}: Downloading {} from {}'.format(
+			colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
+			xbps_file, repo_url))
+	util.interactive_download(url, os.path.join(cfg.xbps_repository_dir, xbps_file))
+
+	# Run xbps-rindex.
+	output = subprocess.DEVNULL
+	if verbosity:
+		output = None
+
+	args = ['xbps-rindex', '-fa',
+			os.path.join(cfg.xbps_repository_dir, xbps_file)
+	]
+	print("{}xbstrap{}: Running {}".format(
+			colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
+			args))
+	subprocess.call(args, stdout=output)
+
 def run_task(cfg, task):
 	tools_required = []
 	for dep_name in task.tool_dependencies:
@@ -2063,11 +2087,12 @@ class Action(Enum):
 	INSTALL_PKG = 13
 	ARCHIVE_TOOL = 14
 	ARCHIVE_PKG = 15
-	RUN = 16
-	RUN_PKG = 17
-	RUN_TOOL = 18
-	WANT_TOOL = 19
-	WANT_PKG = 20
+	PULL_PKG_PACK = 16
+	RUN = 17
+	RUN_PKG = 18
+	RUN_TOOL = 19
+	WANT_TOOL = 20
+	WANT_PKG = 21
 
 Action.strings = {
 	Action.FETCH_SRC: 'fetch',
@@ -2085,6 +2110,7 @@ Action.strings = {
 	Action.INSTALL_PKG: 'install',
 	Action.ARCHIVE_TOOL: 'archive-tool',
 	Action.ARCHIVE_PKG: 'archive',
+	Action.PULL_PKG_PACK: 'pull-pack',
 	Action.RUN: 'run',
 	Action.RUN_PKG: 'run',
 	Action.RUN_TOOL: 'run',
@@ -2159,6 +2185,7 @@ class PlanItem:
 			Action.INSTALL_PKG: lambda s, c: s.check_if_installed(c),
 			Action.ARCHIVE_TOOL: lambda s, c: s.check_if_archived(c),
 			Action.ARCHIVE_PKG: lambda s, c: ItemState(missing=True),
+			Action.PULL_PKG_PACK: lambda s, c: ItemState(missing=True),
 			Action.RUN: lambda s, c: ItemState(missing=True),
 			Action.RUN_PKG: lambda s, c: ItemState(missing=True),
 			Action.RUN_TOOL: lambda s, c: ItemState(missing=True),
@@ -2327,6 +2354,9 @@ class Plan:
 
 		elif action == Action.ARCHIVE_PKG:
 			item.build_edges.add((action.BUILD_PKG, subject))
+
+		elif action == Action.PULL_PKG_PACK:
+			pass
 
 		elif action == Action.RUN:
 			add_implicit_pkgs()
@@ -2641,6 +2671,8 @@ class Plan:
 					archive_tool(self._cfg, subject)
 				elif action == Action.ARCHIVE_PKG:
 					archive_pkg(self._cfg, subject)
+				elif action == Action.PULL_PKG_PACK:
+					pull_pkg_pack(self._cfg, subject)
 				elif action == Action.RUN:
 					run_task(self._cfg, subject)
 				elif action == Action.RUN_PKG:

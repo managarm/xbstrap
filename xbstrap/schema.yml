@@ -153,6 +153,12 @@ properties:
         properties:
             'url':
                 type: string
+    'repositories':
+        type: object
+        additionalProperties: false
+        properties:
+            'xbps':
+                type: string
     'directories':
         type: object
         additionalProperties: false
