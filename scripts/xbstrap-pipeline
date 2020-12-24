@@ -115,7 +115,6 @@ def do_compute_graph(args):
 					if tool.version != version_yml['tools'][tool.name]:
 						up2date = False
 						break
-					up2date = False
 				for pkg in job.pkgs:
 					if pkg.name not in version_yml['pkgs']:
 						up2date = False
