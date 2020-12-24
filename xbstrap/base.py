@@ -1428,6 +1428,9 @@ def fetch_src(cfg, src):
 	source = src._this_yml
 
 	if 'git' in source:
+		commit_yml = cfg._commit_yml.get('commits', dict()).get(src.name, dict())
+		fixed_commit = commit_yml.get('fixed_commit', None)
+
 		init = not os.path.isdir(src.source_dir)
 		if init:
 			try_mkdir(src.source_dir)
@@ -1450,7 +1453,7 @@ def fetch_src(cfg, src):
 			# TODO: it's unclear whether this is the best strategy:
 			#       - for simplicity, it might be easier to always pull the full history
 			#       - some remotes support fetching individual SHA1s.
-			if 'commit' in source:
+			if 'commit' in source or fixed_commit is not None:
 				shallow = False
 			# When initializing the repository, we fetch only one commit.
 			# For updates, we fetch all *new* commits (= default behavior of 'git fetch').
