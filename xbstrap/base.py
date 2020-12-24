@@ -1964,6 +1964,8 @@ def pull_pkg_pack(cfg, pkg):
 	from . import xbps_utils as _xbps_utils
 	repo_url = cfg._root_yml['repositories']['xbps']
 
+	try_mkdir(cfg.xbps_repository_dir)
+
 	# Download the repodata file.
 	rd_path = os.path.join(cfg.xbps_repository_dir, 'remote-x86_64-repodata')
 	rd_url = urllib.parse.urljoin(repo_url + '/', 'x86_64-repodata')
