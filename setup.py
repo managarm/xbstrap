@@ -35,7 +35,6 @@ setup(name='xbstrap',
 	install_requires=[
 		'colorama',
 		'jsonschema',
-		'plistlib', # For xbps support.
 		'pyyaml',
 		'zstandard' # For xbps support.
 	],
