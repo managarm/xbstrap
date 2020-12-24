@@ -1961,14 +1961,30 @@ def archive_pkg(cfg, pkg):
 			tar.add(os.path.join(pkg.staging_dir, ent), arcname=ent)
 
 def pull_pkg_pack(cfg, pkg):
-	# Download the xbps file.
-	xbps_file = '{}-{}.x86_64.xbps'.format(pkg.name, pkg.version)
+	from . import xbps_utils as _xbps_utils
 	repo_url = cfg._root_yml['repositories']['xbps']
-	url = urllib.parse.urljoin(repo_url + '/', xbps_file)
+
+	# Download the repodata file.
+	rd_path = os.path.join(cfg.xbps_repository_dir, 'remote-x86_64-repodata')
+	rd_url = urllib.parse.urljoin(repo_url + '/', 'x86_64-repodata')
+	print('{}xbstrap{}: Downloading x86_64-repodata from {}'.format(
+			colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
+			repo_url))
+	util.interactive_download(rd_url, rd_path)
+
+	# Find the package within the repodata's index file.
+	index = _xbps_utils.read_repodata(rd_path)
+	if pkg.name not in index:
+		raise RuntimeError("Package {} not found in remote repository".format(pkg.name))
+	assert 'pkgver' in index[pkg.name]
+
+	# Download the xbps file.
+	xbps_file = '{}.x86_64.xbps'.format(index[pkg.name]['pkgver'])
+	pkg_url = urllib.parse.urljoin(repo_url + '/', xbps_file)
 	print('{}xbstrap{}: Downloading {} from {}'.format(
 			colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
 			xbps_file, repo_url))
-	util.interactive_download(url, os.path.join(cfg.xbps_repository_dir, xbps_file))
+	util.interactive_download(pkg_url, os.path.join(cfg.xbps_repository_dir, xbps_file))
 
 	# Run xbps-rindex.
 	output = subprocess.DEVNULL
