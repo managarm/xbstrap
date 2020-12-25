@@ -355,12 +355,28 @@ class Config:
 		return os.path.join(self.build_root, 'xbps-repo')
 
 	@property
+	def tool_build_subdir(self):
+		if 'directories' not in self._root_yml or 'pkg_builds' not in self._root_yml['directories']:
+			return 'tool-builds'
+		else:
+			return self._root_yml['directories']['tool_builds']
+
+	# tool_build_dir = build_root + tool_build_subdir.
+	@property
 	def tool_build_dir(self):
 		if 'directories' not in self._root_yml or 'pkg_builds' not in self._root_yml['directories']:
 			return os.path.join(self.build_root, 'tool-builds')
 		else:
 			return os.path.join(self.build_root, self._root_yml['directories']['tool_builds'])
 
+	@property
+	def pkg_build_subdir(self):
+		if 'directories' not in self._root_yml or 'pkg_builds' not in self._root_yml['directories']:
+			return 'pkg-builds'
+		else:
+			return self._root_yml['directories']['pkg_builds']
+
+	# pkg_build_dir = build_root + pkg_build_subdir.
 	@property
 	def pkg_build_dir(self):
 		if 'directories' not in self._root_yml or 'pkg_builds' not in self._root_yml['directories']:
@@ -383,6 +399,14 @@ class Config:
 		else:
 			return os.path.join(self.build_root, self._root_yml['directories']['tools'])
 
+	@property
+	def package_out_subdir(self):
+		if 'directories' not in self._root_yml or 'packages' not in self._root_yml['directories']:
+			return 'packages'
+		else:
+			return self._root_yml['directories']['packages']
+
+	# package_out_dir = build_root + package_out_subdir
 	@property
 	def package_out_dir(self):
 		if 'directories' not in self._root_yml or 'packages' not in self._root_yml['directories']:
@@ -675,6 +699,13 @@ class Source(RequirementsMixin):
 		return self._cfg.source_root
 
 	@property
+	def source_subdir(self):
+		if 'subdir' in self._this_yml:
+			return os.path.join(self._this_yml['subdir'], self._name)
+		return self._name
+
+	# source_dir = source_root + source_subdir.
+	@property
 	def source_dir(self):
 		return os.path.join(self.sub_dir, self._name)
 
@@ -948,8 +979,16 @@ class HostPackage(RequirementsMixin):
 				yield yml['tool']
 
 	@property
+	def build_subdir(self):
+		return os.path.join(self._cfg.tool_build_subdir, self.name)
+
+	@property
 	def build_dir(self):
 		return os.path.join(self._cfg.tool_build_dir, self.name)
+
+	@property
+	def prefix_subdir(self):
+		return os.path.join(self._cfg.tool_out_subdir, self.name)
 
 	@property
 	def prefix_dir(self):
@@ -1072,12 +1111,20 @@ class TargetPackage(RequirementsMixin):
 		return self.name
 
 	@property
+	def build_subdir(self):
+		return os.path.join(self._cfg.pkg_build_subdir, self.name)
+
+	@property
 	def build_dir(self):
 		return os.path.join(self._cfg.pkg_build_dir, self.name)
 
 	@property
 	def staging_dir(self):
 		return os.path.join(self._cfg.package_out_dir, self.name)
+
+	@property
+	def collect_subdir(self):
+		return os.path.join(self._cfg.package_out_subdir, self.name + '.collect')
 
 	@property
 	def collect_dir(self):
@@ -1292,13 +1339,15 @@ def config_for_dir():
 	return Config('')
 
 def execute_manifest(manifest):
+	source_root = manifest['source_root']
+	build_root = manifest['build_root']
 	sysroot_dir = os.path.join(manifest['build_root'], manifest['sysroot_subdir'])
 
 	def substitute(varname):
 		if varname == 'SOURCE_ROOT':
-			return manifest['source_root']
+			return source_root
 		elif varname == 'BUILD_ROOT':
-			return manifest['build_root']
+			return build_root
 		elif varname == 'SYSROOT_DIR':
 			return sysroot_dir
 		elif varname == 'PARALLELISM':
@@ -1309,22 +1358,21 @@ def execute_manifest(manifest):
 
 		if manifest['context'] == 'source':
 			if varname == 'THIS_SOURCE_DIR':
-				return manifest['subject']['source_dir']
+				return os.path.join(source_root, manifest['subject']['source_subdir'])
 		elif manifest['context'] == 'tool' or manifest['context'] == 'tool-stage':
 			if varname == 'THIS_SOURCE_DIR':
-				return manifest['subject']['source_dir']
+				return os.path.join(source_root, manifest['subject']['source_subdir'])
 			elif varname == 'THIS_BUILD_DIR':
-				return manifest['subject']['build_dir']
+				return os.path.join(build_root, manifest['subject']['build_subdir'])
 			elif varname == 'PREFIX':
-				return os.path.join(manifest['build_root'], manifest['tool_subdir'],
-						manifest['subject']['name'])
+				return os.path.join(build_root, manifest['subject']['prefix_subdir'])
 		elif manifest['context'] == 'pkg':
 			if varname == 'THIS_SOURCE_DIR':
-				return manifest['subject']['source_dir']
+				return os.path.join(source_root, manifest['subject']['source_subdir'])
 			elif varname == 'THIS_BUILD_DIR':
-				return manifest['subject']['build_dir']
+				return os.path.join(build_root, manifest['subject']['build_subdir'])
 			elif varname == 'THIS_COLLECT_DIR':
-				return manifest['subject']['collect_dir']
+				return os.path.join(build_root, manifest['subject']['collect_subdir'])
 
 	# /bin directory for virtual tools.
 	explicit_pkgconfig = False
@@ -1335,9 +1383,9 @@ def execute_manifest(manifest):
 			vscript = os.path.join(vb.name, yml['program_name'])
 			paths = []
 			for tool_yml in manifest['tools']:
-				paths.append(os.path.join(manifest['build_root'], manifest['tool_subdir'],
+				paths.append(os.path.join(build_root, yml['prefix_subdir'],
 						'lib/pkgconfig'))
-				paths.append(os.path.join(manifest['build_root'], manifest['tool_subdir'],
+				paths.append(os.path.join(build_root, yml['prefix_subdir'],
 						'share/pkgconfig'))
 			with open(vscript, 'wt') as f:
 				f.write('#!/bin/sh\n'
@@ -1373,7 +1421,7 @@ def execute_manifest(manifest):
 	ldso_dirs = []
 	aclocal_dirs = []
 	for yml in manifest['tools']:
-		prefix_dir = os.path.join(manifest['build_root'], manifest['tool_subdir'], yml['name'])
+		prefix_dir = os.path.join(build_root, yml['prefix_subdir'])
 		path_dirs.append(os.path.join(prefix_dir, 'bin'))
 		if yml['exports_shared_libs']:
 			ldso_dirs.append(os.path.join(prefix_dir, 'lib'))
@@ -1392,8 +1440,8 @@ def execute_manifest(manifest):
 		environ['PKG_CONFIG_SYSROOT_DIR'] = sysroot_dir
 		environ['PKG_CONFIG_LIBDIR'] = pkgcfg_libdir
 
-	environ['XBSTRAP_SOURCE_ROOT'] = manifest['source_root']
-	environ['XBSTRAP_BUILD_ROOT'] = manifest['build_root']
+	environ['XBSTRAP_SOURCE_ROOT'] = source_root
+	environ['XBSTRAP_BUILD_ROOT'] = build_root
 	environ['XBSTRAP_SYSROOT_DIR'] = sysroot_dir
 
 	for key, value in manifest['extra_environ'].items():
@@ -1409,17 +1457,17 @@ def execute_manifest(manifest):
 		workdir = replace_at_vars(manifest['workdir'], substitute)
 	else:
 		if manifest['context'] == 'source':
-			workdir = manifest['subject']['source_dir']
+			workdir = os.path.join(source_root, manifest['subject']['source_subdir'])
 		elif manifest['context'] == 'tool' or manifest['context'] == 'tool-stage':
-			workdir = manifest['subject']['build_dir']
+			workdir = os.path.join(build_root, manifest['subject']['build_subdir'])
 		elif manifest['context'] == 'pkg':
-			workdir = manifest['subject']['build_dir']
+			workdir = os.path.join(build_root, manifest['subject']['build_subdir'])
 		elif manifest['context'] == 'task':
-			workdir = manifest['source_root']
+			workdir = source_root
 		elif manifest['context'] == 'tool-task':
-			workdir = manifest['subject']['build_dir']
+			workdir = os.path.join(build_root, manifest['subject']['build_subdir'])
 		elif manifest['context'] == 'pkg-task':
-			workdir = manifest['subject']['build_dir']
+			workdir = os.path.join(build_root, manifest['subject']['build_subdir'])
 		else:
 			raise RuntimeError("Unexpected context")
 
@@ -1460,57 +1508,56 @@ def run_program(cfg, context, subject, args,
 		'tools': [],
 		'source_root': cfg.source_root,
 		'build_root': cfg.build_root,
-		'tool_subdir': cfg.tool_out_subdir,
 		'sysroot_subdir': cfg.sysroot_subdir,
 		'option_values': {name: cfg.get_option_value(name) for name in cfg.all_options}
 	}
 
 	if context == 'source':
 		manifest['subject'] = {
-			'source_dir': subject.source_dir
+			'source_subdir': subject.source_subdir
 		}
 	elif context == 'tool':
 		src = cfg.get_source(subject.source)
 		manifest['subject'] = {
-			'name': subject.name,
-			'source_dir': src.source_dir,
-			'build_dir': subject.build_dir
+			'source_subdir': src.source_subdir,
+			'build_subdir': subject.build_subdir,
+			'prefix_subdir': subject.prefix_subdir
 		}
 	elif context == 'tool-stage':
 		tool = subject.pkg
 		src = cfg.get_source(tool.source)
 		manifest['subject'] = {
-			'name': tool.name,
-			'source_dir': src.source_dir,
-			'build_dir': tool.build_dir
+			'source_subdir': src.source_subdir,
+			'build_subdir': tool.build_subdir,
+			'prefix_subdir': tool.prefix_subdir
 		}
 	elif context == 'pkg':
 		src = cfg.get_source(subject.source)
 		manifest['subject'] = {
-			'source_dir': src.source_dir,
-			'build_dir': subject.build_dir,
-			'collect_dir': subject.collect_dir
+			'source_subdir': src.source_subdir,
+			'build_subdir': subject.build_subdir,
+			'collect_subdir': subject.collect_subdir
 		}
 	elif context == 'tool-task':
 		tool = subject.pkg
 		src = cfg.get_source(tool.source)
 		manifest['subject'] = {
-			'name': tool.name,
-			'source_dir': src.source_dir,
-			'build_dir': tool.build_dir
+			'source_subdir': src.source_subdir,
+			'build_subdir': tool.build_subdir,
+			'prefix_subdir': tool.prefix_subdir
 		}
 	elif context == 'pkg-task':
 		pkg = subject.pkg
 		src = cfg.get_source(pkg.source)
 		manifest['subject'] = {
-			'source_dir': src.source_dir,
-			'build_dir': pkg.build_dir,
-			'collect_dir': pkg.collect_dir
+			'source_subdir': src.source_srcdir,
+			'build_subdir': pkg.build_subdir,
+			'collect_subdir': pkg.collect_subdir
 		}
 
 	for tool in pkg_queue:
 		manifest['tools'].append({
-			'name': tool.name,
+			'prefix_subdir': tool.prefix_subdir,
 			'exports_shared_libs': tool.exports_shared_libs,
 			'exports_aclocal': tool.exports_aclocal
 		})
