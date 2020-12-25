@@ -1383,9 +1383,9 @@ def execute_manifest(manifest):
 			vscript = os.path.join(vb.name, yml['program_name'])
 			paths = []
 			for tool_yml in manifest['tools']:
-				paths.append(os.path.join(build_root, yml['prefix_subdir'],
+				paths.append(os.path.join(build_root, tool_yml['prefix_subdir'],
 						'lib/pkgconfig'))
-				paths.append(os.path.join(build_root, yml['prefix_subdir'],
+				paths.append(os.path.join(build_root, tool_yml['prefix_subdir'],
 						'share/pkgconfig'))
 			with open(vscript, 'wt') as f:
 				f.write('#!/bin/sh\n'
