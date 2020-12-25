@@ -1506,11 +1506,23 @@ def run_program(cfg, context, subject, args,
 		'for_package': for_package,
 		'virtual_tools': list(virtual_tools),
 		'tools': [],
-		'source_root': cfg.source_root,
-		'build_root': cfg.build_root,
 		'sysroot_subdir': cfg.sysroot_subdir,
 		'option_values': {name: cfg.get_option_value(name) for name in cfg.all_options}
 	}
+
+	runtime = cfg.container_runtime
+	container_yml = cfg._site_yml['container']
+
+	if runtime == 'docker':
+		if any(prop not in container_yml for prop in ['src_mount', 'build_mount', 'image']):
+			raise RuntimeError("Docker runtime requires src_mount, build_mount and image properties")
+
+	if runtime == 'docker':
+		manifest['source_root'] = container_yml['src_mount']
+		manifest['build_root'] = container_yml['build_mount']
+	else:
+		manifest['source_root'] = cfg.source_root
+		manifest['build_root'] = cfg.build_root
 
 	if context == 'source':
 		manifest['subject'] = {
@@ -1569,12 +1581,25 @@ def run_program(cfg, context, subject, args,
 	if debug_manifests:
 		print(yaml.dump(manifest))
 
-	runtime = cfg.container_runtime
 	if runtime == 'dummy':
 		proc = subprocess.Popen(['xbstrap', 'execute-manifest'],
 				stdin=subprocess.PIPE, text=True)
 		proc.communicate(yaml.dump(manifest))
-		assert proc.returncode == 0
+		if proc.returncode != 0:
+			raise ProgramFailureException()
+	elif runtime == 'docker':
+		docker_args = ['docker', 'run', '--rm', '-i', '--init',
+			'-v', cfg.source_root + ':' + container_yml['src_mount'],
+			'-v', cfg.build_root + ':' + container_yml['build_mount']]
+		if 'create_extra_args' in container_yml:
+			docker_args += container_yml['create_extra_args']
+		docker_args += [container_yml['image'],
+			'xbstrap', 'execute-manifest']
+		proc = subprocess.Popen(docker_args,
+				stdin=subprocess.PIPE, text=True)
+		proc.communicate(yaml.dump(manifest))
+		if proc.returncode != 0:
+			raise ProgramFailureException()
 	else:
 		assert not runtime
 		execute_manifest(manifest)
@@ -2242,6 +2267,10 @@ class PlanItem:
 		}
 		self._state = visitors[self.action](self.subject, self.settings)
 
+class ProgramFailureException(Exception):
+	def __init__(self):
+		super().__init__("Program failed")
+
 class ExecutionFailureException(Exception):
 	def __init__(self, step, subject):
 		super().__init__("Action {} of {} {} failed".format(Action.strings[step],
@@ -2739,7 +2768,7 @@ class Plan:
 					raise AssertionError("Unexpected action")
 				item.exec_status = ExecutionStatus.SUCCESS
 				emit_progress('success')
-			except (subprocess.CalledProcessError, ExecutionFailureException):
+			except (subprocess.CalledProcessError, ProgramFailureException, ExecutionFailureException):
 				item.exec_status = ExecutionStatus.STEP_FAILED
 				emit_progress('failure')
 				if not self.keep_going:
