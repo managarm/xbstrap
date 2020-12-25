@@ -1582,9 +1582,9 @@ def run_program(cfg, context, subject, args,
 		print(yaml.dump(manifest))
 
 	if runtime == 'dummy':
-		proc = subprocess.Popen(['xbstrap', 'execute-manifest'],
-				stdin=subprocess.PIPE, text=True)
-		proc.communicate(yaml.dump(manifest))
+		proc = subprocess.Popen(['xbstrap', 'execute-manifest',
+				'-c', yaml.dump(manifest)])
+		proc.wait()
 		if proc.returncode != 0:
 			raise ProgramFailureException()
 	elif runtime == 'docker':
@@ -1594,10 +1594,9 @@ def run_program(cfg, context, subject, args,
 		if 'create_extra_args' in container_yml:
 			docker_args += container_yml['create_extra_args']
 		docker_args += [container_yml['image'],
-			'xbstrap', 'execute-manifest']
-		proc = subprocess.Popen(docker_args,
-				stdin=subprocess.PIPE, text=True)
-		proc.communicate(yaml.dump(manifest))
+			'xbstrap', 'execute-manifest', '-c', yaml.dump(manifest)]
+		proc = subprocess.Popen(docker_args)
+		proc.wait()
 		if proc.returncode != 0:
 			raise ProgramFailureException()
 	else:

@@ -7,7 +7,6 @@ import os
 import sys
 import urllib.parse
 import tarfile
-import yaml
 
 import colorama
 import xbstrap.base
@@ -598,9 +597,14 @@ do_rolling_determine.parser.set_defaults(_impl=do_rolling_determine)
 #----------------------------------------------------------------------------------------
 
 def do_execute_manifest(args):
-	manifest = yaml.load(sys.stdin, Loader=xbstrap.base.global_yaml_loader)
+	if args.c is not None:
+		manifest = yaml.load(args.c, Loader=xbstrap.base.global_yaml_loader)
+	else:
+		manifest = yaml.load(sys.stdin, Loader=xbstrap.base.global_yaml_loader)
 	xbstrap.base.execute_manifest(manifest)
+
 execute_manifest_parser = main_subparsers.add_parser('execute-manifest')
+execute_manifest_parser.add_argument('-c', type=str)
 execute_manifest_parser.set_defaults(_impl=do_execute_manifest)
 
 #----------------------------------------------------------------------------------------
