@@ -477,6 +477,10 @@ class ScriptStep:
 		return self._step_yml['workdir']
 
 	@property
+	def containerless(self):
+		return self._step_yml.get('containerless', False)
+
+	@property
 	def quiet(self):
 		if 'quiet' not in self._step_yml:
 			return False
@@ -1477,7 +1481,7 @@ def execute_manifest(manifest):
 
 def run_program(cfg, context, subject, args,
 		tool_pkgs=[], virtual_tools=[], workdir=None, extra_environ=dict(),
-		for_package=False, quiet=False):
+		for_package=False, containerless=False, quiet=False):
 	pkg_queue = []
 	pkg_visited = set()
 
@@ -1509,20 +1513,6 @@ def run_program(cfg, context, subject, args,
 		'sysroot_subdir': cfg.sysroot_subdir,
 		'option_values': {name: cfg.get_option_value(name) for name in cfg.all_options}
 	}
-
-	runtime = cfg.container_runtime
-	container_yml = cfg._site_yml['container']
-
-	if runtime == 'docker':
-		if any(prop not in container_yml for prop in ['src_mount', 'build_mount', 'image']):
-			raise RuntimeError("Docker runtime requires src_mount, build_mount and image properties")
-
-	if runtime == 'docker':
-		manifest['source_root'] = container_yml['src_mount']
-		manifest['build_root'] = container_yml['build_mount']
-	else:
-		manifest['source_root'] = cfg.source_root
-		manifest['build_root'] = cfg.build_root
 
 	if context == 'source':
 		manifest['subject'] = {
@@ -1574,40 +1564,80 @@ def run_program(cfg, context, subject, args,
 			'exports_aclocal': tool.exports_aclocal
 		})
 
-	print("{}xbstrap{}: Running {} (tools: {})".format(
-			colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
-			args, [tool.name for tool in pkg_queue]))
+	runtime = cfg.container_runtime
+	container_yml = cfg._site_yml.get('container', dict())
 
-	if debug_manifests:
-		print(yaml.dump(manifest))
+	use_container = True
+	if containerless:
+		if container_yml.get('allow_containerless', False):
+			use_container = False
+	if runtime is None:
+		use_container = False
 
-	if runtime == 'dummy':
-		proc = subprocess.Popen(['xbstrap', 'execute-manifest',
-				'-c', yaml.dump(manifest)])
-		proc.wait()
-		if proc.returncode != 0:
-			raise ProgramFailureException()
-	elif runtime == 'docker':
-		docker_args = ['docker', 'run', '--rm', '-i', '--init',
-			'-v', cfg.source_root + ':' + container_yml['src_mount'],
-			'-v', cfg.build_root + ':' + container_yml['build_mount']]
-		if 'create_extra_args' in container_yml:
-			docker_args += container_yml['create_extra_args']
-		docker_args += [container_yml['image'],
-			'xbstrap', 'execute-manifest', '-c', yaml.dump(manifest)]
-		proc = subprocess.Popen(docker_args)
-		proc.wait()
-		if proc.returncode != 0:
-			raise ProgramFailureException()
+	if use_container:
+		if runtime == 'dummy':
+			manifest['source_root'] = cfg.source_root
+			manifest['build_root'] = cfg.build_root
+
+			print("{}xbstrap{}: Running {} (tools: {}) in dummy container".format(
+					colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
+					args, [tool.name for tool in pkg_queue]))
+
+			if debug_manifests:
+				print(yaml.dump(manifest))
+
+			proc = subprocess.Popen(['xbstrap', 'execute-manifest',
+					'-c', yaml.dump(manifest)])
+			proc.wait()
+			if proc.returncode != 0:
+				raise ProgramFailureException()
+		else:
+			assert runtime == 'docker'
+			if any(prop not in container_yml for prop in ['src_mount', 'build_mount', 'image']):
+				raise RuntimeError("Docker runtime requires src_mount, build_mount and image properties")
+
+
+			manifest['source_root'] = container_yml['src_mount']
+			manifest['build_root'] = container_yml['build_mount']
+
+			print("{}xbstrap{}: Running {} (tools: {}) in Docker".format(
+					colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
+					args, [tool.name for tool in pkg_queue]))
+
+			if debug_manifests:
+				print(yaml.dump(manifest))
+
+			docker_args = ['docker', 'run', '--rm', '-i', '--init',
+				'-v', cfg.source_root + ':' + container_yml['src_mount'],
+				'-v', cfg.build_root + ':' + container_yml['build_mount']]
+			if 'create_extra_args' in container_yml:
+				docker_args += container_yml['create_extra_args']
+			docker_args += [container_yml['image'],
+				'xbstrap', 'execute-manifest', '-c', yaml.dump(manifest)]
+			proc = subprocess.Popen(docker_args)
+			proc.wait()
+			if proc.returncode != 0:
+				raise ProgramFailureException()
 	else:
-		assert not runtime
+		manifest['source_root'] = cfg.source_root
+		manifest['build_root'] = cfg.build_root
+
+		print("{}xbstrap{}: Running {} (tools: {})".format(
+				colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
+				args, [tool.name for tool in pkg_queue]))
+
+		if debug_manifests:
+			print(yaml.dump(manifest))
+
 		execute_manifest(manifest)
 
 def run_step(cfg, context, subject, step, tool_pkgs, virtual_tools,
 		for_package=False):
 	run_program(cfg, context, subject, step.args,
 			tool_pkgs=tool_pkgs, virtual_tools=virtual_tools, workdir=step.workdir,
-			extra_environ=step.environ, for_package=for_package,
+			extra_environ=step.environ,
+			for_package=for_package,
+			containerless=step.containerless,
 			quiet=step.quiet and not verbosity)
 
 def postprocess_libtool(cfg, pkg):
