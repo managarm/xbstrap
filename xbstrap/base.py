@@ -1610,6 +1610,8 @@ def run_program(cfg, context, subject, args,
 			docker_args = ['docker', 'run', '--rm', '-i', '--init',
 				'-v', cfg.source_root + ':' + container_yml['src_mount'],
 				'-v', cfg.build_root + ':' + container_yml['build_mount']]
+			if os.isatty(0): # FD zero = stdin.
+				docker_args += ['-t']
 			if 'create_extra_args' in container_yml:
 				docker_args += container_yml['create_extra_args']
 			docker_args += [container_yml['image'],
