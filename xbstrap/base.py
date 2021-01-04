@@ -7,6 +7,7 @@ import filecmp
 import os
 import re
 import shutil
+import shlex
 import subprocess
 import urllib.request
 import stat
@@ -1393,8 +1394,9 @@ def execute_manifest(manifest):
 						'share/pkgconfig'))
 			with open(vscript, 'wt') as f:
 				f.write('#!/bin/sh\n'
-					+ 'PKG_CONFIG_PATH=' + ':'.join(paths)
-					+ ' pkg-config $@\n')
+					+ 'PKG_CONFIG_PATH='
+					+ shlex.quote(':'.join(paths))
+					+ ' exec pkg-config "$@"\n')
 			os.chmod(vscript, 0o775)
 			explicit_pkgconfig = True
 		elif yml['virtual'] == 'pkgconfig-for-target':
@@ -1405,7 +1407,7 @@ def execute_manifest(manifest):
 					+ ' PKG_CONFIG_SYSROOT_DIR="${XBSTRAP_SYSROOT_DIR}"'
 					+ ' PKG_CONFIG_LIBDIR="${XBSTRAP_SYSROOT_DIR}/usr/lib/pkgconfig'
 					+ ':${XBSTRAP_SYSROOT_DIR}/usr/share/pkgconfig"'
-					+ ' pkg-config $@\n')
+					+ ' exec pkg-config "$@"\n')
 			os.chmod(vscript, 0o775)
 			explicit_pkgconfig = True
 		else:
