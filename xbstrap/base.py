@@ -1472,6 +1472,8 @@ def execute_manifest(manifest):
 			workdir = os.path.join(build_root, manifest['subject']['build_subdir'])
 		elif manifest['context'] == 'pkg-task':
 			workdir = os.path.join(build_root, manifest['subject']['build_subdir'])
+		elif manifest['context'] is None:
+			workdir = build_root
 		else:
 			raise RuntimeError("Unexpected context")
 
