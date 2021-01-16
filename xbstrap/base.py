@@ -1680,14 +1680,17 @@ def fetch_src(cfg, src):
 	source = src._this_yml
 
 	if 'git' in source:
+		git = shutil.which('git')
+		if git is None:
+			raise GenericException("git not found; please install it and retry")
 		commit_yml = cfg._commit_yml.get('commits', dict()).get(src.name, dict())
 		fixed_commit = commit_yml.get('fixed_commit', None)
 
 		init = not os.path.isdir(src.source_dir)
 		if init:
 			try_mkdir(src.source_dir)
-			subprocess.check_call(['git', 'init'], cwd=src.source_dir)
-			subprocess.check_call(['git', 'remote', 'add', 'origin', source['git']],
+			subprocess.check_call([git, 'init'], cwd=src.source_dir)
+			subprocess.check_call([git, 'remote', 'add', 'origin', source['git']],
 					cwd=src.source_dir)
 
 		shallow = not source.get('disable_shallow_fetch', False)
@@ -1695,7 +1698,7 @@ def fetch_src(cfg, src):
 		if src.is_rolling_version:
 			shallow = False
 
-		args = ['git', 'fetch']
+		args = [git, 'fetch']
 		if 'tag' in source:
 			if shallow:
 				args.append('--depth=1')
@@ -1716,13 +1719,18 @@ def fetch_src(cfg, src):
 					+ ':' + 'refs/remotes/origin/' + source['branch']])
 		subprocess.check_call(args, cwd=src.source_dir)
 	elif 'hg' in source:
+		hg = shutil.which('hg')
+		if hg is None:
+			raise GenericException("mercurial (hg) not found; please install it and retry")
 		try_mkdir(src.source_dir)
-		args = ['hg', 'clone', source['hg'], src.source_dir]
+		args = [hg, 'clone', source['hg'], src.source_dir]
 		subprocess.check_call(args)
 	elif 'svn' in source:
+		svn = shutil.which('svn')
+		if svn is None:
+			raise GenericException("subversion (svn) not found; please install it and retry")
 		try_mkdir(src.source_dir)
-		args = ['svn', 'co', source['svn'], src.source_dir]
-		print (args)
+		args = [svn, 'co', source['svn'], src.source_dir]
 		subprocess.check_call(args)
 	else:
 		assert 'url' in source
