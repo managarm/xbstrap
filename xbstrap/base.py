@@ -111,7 +111,7 @@ def replace_at_vars(string, resolve):
 		varname = m.group(1)
 		result = resolve(varname)
 		if result is None:
-			raise RuntimeError("Unexpected substitution {}".format(varname))
+			raise GenericException("Unexpected substitution {}".format(varname))
 		return result
 
 	return re.sub(r'@([\w:-]+)@', do_substitute, string)
@@ -216,12 +216,12 @@ class Config:
 			filter_sources = None, filter_tools = None, filter_pkgs = None, filter_tasks = None):
 		if 'imports' in current_yml and isinstance(current_yml['imports'], list):
 			if current_yml is not self._root_yml:
-				raise RuntimeError("Nested imports are not supported")
+				raise GenericException("Nested imports are not supported")
 			for import_def in current_yml['imports']:
 				if 'from' not in import_def and 'file' not in import_def:
-					raise RuntimeError("Unexpected data in import")
+					raise GenericException("Unexpected data in import")
 				elif 'from' in import_def and 'file' in import_def:
-					raise RuntimeError("Unexpected data in import")
+					raise GenericException("Unexpected data in import")
 
 				if 'from' in import_def:
 					import_path = os.path.join(os.path.dirname(current_path),
@@ -250,7 +250,7 @@ class Config:
 				if not (filter_sources is None) and (src.name not in filter_sources):
 					continue
 				if src.name in self._sources:
-					raise RuntimeError("Duplicate source {}".format(src.name))
+					raise GenericException("Duplicate source {}".format(src.name))
 				self._sources[src.name] = src
 
 		if 'tools' in current_yml and isinstance(current_yml['tools'], list):
@@ -258,7 +258,7 @@ class Config:
 				if 'source' in pkg_yml:
 					src = Source(self, pkg_yml['name'], pkg_yml['source'])
 					if src.name in self._sources:
-						raise RuntimeError("Duplicate source {}".format(src.name))
+						raise GenericException("Duplicate source {}".format(src.name))
 					self._sources[src.name] = src
 				pkg = HostPackage(self, pkg_yml)
 				if not (filter_tools is None) and (pkg.name not in filter_tools):
@@ -270,7 +270,7 @@ class Config:
 				if 'source' in pkg_yml:
 					src = Source(self, pkg_yml['name'], pkg_yml['source'])
 					if src.name in self._sources:
-						raise RuntimeError("Duplicate source {}".format(src.name))
+						raise GenericException("Duplicate source {}".format(src.name))
 					self._sources[src.name] = src
 				pkg = TargetPackage(self, pkg_yml)
 				if not (filter_pkgs is None) and (pkg.name not in filter_pkgs):
@@ -641,7 +641,7 @@ class Source(RequirementsMixin):
 			assert len(out) == 1
 			return out[0]
 		else:
-			raise RuntimeError("Source {} does not have a variable checkout commit".format(self.name))
+			raise GenericException("Source {} does not have a variable checkout commit".format(self.name))
 
 	@property
 	def is_rolling_version(self):
@@ -661,7 +661,7 @@ class Source(RequirementsMixin):
 			shallow_stdout = subprocess.check_output(['git', 'rev-parse', '--is-shallow-repository'],
 					cwd=self.source_dir).decode().strip()
 			if shallow_stdout == 'true':
-				raise RuntimeError("Cannot determine rolling version ID of source {} form shallow Git repository".format(self._name))
+				raise GenericException("Cannot determine rolling version ID of source {} form shallow Git repository".format(self._name))
 			else:
 				assert shallow_stdout == 'false'
 
@@ -676,11 +676,11 @@ class Source(RequirementsMixin):
 				count_out = subprocess.check_output(['git', 'rev-list', '--count', tracking_ref],
 						cwd=self.source_dir).decode().strip()
 			except subprocess.CalledProcessError:
-				raise RuntimeError("Unable to determine rolling version ID of source {} via Git".format(self._name))
+				raise GenericException("Unable to determine rolling version ID of source {} via Git".format(self._name))
 			# Make sure that we get a valid number.
 			return str(int(count_out))
 		else:
-			raise RuntimeError('@ROLLING_ID@ requires git')
+			raise GenericException('@ROLLING_ID@ requires git')
 
 	@property
 	def has_explicit_version(self):
@@ -1059,7 +1059,7 @@ class HostPackage(RequirementsMixin):
 
 		revision = self._this_yml.get('revision', 1)
 		if revision < 1:
-			raise RuntimeError("Tool {} specifies a revision < 1".format(self.name));
+			raise GenericException("Tool {} specifies a revision < 1".format(self.name));
 
 		return source.compute_version(**kwargs) + '_' + str(revision)
 
@@ -1194,7 +1194,7 @@ class TargetPackage(RequirementsMixin):
 
 		revision = self._this_yml.get('revision', 1)
 		if revision < 1:
-			raise RuntimeError("Package {} specifies a revision < 1".format(self.name));
+			raise GenericException("Package {} specifies a revision < 1".format(self.name));
 
 		return source.compute_version(**kwargs) + '_' + str(revision)
 
@@ -1238,7 +1238,7 @@ class TargetPackage(RequirementsMixin):
 			except subprocess.CalledProcessError:
 				return ItemState(missing=True)
 		else:
-			raise RuntimeError('Package management configuration does not support pack')
+			raise GenericException('Package management configuration does not support pack')
 
 	def check_if_installed(self, settings):
 		if self._cfg.use_xbps:
@@ -1421,7 +1421,7 @@ def execute_manifest(manifest):
 			os.chmod(vscript, 0o775)
 			explicit_pkgconfig = True
 		else:
-			raise RuntimeError("Unknown virtual tool {}".format(yml['virtual']))
+			raise GenericException("Unknown virtual tool {}".format(yml['virtual']))
 
 	# Determine the arguments.
 	if isinstance(manifest['args'], list):
@@ -1487,7 +1487,7 @@ def execute_manifest(manifest):
 		elif manifest['context'] is None:
 			workdir = build_root
 		else:
-			raise RuntimeError("Unexpected context")
+			raise GenericException("Unexpected context")
 
 	subprocess.check_call(args,
 			env=environ, cwd=workdir,
@@ -1608,7 +1608,7 @@ def run_program(cfg, context, subject, args,
 		else:
 			assert runtime == 'docker'
 			if any(prop not in container_yml for prop in ['src_mount', 'build_mount', 'image']):
-				raise RuntimeError("Docker runtime requires src_mount, build_mount and image properties")
+				raise GenericException("Docker runtime requires src_mount, build_mount and image properties")
 
 
 			manifest['source_root'] = container_yml['src_mount']
@@ -1746,7 +1746,7 @@ def checkout_src(cfg, src, settings):
 
 		if 'tag' in source:
 			if fixed_commit is not None:
-				raise RuntimeError("Commit of source {} cannot be fixed in bootstrap-commits.yml: source builds form a branch".format(src.name));
+				raise GenericException("Commit of source {} cannot be fixed in bootstrap-commits.yml: source builds form a branch".format(src.name));
 
 			if not init and settings.reset == ResetMode.HARD_RESET:
 				subprocess.check_call(['git', 'reset', '--hard'], cwd=src.source_dir)
@@ -1754,14 +1754,14 @@ def checkout_src(cfg, src, settings):
 				subprocess.check_call(['git', 'checkout', '--detach',
 						'refs/tags/' + source['tag']], cwd=src.source_dir)
 			else:
-				raise RuntimeError("Refusing to checkout tag '{}' of source {}".format(
+				raise GenericException("Refusing to checkout tag '{}' of source {}".format(
 						source['tag'], src.name));
 		else:
 			commit = 'origin/' + source['branch']
 			if 'commit' in source:
 				commit = source['commit']
 				if fixed_commit is not None:
-					raise RuntimeError("Commit of source {} cannot be fixed in bootstrap-commits.yml: commit is already fixed in bootstrap.yml".format(src.name));
+					raise GenericException("Commit of source {} cannot be fixed in bootstrap-commits.yml: commit is already fixed in bootstrap.yml".format(src.name));
 			else:
 				if fixed_commit is not None:
 					commit = fixed_commit
@@ -1896,7 +1896,7 @@ def install_tool_stage(cfg, stage):
 		actual_rolling_id = src.determine_rolling_id()
 		try:
 			if src.rolling_id != actual_rolling_id:
-				raise RuntimeError("Rolling ID of tool {} does not match true rolling ID".format(tool.name))
+				raise GenericException("Rolling ID of tool {} does not match true rolling ID".format(tool.name))
 		except RollingIdUnavailableException:
 			pass
 	else:
@@ -1988,10 +1988,10 @@ def build_pkg(cfg, pkg, reproduce=False):
 		repro_only = repro_paths.difference(exist_paths)
 		exist_only = exist_paths.difference(repro_paths)
 		if repro_only:
-			raise RuntimeError("Paths {} only exist in reproducted build".format(
+			raise GenericException("Paths {} only exist in reproducted build".format(
 					', '.join(repro_only)))
 		if exist_only:
-			raise RuntimeError("Paths {} only exist in existing build".format(
+			raise GenericException("Paths {} only exist in existing build".format(
 					', '.join(repro_only)))
 
 		any_issues = False
@@ -2020,7 +2020,7 @@ def build_pkg(cfg, pkg, reproduce=False):
 			print("{}xbstrap{}: Build was reproduced exactly".format(
 					colorama.Style.BRIGHT, colorama.Style.RESET_ALL))
 		else:
-			raise RuntimeError('Could not reproduce all files')
+			raise GenericException('Could not reproduce all files')
 
 def pack_pkg(cfg, pkg, reproduce=False):
 	# Sanity checking: make sure that the rolling ID matches the expected one.
@@ -2029,7 +2029,7 @@ def pack_pkg(cfg, pkg, reproduce=False):
 		actual_rolling_id = src.determine_rolling_id()
 		try:
 			if src.rolling_id != actual_rolling_id:
-				raise RuntimeError("Rolling ID of package {} does not match true rolling ID".format(pkg.name))
+				raise GenericException("Rolling ID of package {} does not match true rolling ID".format(pkg.name))
 		except RollingIdUnavailableException:
 			pass
 	else:
@@ -2077,12 +2077,12 @@ def pack_pkg(cfg, pkg, reproduce=False):
 					shallow=False):
 				print("{}xbstrap{}: Mismatch in {}".format(
 						colorama.Style.BRIGHT, colorama.Style.RESET_ALL, xbps_file))
-				raise RuntimeError('Could not reproduce pack')
+				raise GenericException('Could not reproduce pack')
 
 			print("{}xbstrap{}: Pack was reproduced exactly".format(
 					colorama.Style.BRIGHT, colorama.Style.RESET_ALL))
 	else:
-		raise RuntimeError('Package management configuration does not support pack')
+		raise GenericException('Package management configuration does not support pack')
 
 def install_pkg(cfg, pkg):
 	# constraint: the sysroot directory must be located in the build root
@@ -2128,7 +2128,7 @@ def pull_pkg_pack(cfg, pkg):
 	# Find the package within the repodata's index file.
 	index = _xbps_utils.read_repodata(rd_path)
 	if pkg.name not in index:
-		raise RuntimeError("Package {} not found in remote repository".format(pkg.name))
+		raise GenericException("Package {} not found in remote repository".format(pkg.name))
 	assert 'pkgver' in index[pkg.name]
 
 	# Download the xbps file.
@@ -2555,7 +2555,7 @@ class Plan:
 			elif item.plan_state == PlanState.EXPANDING:
 				for circ_item in stack:
 					print(Action.strings[circ_item.action], circ_item.subject.subject_id)
-				raise RuntimeError("Package has circular dependencies")
+				raise GenericException("Package has circular dependencies")
 			else:
 				# Packages that are already ordered do not need to be considered again.
 				assert item.plan_state == PlanState.ORDERED
