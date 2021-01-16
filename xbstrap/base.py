@@ -49,10 +49,7 @@ def load_bootstrap_yaml(path):
 	n = 0
 	for e in global_bootstrap_validator.iter_errors(yml):
 		if n == 0:
-			print("{}xbstrap{}: {}Failed to validate boostrap.yml{}".format(
-					colorama.Style.BRIGHT, colorama.Style.NORMAL,
-					colorama.Fore.RED, colorama.Style.RESET_ALL),
-					file=sys.stderr)
+			log_err("Failed to validate boostrap.yml")
 		print("         {}* Error in file: {}, YAML element: {}\n"
 				"           {}{}".format(colorama.Fore.RED,
 				path, '/'.join(str(elem) for elem in e.absolute_path), e.message,
@@ -148,6 +145,13 @@ def installtree(src_root, dest_root):
 		else:
 			try_unlink(dest_path)
 			shutil.copy2(src_path, dest_path)
+
+def log_err(msg):
+	print("{}xbstrap{}: {}{}{}".format(colorama.Style.BRIGHT, colorama.Style.NORMAL, colorama.Fore.RED, msg, colorama.Style.RESET_ALL), file=sys.stderr)
+
+class GenericException(Exception):
+	def __init__(self, msg):
+		super().__init__(msg)
 
 class RollingIdUnavailableException(Exception):
 	def __init__(self, name):
@@ -438,11 +442,16 @@ class Config:
 		return self._sources[name]
 
 	def get_tool_pkg(self, name):
-		return self._tool_pkgs[name]
+		if name in self._tool_pkgs:
+			return self._tool_pkgs[name]
+		else:
+			raise GenericException(f"Unknown tool {name}")
 
 	def get_task(self, name):
 		if name in self._tasks:
 			return self._tasks[name]
+		else:
+			raise GenericException(f"Unknown task {name}")
 
 	def all_sources(self):
 		yield from self._sources.values()
@@ -454,7 +463,10 @@ class Config:
 		yield from self._target_pkgs.values()
 
 	def get_target_pkg(self, name):
-		return self._target_pkgs[name]
+		if name in self._target_pkgs:
+			return self._target_pkgs[name]
+		else:
+			raise GenericException(f"Unknown package {name}")
 
 class ScriptStep:
 	def __init__(self, step_yml):
@@ -1033,7 +1045,8 @@ class HostPackage(RequirementsMixin):
 	def get_task(self, task):
 		if task in self._tasks:
 			return self._tasks[task]
-		return False
+		else:
+			raise GenericException(f"Unknown task {task} in tool {self.name}")
 
 	@property
 	def configure_steps(self):
@@ -1194,7 +1207,8 @@ class TargetPackage(RequirementsMixin):
 	def get_task(self, task):
 		if task in self._tasks:
 			return self._tasks[task]
-		return False
+		else:
+			raise GenericException(f"Unknown task {task} in package {self.name}")
 
 	def check_if_configured(self, settings):
 		path = os.path.join(self.build_dir, 'configured.xbstrap')

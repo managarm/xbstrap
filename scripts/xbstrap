@@ -673,9 +673,8 @@ try:
 		do_run_task(args)
 	else:
 		assert not "Unexpected command"
-except (xbstrap.base.ExecutionFailureException, xbstrap.base.PlanFailureException) as e:
-	print('{}xbstrap{}: {}{}{}'.format(colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
-			colorama.Fore.RED, e, colorama.Style.RESET_ALL))
+except (xbstrap.base.ExecutionFailureException, xbstrap.base.PlanFailureException, xbstrap.base.GenericException) as e:
+	xbstrap.base.log_err(e)
 	sys.exit(1)
 except KeyboardInterrupt as e:
 	sys.exit(1)
