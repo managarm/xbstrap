@@ -50,25 +50,16 @@ def load_bootstrap_yaml(path):
 	for e in global_bootstrap_validator.iter_errors(yml):
 		if n == 0:
 			log_err("Failed to validate boostrap.yml")
-		print("         {}* Error in file: {}, YAML element: {}\n"
-				"           {}{}".format(colorama.Fore.RED,
-				path, '/'.join(str(elem) for elem in e.absolute_path), e.message,
-				colorama.Style.RESET_ALL),
-				file=sys.stderr)
+		log_err("* Error in file: {}, YAML element: {}\n"
+				"           {}".format(path, '/'.join(str(elem) for elem in e.absolute_path), e.message))
 		any_errors = True
 		n += 1
 		if n >= 10:
-			print("{}xbstrap{}: {}Reporting only the first 10 errors{}".format(
-					colorama.Style.BRIGHT, colorama.Style.NORMAL,
-					colorama.Fore.RED, colorama.Style.RESET_ALL),
-					file=sys.stderr)
+			log_err("Reporting only the first 10 errors")
 			break
 
 	if any_errors:
-		print("{}xbstrap{}: {}Validation issues will become hard errors in the future{}".format(
-				colorama.Style.BRIGHT, colorama.Style.NORMAL, colorama.Fore.YELLOW,
-				colorama.Style.RESET_ALL),
-				file=sys.stderr)
+		log_warn("Validation issues will become hard errors in the future")
 
 	return yml
 
@@ -145,6 +136,13 @@ def installtree(src_root, dest_root):
 		else:
 			try_unlink(dest_path)
 			shutil.copy2(src_path, dest_path)
+
+
+def log_info(msg):
+	print('{}xbstrap{}: {}'.format(colorama.Style.BRIGHT, colorama.Style.RESET_ALL, msg))
+
+def log_warn(msg):
+	print("{}xbstrap{}: {}{}{}".format(colorama.Style.BRIGHT, colorama.Style.NORMAL, colorama.Fore.YELLOW, msg, colorama.Style.RESET_ALL), file=sys.stderr)
 
 def log_err(msg):
 	print("{}xbstrap{}: {}{}{}".format(colorama.Style.BRIGHT, colorama.Style.NORMAL, colorama.Fore.RED, msg, colorama.Style.RESET_ALL), file=sys.stderr)
@@ -2760,8 +2758,7 @@ class Plan:
 				continue
 
 			assert not any_failed_edges
-			print('{}xbstrap{}: {} {} [{}/{}]'.format(
-					colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
+			log_info('{} {} [{}/{}]'.format(
 					Action.strings[action], subject.subject_id,
 					n + 1, len(scheduled)))
 			try:
