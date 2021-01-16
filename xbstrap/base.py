@@ -784,9 +784,7 @@ class Source(RequirementsMixin):
 				check_remote = True
 
 			if check_remote:
-				print('{}xbstrap{}: Checking for remote updates of {}'.format(
-						colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
-						self.name))
+				log_info('Checking for remote updates of {}'.format(self.name))
 				remote_commit = get_remote_commit(ref)
 				if local_commit != remote_commit:
 					return ItemState(updatable=True)
@@ -1593,8 +1591,7 @@ def run_program(cfg, context, subject, args,
 			manifest['source_root'] = cfg.source_root
 			manifest['build_root'] = cfg.build_root
 
-			print("{}xbstrap{}: Running {} (tools: {}) in dummy container".format(
-					colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
+			log_info("Running {} (tools: {}) in dummy container".format(
 					args, [tool.name for tool in pkg_queue]))
 
 			if debug_manifests:
@@ -1614,8 +1611,7 @@ def run_program(cfg, context, subject, args,
 			manifest['source_root'] = container_yml['src_mount']
 			manifest['build_root'] = container_yml['build_mount']
 
-			print("{}xbstrap{}: Running {} (tools: {}) in Docker".format(
-					colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
+			log_info("Running {} (tools: {}) in Docker".format(
 					args, [tool.name for tool in pkg_queue]))
 
 			if debug_manifests:
@@ -1638,8 +1634,7 @@ def run_program(cfg, context, subject, args,
 		manifest['source_root'] = cfg.source_root
 		manifest['build_root'] = cfg.build_root
 
-		print("{}xbstrap{}: Running {} (tools: {})".format(
-				colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
+		log_info("Running {} (tools: {})".format(
 				args, [tool.name for tool in pkg_queue]))
 
 		if debug_manifests:
@@ -2008,9 +2003,7 @@ def build_pkg(cfg, pkg, reproduce=False):
 			exist_stat = os.stat(os.path.join(pkg.collect_dir, path))
 
 			if stat.S_IFMT(repro_stat.st_mode) != stat.S_IFMT(exist_stat.st_mode):
-				print("{}xbstrap{}: File type mismatch in file {}".format(
-						colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
-						path))
+				log_info("File type mismatch in file {}".format(path))
 				any_issues = True
 				continue
 
@@ -2018,15 +2011,12 @@ def build_pkg(cfg, pkg, reproduce=False):
 				if not filecmp.cmp(os.path.join(pkg.collect_dir, path),
 						os.path.join(pkg.staging_dir, path),
 						shallow=False):
-					print("{}xbstrap{}: Content mismatch in file {}".format(
-							colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
-							path))
+					log_info("Content mismatch in file {}".format(path))
 					any_issues = True
 					continue
 
 		if not any_issues:
-			print("{}xbstrap{}: Build was reproduced exactly".format(
-					colorama.Style.BRIGHT, colorama.Style.RESET_ALL))
+			log_info("Build was reproduced exactly")
 		else:
 			raise GenericException('Could not reproduce all files')
 
@@ -2062,33 +2052,25 @@ def pack_pkg(cfg, pkg, reproduce=False):
 		xbps_file = '{}-{}.x86_64.xbps'.format(pkg.name, version)
 
 		if not reproduce:
-			print("{}xbstrap{}: Running {}".format(
-					colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
-					args))
+			log_info("Running {}".format(args))
 			subprocess.call(args, cwd=cfg.xbps_repository_dir, stdout=output)
 
 			args = ['xbps-rindex', '-fa',
 					os.path.join(cfg.xbps_repository_dir, xbps_file)
 			]
-			print("{}xbstrap{}: Running {}".format(
-					colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
-					args))
+			log_info("Running {}".format(args))
 			subprocess.call(args, stdout=output)
 		else:
-			print("{}xbstrap{}: Running {}".format(
-					colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
-					args))
+			log_info("Running {}".format(args))
 			subprocess.call(args, cwd=cfg.package_out_dir, stdout=output)
 
 			if not filecmp.cmp(os.path.join(cfg.package_out_dir, xbps_file),
 					os.path.join(cfg.xbps_repository_dir, xbps_file),
 					shallow=False):
-				print("{}xbstrap{}: Mismatch in {}".format(
-						colorama.Style.BRIGHT, colorama.Style.RESET_ALL, xbps_file))
+				log_info("Mismatch in {}".format(xbps_file))
 				raise GenericException('Could not reproduce pack')
 
-			print("{}xbstrap{}: Pack was reproduced exactly".format(
-					colorama.Style.BRIGHT, colorama.Style.RESET_ALL))
+			log_info("Pack was reproduced exactly")
 	else:
 		raise GenericException('Package management configuration does not support pack')
 
@@ -2106,9 +2088,7 @@ def install_pkg(cfg, pkg):
 			'--repository', cfg.xbps_repository_dir,
 			pkg.name
 		]
-		print("{}xbstrap{}: Running {}".format(
-				colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
-				args))
+		log_info("Running {}".format(args))
 		subprocess.check_call(args, stdout=output)
 	else:
 		installtree(pkg.staging_dir, cfg.sysroot_dir)
@@ -2128,9 +2108,7 @@ def pull_pkg_pack(cfg, pkg):
 	# Download the repodata file.
 	rd_path = os.path.join(cfg.xbps_repository_dir, 'remote-x86_64-repodata')
 	rd_url = urllib.parse.urljoin(repo_url + '/', 'x86_64-repodata')
-	print('{}xbstrap{}: Downloading x86_64-repodata from {}'.format(
-			colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
-			repo_url))
+	log_info('Downloading x86_64-repodata from {}'.format(repo_url))
 	_util.interactive_download(rd_url, rd_path)
 
 	# Find the package within the repodata's index file.
@@ -2142,9 +2120,7 @@ def pull_pkg_pack(cfg, pkg):
 	# Download the xbps file.
 	xbps_file = '{}.x86_64.xbps'.format(index[pkg.name]['pkgver'])
 	pkg_url = urllib.parse.urljoin(repo_url + '/', xbps_file)
-	print('{}xbstrap{}: Downloading {} from {}'.format(
-			colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
-			xbps_file, repo_url))
+	log_info('Downloading {} from {}'.format(xbps_file, repo_url))
 	_util.interactive_download(pkg_url, os.path.join(cfg.xbps_repository_dir, xbps_file))
 
 	# Run xbps-rindex.
@@ -2155,9 +2131,7 @@ def pull_pkg_pack(cfg, pkg):
 	args = ['xbps-rindex', '-fa',
 			os.path.join(cfg.xbps_repository_dir, xbps_file)
 	]
-	print("{}xbstrap{}: Running {}".format(
-			colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
-			args))
+	log_info("Running {}".format(args))
 	subprocess.call(args, stdout=output)
 
 def run_task(cfg, task):
@@ -2692,11 +2666,9 @@ class Plan:
 				if self._items[(action, subject)].active]
 
 		if scheduled:
-			print('{}xbstrap{}: Running the following plan:'.format(
-					colorama.Style.BRIGHT, colorama.Style.RESET_ALL))
+			log_info('Running the following plan:')
 		else:
-			print('{}xbstrap{}: Nothing to do'.format(
-					colorama.Style.BRIGHT, colorama.Style.RESET_ALL))
+			log_info('Nothing to do')
 		for (action, subject) in scheduled:
 			if isinstance(subject, HostStage):
 				if subject.stage_name:
@@ -2748,8 +2720,7 @@ class Plan:
 					self.progress_file.flush()
 
 			if self.keep_going and any_failed_edges:
-				print('{}xbstrap{}: Skipping action {} of {} due to failed prerequisites [{}/{}]'.format(
-						colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
+				log_info('Skipping action {} of {} due to failed prerequisites [{}/{}]'.format(
 						Action.strings[action], subject.subject_id,
 						n + 1, len(scheduled)))
 				item.exec_status = ExecutionStatus.PREREQS_FAILED
@@ -2828,8 +2799,7 @@ class Plan:
 				any_failed_items = True
 
 		if any_failed_items:
-			print('{}xbstrap{}: The following steps failed:'.format(
-					colorama.Style.BRIGHT, colorama.Style.RESET_ALL))
+			log_info('The following steps failed:')
 			for (action, subject) in scheduled:
 				item = self._items[(action, subject)]
 				assert item.exec_status != ExecutionStatus.NULL
