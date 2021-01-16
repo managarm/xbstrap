@@ -1363,14 +1363,14 @@ def execute_manifest(manifest):
 		if manifest['context'] == 'source':
 			if varname == 'THIS_SOURCE_DIR':
 				return os.path.join(source_root, manifest['subject']['source_subdir'])
-		elif manifest['context'] == 'tool' or manifest['context'] == 'tool-stage':
+		elif manifest['context'] == 'tool' or manifest['context'] == 'tool-stage' or manifest['context'] == 'tool-task':
 			if varname == 'THIS_SOURCE_DIR':
 				return os.path.join(source_root, manifest['subject']['source_subdir'])
 			elif varname == 'THIS_BUILD_DIR':
 				return os.path.join(build_root, manifest['subject']['build_subdir'])
 			elif varname == 'PREFIX':
 				return os.path.join(build_root, manifest['subject']['prefix_subdir'])
-		elif manifest['context'] == 'pkg':
+		elif manifest['context'] == 'pkg' or manifest['context'] == 'pkg-task':
 			if varname == 'THIS_SOURCE_DIR':
 				return os.path.join(source_root, manifest['subject']['source_subdir'])
 			elif varname == 'THIS_BUILD_DIR':
@@ -1554,7 +1554,7 @@ def run_program(cfg, context, subject, args,
 		pkg = subject.pkg
 		src = cfg.get_source(pkg.source)
 		manifest['subject'] = {
-			'source_subdir': src.source_srcdir,
+			'source_subdir': src.source_subdir,
 			'build_subdir': pkg.build_subdir,
 			'collect_subdir': pkg.collect_subdir
 		}
