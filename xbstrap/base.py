@@ -49,29 +49,17 @@ def load_bootstrap_yaml(path):
 	n = 0
 	for e in global_bootstrap_validator.iter_errors(yml):
 		if n == 0:
-			print("{}xbstrap{}: {}Failed to validate boostrap.yml{}".format(
-					colorama.Style.BRIGHT, colorama.Style.NORMAL,
-					colorama.Fore.RED, colorama.Style.RESET_ALL),
-					file=sys.stderr)
-		print("         {}* Error in file: {}, YAML element: {}\n"
-				"           {}{}".format(colorama.Fore.RED,
-				path, '/'.join(str(elem) for elem in e.absolute_path), e.message,
-				colorama.Style.RESET_ALL),
-				file=sys.stderr)
+			log_err("Failed to validate boostrap.yml")
+		log_err("* Error in file: {}, YAML element: {}\n"
+				"           {}".format(path, '/'.join(str(elem) for elem in e.absolute_path), e.message))
 		any_errors = True
 		n += 1
 		if n >= 10:
-			print("{}xbstrap{}: {}Reporting only the first 10 errors{}".format(
-					colorama.Style.BRIGHT, colorama.Style.NORMAL,
-					colorama.Fore.RED, colorama.Style.RESET_ALL),
-					file=sys.stderr)
+			log_err("Reporting only the first 10 errors")
 			break
 
 	if any_errors:
-		print("{}xbstrap{}: {}Validation issues will become hard errors in the future{}".format(
-				colorama.Style.BRIGHT, colorama.Style.NORMAL, colorama.Fore.YELLOW,
-				colorama.Style.RESET_ALL),
-				file=sys.stderr)
+		log_warn("Validation issues will become hard errors in the future")
 
 	return yml
 
@@ -123,7 +111,7 @@ def replace_at_vars(string, resolve):
 		varname = m.group(1)
 		result = resolve(varname)
 		if result is None:
-			raise RuntimeError("Unexpected substitution {}".format(varname))
+			raise GenericException("Unexpected substitution {}".format(varname))
 		return result
 
 	return re.sub(r'@([\w:-]+)@', do_substitute, string)
@@ -148,6 +136,20 @@ def installtree(src_root, dest_root):
 		else:
 			try_unlink(dest_path)
 			shutil.copy2(src_path, dest_path)
+
+
+def log_info(msg):
+	print('{}xbstrap{}: {}'.format(colorama.Style.BRIGHT, colorama.Style.RESET_ALL, msg))
+
+def log_warn(msg):
+	print("{}xbstrap{}: {}{}{}".format(colorama.Style.BRIGHT, colorama.Style.NORMAL, colorama.Fore.YELLOW, msg, colorama.Style.RESET_ALL), file=sys.stderr)
+
+def log_err(msg):
+	print("{}xbstrap{}: {}{}{}".format(colorama.Style.BRIGHT, colorama.Style.NORMAL, colorama.Fore.RED, msg, colorama.Style.RESET_ALL), file=sys.stderr)
+
+class GenericException(Exception):
+	def __init__(self, msg):
+		super().__init__(msg)
 
 class RollingIdUnavailableException(Exception):
 	def __init__(self, name):
@@ -214,12 +216,12 @@ class Config:
 			filter_sources = None, filter_tools = None, filter_pkgs = None, filter_tasks = None):
 		if 'imports' in current_yml and isinstance(current_yml['imports'], list):
 			if current_yml is not self._root_yml:
-				raise RuntimeError("Nested imports are not supported")
+				raise GenericException("Nested imports are not supported")
 			for import_def in current_yml['imports']:
 				if 'from' not in import_def and 'file' not in import_def:
-					raise RuntimeError("Unexpected data in import")
+					raise GenericException("Unexpected data in import")
 				elif 'from' in import_def and 'file' in import_def:
-					raise RuntimeError("Unexpected data in import")
+					raise GenericException("Unexpected data in import")
 
 				if 'from' in import_def:
 					import_path = os.path.join(os.path.dirname(current_path),
@@ -248,7 +250,7 @@ class Config:
 				if not (filter_sources is None) and (src.name not in filter_sources):
 					continue
 				if src.name in self._sources:
-					raise RuntimeError("Duplicate source {}".format(src.name))
+					raise GenericException("Duplicate source {}".format(src.name))
 				self._sources[src.name] = src
 
 		if 'tools' in current_yml and isinstance(current_yml['tools'], list):
@@ -256,7 +258,7 @@ class Config:
 				if 'source' in pkg_yml:
 					src = Source(self, pkg_yml['name'], pkg_yml['source'])
 					if src.name in self._sources:
-						raise RuntimeError("Duplicate source {}".format(src.name))
+						raise GenericException("Duplicate source {}".format(src.name))
 					self._sources[src.name] = src
 				pkg = HostPackage(self, pkg_yml)
 				if not (filter_tools is None) and (pkg.name not in filter_tools):
@@ -268,7 +270,7 @@ class Config:
 				if 'source' in pkg_yml:
 					src = Source(self, pkg_yml['name'], pkg_yml['source'])
 					if src.name in self._sources:
-						raise RuntimeError("Duplicate source {}".format(src.name))
+						raise GenericException("Duplicate source {}".format(src.name))
 					self._sources[src.name] = src
 				pkg = TargetPackage(self, pkg_yml)
 				if not (filter_pkgs is None) and (pkg.name not in filter_pkgs):
@@ -438,11 +440,16 @@ class Config:
 		return self._sources[name]
 
 	def get_tool_pkg(self, name):
-		return self._tool_pkgs[name]
+		if name in self._tool_pkgs:
+			return self._tool_pkgs[name]
+		else:
+			raise GenericException(f"Unknown tool {name}")
 
 	def get_task(self, name):
 		if name in self._tasks:
 			return self._tasks[name]
+		else:
+			raise GenericException(f"Unknown task {name}")
 
 	def all_sources(self):
 		yield from self._sources.values()
@@ -454,7 +461,10 @@ class Config:
 		yield from self._target_pkgs.values()
 
 	def get_target_pkg(self, name):
-		return self._target_pkgs[name]
+		if name in self._target_pkgs:
+			return self._target_pkgs[name]
+		else:
+			raise GenericException(f"Unknown package {name}")
 
 class ScriptStep:
 	def __init__(self, step_yml):
@@ -631,7 +641,7 @@ class Source(RequirementsMixin):
 			assert len(out) == 1
 			return out[0]
 		else:
-			raise RuntimeError("Source {} does not have a variable checkout commit".format(self.name))
+			raise GenericException("Source {} does not have a variable checkout commit".format(self.name))
 
 	@property
 	def is_rolling_version(self):
@@ -651,7 +661,7 @@ class Source(RequirementsMixin):
 			shallow_stdout = subprocess.check_output(['git', 'rev-parse', '--is-shallow-repository'],
 					cwd=self.source_dir).decode().strip()
 			if shallow_stdout == 'true':
-				raise RuntimeError("Cannot determine rolling version ID of source {} form shallow Git repository".format(self._name))
+				raise GenericException("Cannot determine rolling version ID of source {} form shallow Git repository".format(self._name))
 			else:
 				assert shallow_stdout == 'false'
 
@@ -666,11 +676,11 @@ class Source(RequirementsMixin):
 				count_out = subprocess.check_output(['git', 'rev-list', '--count', tracking_ref],
 						cwd=self.source_dir).decode().strip()
 			except subprocess.CalledProcessError:
-				raise RuntimeError("Unable to determine rolling version ID of source {} via Git".format(self._name))
+				raise GenericException("Unable to determine rolling version ID of source {} via Git".format(self._name))
 			# Make sure that we get a valid number.
 			return str(int(count_out))
 		else:
-			raise RuntimeError('@ROLLING_ID@ requires git')
+			raise GenericException('@ROLLING_ID@ requires git')
 
 	@property
 	def has_explicit_version(self):
@@ -774,9 +784,7 @@ class Source(RequirementsMixin):
 				check_remote = True
 
 			if check_remote:
-				print('{}xbstrap{}: Checking for remote updates of {}'.format(
-						colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
-						self.name))
+				log_info('Checking for remote updates of {}'.format(self.name))
 				remote_commit = get_remote_commit(ref)
 				if local_commit != remote_commit:
 					return ItemState(updatable=True)
@@ -1033,7 +1041,8 @@ class HostPackage(RequirementsMixin):
 	def get_task(self, task):
 		if task in self._tasks:
 			return self._tasks[task]
-		return False
+		else:
+			raise GenericException(f"Unknown task {task} in tool {self.name}")
 
 	@property
 	def configure_steps(self):
@@ -1048,7 +1057,7 @@ class HostPackage(RequirementsMixin):
 
 		revision = self._this_yml.get('revision', 1)
 		if revision < 1:
-			raise RuntimeError("Tool {} specifies a revision < 1".format(self.name));
+			raise GenericException("Tool {} specifies a revision < 1".format(self.name));
 
 		return source.compute_version(**kwargs) + '_' + str(revision)
 
@@ -1183,7 +1192,7 @@ class TargetPackage(RequirementsMixin):
 
 		revision = self._this_yml.get('revision', 1)
 		if revision < 1:
-			raise RuntimeError("Package {} specifies a revision < 1".format(self.name));
+			raise GenericException("Package {} specifies a revision < 1".format(self.name));
 
 		return source.compute_version(**kwargs) + '_' + str(revision)
 
@@ -1194,7 +1203,8 @@ class TargetPackage(RequirementsMixin):
 	def get_task(self, task):
 		if task in self._tasks:
 			return self._tasks[task]
-		return False
+		else:
+			raise GenericException(f"Unknown task {task} in package {self.name}")
 
 	def check_if_configured(self, settings):
 		path = os.path.join(self.build_dir, 'configured.xbstrap')
@@ -1226,7 +1236,7 @@ class TargetPackage(RequirementsMixin):
 			except subprocess.CalledProcessError:
 				return ItemState(missing=True)
 		else:
-			raise RuntimeError('Package management configuration does not support pack')
+			raise GenericException('Package management configuration does not support pack')
 
 	def check_if_installed(self, settings):
 		if self._cfg.use_xbps:
@@ -1409,7 +1419,7 @@ def execute_manifest(manifest):
 			os.chmod(vscript, 0o775)
 			explicit_pkgconfig = True
 		else:
-			raise RuntimeError("Unknown virtual tool {}".format(yml['virtual']))
+			raise GenericException("Unknown virtual tool {}".format(yml['virtual']))
 
 	# Determine the arguments.
 	if isinstance(manifest['args'], list):
@@ -1475,7 +1485,7 @@ def execute_manifest(manifest):
 		elif manifest['context'] is None:
 			workdir = build_root
 		else:
-			raise RuntimeError("Unexpected context")
+			raise GenericException("Unexpected context")
 
 	subprocess.check_call(args,
 			env=environ, cwd=workdir,
@@ -1581,8 +1591,7 @@ def run_program(cfg, context, subject, args,
 			manifest['source_root'] = cfg.source_root
 			manifest['build_root'] = cfg.build_root
 
-			print("{}xbstrap{}: Running {} (tools: {}) in dummy container".format(
-					colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
+			log_info("Running {} (tools: {}) in dummy container".format(
 					args, [tool.name for tool in pkg_queue]))
 
 			if debug_manifests:
@@ -1596,14 +1605,13 @@ def run_program(cfg, context, subject, args,
 		else:
 			assert runtime == 'docker'
 			if any(prop not in container_yml for prop in ['src_mount', 'build_mount', 'image']):
-				raise RuntimeError("Docker runtime requires src_mount, build_mount and image properties")
+				raise GenericException("Docker runtime requires src_mount, build_mount and image properties")
 
 
 			manifest['source_root'] = container_yml['src_mount']
 			manifest['build_root'] = container_yml['build_mount']
 
-			print("{}xbstrap{}: Running {} (tools: {}) in Docker".format(
-					colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
+			log_info("Running {} (tools: {}) in Docker".format(
 					args, [tool.name for tool in pkg_queue]))
 
 			if debug_manifests:
@@ -1626,8 +1634,7 @@ def run_program(cfg, context, subject, args,
 		manifest['source_root'] = cfg.source_root
 		manifest['build_root'] = cfg.build_root
 
-		print("{}xbstrap{}: Running {} (tools: {})".format(
-				colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
+		log_info("Running {} (tools: {})".format(
 				args, [tool.name for tool in pkg_queue]))
 
 		if debug_manifests:
@@ -1668,14 +1675,17 @@ def fetch_src(cfg, src):
 	source = src._this_yml
 
 	if 'git' in source:
+		git = shutil.which('git')
+		if git is None:
+			raise GenericException("git not found; please install it and retry")
 		commit_yml = cfg._commit_yml.get('commits', dict()).get(src.name, dict())
 		fixed_commit = commit_yml.get('fixed_commit', None)
 
 		init = not os.path.isdir(src.source_dir)
 		if init:
 			try_mkdir(src.source_dir)
-			subprocess.check_call(['git', 'init'], cwd=src.source_dir)
-			subprocess.check_call(['git', 'remote', 'add', 'origin', source['git']],
+			subprocess.check_call([git, 'init'], cwd=src.source_dir)
+			subprocess.check_call([git, 'remote', 'add', 'origin', source['git']],
 					cwd=src.source_dir)
 
 		shallow = not source.get('disable_shallow_fetch', False)
@@ -1683,7 +1693,7 @@ def fetch_src(cfg, src):
 		if src.is_rolling_version:
 			shallow = False
 
-		args = ['git', 'fetch']
+		args = [git, 'fetch']
 		if 'tag' in source:
 			if shallow:
 				args.append('--depth=1')
@@ -1704,13 +1714,18 @@ def fetch_src(cfg, src):
 					+ ':' + 'refs/remotes/origin/' + source['branch']])
 		subprocess.check_call(args, cwd=src.source_dir)
 	elif 'hg' in source:
+		hg = shutil.which('hg')
+		if hg is None:
+			raise GenericException("mercurial (hg) not found; please install it and retry")
 		try_mkdir(src.source_dir)
-		args = ['hg', 'clone', source['hg'], src.source_dir]
+		args = [hg, 'clone', source['hg'], src.source_dir]
 		subprocess.check_call(args)
 	elif 'svn' in source:
+		svn = shutil.which('svn')
+		if svn is None:
+			raise GenericException("subversion (svn) not found; please install it and retry")
 		try_mkdir(src.source_dir)
-		args = ['svn', 'co', source['svn'], src.source_dir]
-		print (args)
+		args = [svn, 'co', source['svn'], src.source_dir]
 		subprocess.check_call(args)
 	else:
 		assert 'url' in source
@@ -1734,7 +1749,7 @@ def checkout_src(cfg, src, settings):
 
 		if 'tag' in source:
 			if fixed_commit is not None:
-				raise RuntimeError("Commit of source {} cannot be fixed in bootstrap-commits.yml: source builds form a branch".format(src.name));
+				raise GenericException("Commit of source {} cannot be fixed in bootstrap-commits.yml: source builds form a branch".format(src.name));
 
 			if not init and settings.reset == ResetMode.HARD_RESET:
 				subprocess.check_call(['git', 'reset', '--hard'], cwd=src.source_dir)
@@ -1742,14 +1757,14 @@ def checkout_src(cfg, src, settings):
 				subprocess.check_call(['git', 'checkout', '--detach',
 						'refs/tags/' + source['tag']], cwd=src.source_dir)
 			else:
-				raise RuntimeError("Refusing to checkout tag '{}' of source {}".format(
+				raise GenericException("Refusing to checkout tag '{}' of source {}".format(
 						source['tag'], src.name));
 		else:
 			commit = 'origin/' + source['branch']
 			if 'commit' in source:
 				commit = source['commit']
 				if fixed_commit is not None:
-					raise RuntimeError("Commit of source {} cannot be fixed in bootstrap-commits.yml: commit is already fixed in bootstrap.yml".format(src.name));
+					raise GenericException("Commit of source {} cannot be fixed in bootstrap-commits.yml: commit is already fixed in bootstrap.yml".format(src.name));
 			else:
 				if fixed_commit is not None:
 					commit = fixed_commit
@@ -1884,7 +1899,7 @@ def install_tool_stage(cfg, stage):
 		actual_rolling_id = src.determine_rolling_id()
 		try:
 			if src.rolling_id != actual_rolling_id:
-				raise RuntimeError("Rolling ID of tool {} does not match true rolling ID".format(tool.name))
+				raise GenericException("Rolling ID of tool {} does not match true rolling ID".format(tool.name))
 		except RollingIdUnavailableException:
 			pass
 	else:
@@ -1976,10 +1991,10 @@ def build_pkg(cfg, pkg, reproduce=False):
 		repro_only = repro_paths.difference(exist_paths)
 		exist_only = exist_paths.difference(repro_paths)
 		if repro_only:
-			raise RuntimeError("Paths {} only exist in reproducted build".format(
+			raise GenericException("Paths {} only exist in reproducted build".format(
 					', '.join(repro_only)))
 		if exist_only:
-			raise RuntimeError("Paths {} only exist in existing build".format(
+			raise GenericException("Paths {} only exist in existing build".format(
 					', '.join(repro_only)))
 
 		any_issues = False
@@ -1988,9 +2003,7 @@ def build_pkg(cfg, pkg, reproduce=False):
 			exist_stat = os.stat(os.path.join(pkg.collect_dir, path))
 
 			if stat.S_IFMT(repro_stat.st_mode) != stat.S_IFMT(exist_stat.st_mode):
-				print("{}xbstrap{}: File type mismatch in file {}".format(
-						colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
-						path))
+				log_info("File type mismatch in file {}".format(path))
 				any_issues = True
 				continue
 
@@ -1998,17 +2011,14 @@ def build_pkg(cfg, pkg, reproduce=False):
 				if not filecmp.cmp(os.path.join(pkg.collect_dir, path),
 						os.path.join(pkg.staging_dir, path),
 						shallow=False):
-					print("{}xbstrap{}: Content mismatch in file {}".format(
-							colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
-							path))
+					log_info("Content mismatch in file {}".format(path))
 					any_issues = True
 					continue
 
 		if not any_issues:
-			print("{}xbstrap{}: Build was reproduced exactly".format(
-					colorama.Style.BRIGHT, colorama.Style.RESET_ALL))
+			log_info("Build was reproduced exactly")
 		else:
-			raise RuntimeError('Could not reproduce all files')
+			raise GenericException('Could not reproduce all files')
 
 def pack_pkg(cfg, pkg, reproduce=False):
 	# Sanity checking: make sure that the rolling ID matches the expected one.
@@ -2017,7 +2027,7 @@ def pack_pkg(cfg, pkg, reproduce=False):
 		actual_rolling_id = src.determine_rolling_id()
 		try:
 			if src.rolling_id != actual_rolling_id:
-				raise RuntimeError("Rolling ID of package {} does not match true rolling ID".format(pkg.name))
+				raise GenericException("Rolling ID of package {} does not match true rolling ID".format(pkg.name))
 		except RollingIdUnavailableException:
 			pass
 	else:
@@ -2042,35 +2052,27 @@ def pack_pkg(cfg, pkg, reproduce=False):
 		xbps_file = '{}-{}.x86_64.xbps'.format(pkg.name, version)
 
 		if not reproduce:
-			print("{}xbstrap{}: Running {}".format(
-					colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
-					args))
+			log_info("Running {}".format(args))
 			subprocess.call(args, cwd=cfg.xbps_repository_dir, stdout=output)
 
 			args = ['xbps-rindex', '-fa',
 					os.path.join(cfg.xbps_repository_dir, xbps_file)
 			]
-			print("{}xbstrap{}: Running {}".format(
-					colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
-					args))
+			log_info("Running {}".format(args))
 			subprocess.call(args, stdout=output)
 		else:
-			print("{}xbstrap{}: Running {}".format(
-					colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
-					args))
+			log_info("Running {}".format(args))
 			subprocess.call(args, cwd=cfg.package_out_dir, stdout=output)
 
 			if not filecmp.cmp(os.path.join(cfg.package_out_dir, xbps_file),
 					os.path.join(cfg.xbps_repository_dir, xbps_file),
 					shallow=False):
-				print("{}xbstrap{}: Mismatch in {}".format(
-						colorama.Style.BRIGHT, colorama.Style.RESET_ALL, xbps_file))
-				raise RuntimeError('Could not reproduce pack')
+				log_info("Mismatch in {}".format(xbps_file))
+				raise GenericException('Could not reproduce pack')
 
-			print("{}xbstrap{}: Pack was reproduced exactly".format(
-					colorama.Style.BRIGHT, colorama.Style.RESET_ALL))
+			log_info("Pack was reproduced exactly")
 	else:
-		raise RuntimeError('Package management configuration does not support pack')
+		raise GenericException('Package management configuration does not support pack')
 
 def install_pkg(cfg, pkg):
 	# constraint: the sysroot directory must be located in the build root
@@ -2086,9 +2088,7 @@ def install_pkg(cfg, pkg):
 			'--repository', cfg.xbps_repository_dir,
 			pkg.name
 		]
-		print("{}xbstrap{}: Running {}".format(
-				colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
-				args))
+		log_info("Running {}".format(args))
 		subprocess.check_call(args, stdout=output)
 	else:
 		installtree(pkg.staging_dir, cfg.sysroot_dir)
@@ -2108,23 +2108,19 @@ def pull_pkg_pack(cfg, pkg):
 	# Download the repodata file.
 	rd_path = os.path.join(cfg.xbps_repository_dir, 'remote-x86_64-repodata')
 	rd_url = urllib.parse.urljoin(repo_url + '/', 'x86_64-repodata')
-	print('{}xbstrap{}: Downloading x86_64-repodata from {}'.format(
-			colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
-			repo_url))
+	log_info('Downloading x86_64-repodata from {}'.format(repo_url))
 	_util.interactive_download(rd_url, rd_path)
 
 	# Find the package within the repodata's index file.
 	index = _xbps_utils.read_repodata(rd_path)
 	if pkg.name not in index:
-		raise RuntimeError("Package {} not found in remote repository".format(pkg.name))
+		raise GenericException("Package {} not found in remote repository".format(pkg.name))
 	assert 'pkgver' in index[pkg.name]
 
 	# Download the xbps file.
 	xbps_file = '{}.x86_64.xbps'.format(index[pkg.name]['pkgver'])
 	pkg_url = urllib.parse.urljoin(repo_url + '/', xbps_file)
-	print('{}xbstrap{}: Downloading {} from {}'.format(
-			colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
-			xbps_file, repo_url))
+	log_info('Downloading {} from {}'.format(xbps_file, repo_url))
 	_util.interactive_download(pkg_url, os.path.join(cfg.xbps_repository_dir, xbps_file))
 
 	# Run xbps-rindex.
@@ -2135,9 +2131,7 @@ def pull_pkg_pack(cfg, pkg):
 	args = ['xbps-rindex', '-fa',
 			os.path.join(cfg.xbps_repository_dir, xbps_file)
 	]
-	print("{}xbstrap{}: Running {}".format(
-			colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
-			args))
+	log_info("Running {}".format(args))
 	subprocess.call(args, stdout=output)
 
 def run_task(cfg, task):
@@ -2543,7 +2537,7 @@ class Plan:
 			elif item.plan_state == PlanState.EXPANDING:
 				for circ_item in stack:
 					print(Action.strings[circ_item.action], circ_item.subject.subject_id)
-				raise RuntimeError("Package has circular dependencies")
+				raise GenericException("Package has circular dependencies")
 			else:
 				# Packages that are already ordered do not need to be considered again.
 				assert item.plan_state == PlanState.ORDERED
@@ -2672,11 +2666,9 @@ class Plan:
 				if self._items[(action, subject)].active]
 
 		if scheduled:
-			print('{}xbstrap{}: Running the following plan:'.format(
-					colorama.Style.BRIGHT, colorama.Style.RESET_ALL))
+			log_info('Running the following plan:')
 		else:
-			print('{}xbstrap{}: Nothing to do'.format(
-					colorama.Style.BRIGHT, colorama.Style.RESET_ALL))
+			log_info('Nothing to do')
 		for (action, subject) in scheduled:
 			if isinstance(subject, HostStage):
 				if subject.stage_name:
@@ -2728,8 +2720,7 @@ class Plan:
 					self.progress_file.flush()
 
 			if self.keep_going and any_failed_edges:
-				print('{}xbstrap{}: Skipping action {} of {} due to failed prerequisites [{}/{}]'.format(
-						colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
+				log_info('Skipping action {} of {} due to failed prerequisites [{}/{}]'.format(
 						Action.strings[action], subject.subject_id,
 						n + 1, len(scheduled)))
 				item.exec_status = ExecutionStatus.PREREQS_FAILED
@@ -2746,8 +2737,7 @@ class Plan:
 				continue
 
 			assert not any_failed_edges
-			print('{}xbstrap{}: {} {} [{}/{}]'.format(
-					colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
+			log_info('{} {} [{}/{}]'.format(
 					Action.strings[action], subject.subject_id,
 					n + 1, len(scheduled)))
 			try:
@@ -2809,8 +2799,7 @@ class Plan:
 				any_failed_items = True
 
 		if any_failed_items:
-			print('{}xbstrap{}: The following steps failed:'.format(
-					colorama.Style.BRIGHT, colorama.Style.RESET_ALL))
+			log_info('The following steps failed:')
 			for (action, subject) in scheduled:
 				item = self._items[(action, subject)]
 				assert item.exec_status != ExecutionStatus.NULL
