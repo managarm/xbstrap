@@ -2463,6 +2463,7 @@ class Plan:
 			pass
 
 		elif action == Action.RUN:
+			add_source_dependencies(subject)
 			add_implicit_pkgs()
 			add_pkg_dependencies(subject)
 			add_tool_dependencies(subject)
