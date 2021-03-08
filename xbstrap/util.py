@@ -1,8 +1,19 @@
 # SPDX-License-Identifier: MIT
 
+import errno
 import os
 import urllib.parse
 import urllib.request
+
+def try_mkdir(path, recursive=False):
+	try:
+		if not recursive:
+			os.mkdir(path)
+		else:
+			os.makedirs(path)
+	except OSError as e:
+		if e.errno != errno.EEXIST:
+			raise
 
 def build_environ_paths(environ, varname, prepend):
 	if not prepend:

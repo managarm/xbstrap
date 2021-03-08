@@ -20,6 +20,7 @@ import jsonschema
 import yaml
 
 from . import util as _util
+from . import vcs_utils as _vcs_utils
 
 verbosity = False
 debug_manifests = False
@@ -66,16 +67,6 @@ def load_bootstrap_yaml(path):
 def touch(path):
 	with open(path, 'w') as f:
 		pass
-
-def try_mkdir(path, recursive=False):
-	try:
-		if not recursive:
-			os.mkdir(path)
-		else:
-			os.makedirs(path)
-	except OSError as e:
-		if e.errno != errno.EEXIST:
-			raise
 
 def try_unlink(path):
 	try:
@@ -925,8 +916,8 @@ class HostStage(RequirementsMixin):
 		stage_spec = ''
 		if not self._inherited:
 			stage_spec = '@' + self.stage_name
-		try_mkdir(os.path.join(self._pkg.prefix_dir, 'etc'))
-		try_mkdir(os.path.join(self._pkg.prefix_dir, 'etc', 'xbstrap'))
+		_util.try_mkdir(os.path.join(self._pkg.prefix_dir, 'etc'))
+		_util.try_mkdir(os.path.join(self._pkg.prefix_dir, 'etc', 'xbstrap'))
 		path = os.path.join(self._pkg.prefix_dir, 'etc', 'xbstrap',
 				self._pkg.name + stage_spec + '.installed')
 		touch(path)
@@ -1257,8 +1248,8 @@ class TargetPackage(RequirementsMixin):
 			return ItemState()
 
 	def mark_as_installed(self):
-		try_mkdir(os.path.join(self._cfg.sysroot_dir, 'etc'))
-		try_mkdir(os.path.join(self._cfg.sysroot_dir, 'etc', 'xbstrap'))
+		_util.try_mkdir(os.path.join(self._cfg.sysroot_dir, 'etc'))
+		_util.try_mkdir(os.path.join(self._cfg.sysroot_dir, 'etc', 'xbstrap'))
 		path = os.path.join(self._cfg.sysroot_dir, 'etc', 'xbstrap', self.name + '.installed')
 		touch(path)
 
@@ -1671,69 +1662,9 @@ def postprocess_libtool(cfg, pkg):
 # ---------------------------------------------------------------------------------------
 
 def fetch_src(cfg, src):
-	try_mkdir(src.sub_dir)
-	source = src._this_yml
+	_util.try_mkdir(src.sub_dir)
 
-	if 'git' in source:
-		git = shutil.which('git')
-		if git is None:
-			raise GenericException("git not found; please install it and retry")
-		commit_yml = cfg._commit_yml.get('commits', dict()).get(src.name, dict())
-		fixed_commit = commit_yml.get('fixed_commit', None)
-
-		init = not os.path.isdir(src.source_dir)
-		if init:
-			try_mkdir(src.source_dir)
-			subprocess.check_call([git, 'init'], cwd=src.source_dir)
-			subprocess.check_call([git, 'remote', 'add', 'origin', source['git']],
-					cwd=src.source_dir)
-
-		shallow = not source.get('disable_shallow_fetch', False)
-		# We have to disable shallow fetches to get rolling versions right.
-		if src.is_rolling_version:
-			shallow = False
-
-		args = [git, 'fetch']
-		if 'tag' in source:
-			if shallow:
-				args.append('--depth=1')
-			args.extend([source['git'], 'tag', source['tag']])
-		else:
-			# If a commit is specified, we need the branch's full history.
-			# TODO: it's unclear whether this is the best strategy:
-			#       - for simplicity, it might be easier to always pull the full history
-			#       - some remotes support fetching individual SHA1s.
-			if 'commit' in source or fixed_commit is not None:
-				shallow = False
-			# When initializing the repository, we fetch only one commit.
-			# For updates, we fetch all *new* commits (= default behavior of 'git fetch').
-			# We do not unshallow the repository.
-			if init and shallow:
-				args.append('--depth=1')
-			args.extend([source['git'], 'refs/heads/' + source['branch']
-					+ ':' + 'refs/remotes/origin/' + source['branch']])
-		subprocess.check_call(args, cwd=src.source_dir)
-	elif 'hg' in source:
-		hg = shutil.which('hg')
-		if hg is None:
-			raise GenericException("mercurial (hg) not found; please install it and retry")
-		try_mkdir(src.source_dir)
-		args = [hg, 'clone', source['hg'], src.source_dir]
-		subprocess.check_call(args)
-	elif 'svn' in source:
-		svn = shutil.which('svn')
-		if svn is None:
-			raise GenericException("subversion (svn) not found; please install it and retry")
-		try_mkdir(src.source_dir)
-		args = [svn, 'co', source['svn'], src.source_dir]
-		subprocess.check_call(args)
-	else:
-		assert 'url' in source
-
-		try_mkdir(src.source_dir)
-		with urllib.request.urlopen(source['url']) as req:
-			with open(src.source_archive_file, 'wb') as f:
-				shutil.copyfileobj(req, f)
+	_vcs_utils.fetch_repo(cfg, src)
 
 	src.mark_as_fetched()
 
@@ -1865,7 +1796,7 @@ def configure_tool(cfg, pkg):
 	src = cfg.get_source(pkg.source)
 
 	try_rmtree(pkg.build_dir)
-	try_mkdir(pkg.build_dir, True)
+	_util.try_mkdir(pkg.build_dir, True)
 
 	for step in pkg.configure_steps:
 		tool_pkgs = []
@@ -1907,11 +1838,11 @@ def install_tool_stage(cfg, stage):
 
 	version = tool.compute_version(override_rolling_id=actual_rolling_id)
 
-	try_mkdir(cfg.tool_out_dir)
+	_util.try_mkdir(cfg.tool_out_dir)
 #	try_rmtree(tool.prefix_dir)
-	try_mkdir(tool.prefix_dir)
+	_util.try_mkdir(tool.prefix_dir)
 
-	try_mkdir(os.path.join(tool.prefix_dir, 'xbstrap'))
+	_util.try_mkdir(os.path.join(tool.prefix_dir, 'xbstrap'))
 	with open(os.path.join(tool.prefix_dir, 'xbstrap/tool-metadata.yml'), 'w') as f:
 		f.write(yaml.safe_dump({
 			'version': version
@@ -1939,7 +1870,7 @@ def configure_pkg(cfg, pkg):
 	src = cfg.get_source(pkg.source)
 
 	try_rmtree(pkg.build_dir)
-	try_mkdir(pkg.build_dir, True)
+	_util.try_mkdir(pkg.build_dir, True)
 
 	for step in pkg.configure_steps:
 		tool_pkgs = []
@@ -1954,7 +1885,7 @@ def configure_pkg(cfg, pkg):
 def build_pkg(cfg, pkg, reproduce=False):
 	src = cfg.get_source(pkg.source)
 
-	try_mkdir(cfg.package_out_dir)
+	_util.try_mkdir(cfg.package_out_dir)
 	try_rmtree(pkg.collect_dir)
 	os.mkdir(pkg.collect_dir)
 
@@ -2036,7 +1967,7 @@ def pack_pkg(cfg, pkg, reproduce=False):
 	version = pkg.compute_version(override_rolling_id=actual_rolling_id)
 
 	if cfg.use_xbps:
-		try_mkdir(cfg.xbps_repository_dir)
+		_util.try_mkdir(cfg.xbps_repository_dir)
 
 		output = subprocess.DEVNULL
 		if verbosity:
@@ -2076,7 +2007,7 @@ def pack_pkg(cfg, pkg, reproduce=False):
 
 def install_pkg(cfg, pkg):
 	# constraint: the sysroot directory must be located in the build root
-	try_mkdir(cfg.sysroot_dir)
+	_util.try_mkdir(cfg.sysroot_dir)
 
 	if cfg.use_xbps:
 		output = subprocess.DEVNULL
@@ -2103,7 +2034,7 @@ def pull_pkg_pack(cfg, pkg):
 	from . import xbps_utils as _xbps_utils
 	repo_url = cfg._root_yml['repositories']['xbps']
 
-	try_mkdir(cfg.xbps_repository_dir)
+	_util.try_mkdir(cfg.xbps_repository_dir)
 
 	# Download the repodata file.
 	rd_path = os.path.join(cfg.xbps_repository_dir, 'remote-x86_64-repodata')
