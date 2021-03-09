@@ -17,6 +17,12 @@ def check_repo(src, subdir, *, check_remotes=0):
 	if 'git' in src._this_yml:
 		source_dir = os.path.join(subdir, src.name)
 
+		xbstrap_mirror = src.cfg.xbstrap_mirror
+		if xbstrap_mirror is None:
+			git_url = src._this_yml['git']
+		else:
+			git_url = urllib.parse.urljoin(xbstrap_mirror + '/', src.name)
+
 		def get_local_commit(ref):
 			try:
 				out = subprocess.check_output(['git', 'show-ref', '--verify', ref],
@@ -30,7 +36,7 @@ def check_repo(src, subdir, *, check_remotes=0):
 		def get_remote_commit(ref):
 			try:
 				out = subprocess.check_output(['git', 'ls-remote', '--exit-code',
-					src._this_yml['git'], ref]).decode().splitlines()
+					git_url, ref]).decode().splitlines()
 			except subprocess.CalledProcessError:
 				return None
 			assert len(out) == 1
@@ -89,11 +95,20 @@ def check_repo(src, subdir, *, check_remotes=0):
 
 	return RepoStatus.GOOD
 
-def fetch_repo(cfg, src, subdir, *, bare_repo=False):
+def fetch_repo(cfg, src, subdir, *, ignore_mirror=False, bare_repo=False):
 	source = src._this_yml
 
 	if 'git' in source:
 		source_dir = os.path.join(subdir, src.name)
+
+		if ignore_mirror:
+			xbstrap_mirror = None
+		else:
+			xbstrap_mirror = src.cfg.xbstrap_mirror
+		if xbstrap_mirror is None:
+			git_url = src._this_yml['git']
+		else:
+			git_url = urllib.parse.urljoin(xbstrap_mirror + '/', src.name)
 
 		git = shutil.which('git')
 		if git is None:
@@ -108,6 +123,7 @@ def fetch_repo(cfg, src, subdir, *, bare_repo=False):
 				subprocess.check_call([git, 'init', '--bare'], cwd=source_dir)
 			else:
 				subprocess.check_call([git, 'init'], cwd=source_dir)
+			# We always set the remote to the true remote, not a mirror.
 			subprocess.check_call([git, 'remote', 'add', 'origin', source['git']],
 					cwd=source_dir)
 
@@ -120,7 +136,7 @@ def fetch_repo(cfg, src, subdir, *, bare_repo=False):
 		if 'tag' in source:
 			if shallow:
 				args.append('--depth=1')
-			args.extend([source['git'], 'tag', source['tag']])
+			args.extend([git_url, 'tag', source['tag']])
 		else:
 			# If a commit is specified, we need the branch's full history.
 			# TODO: it's unclear whether this is the best strategy:
@@ -133,8 +149,16 @@ def fetch_repo(cfg, src, subdir, *, bare_repo=False):
 			# We do not unshallow the repository.
 			if init and shallow:
 				args.append('--depth=1')
-			args.extend([source['git'], 'refs/heads/' + source['branch']
-					+ ':' + 'refs/remotes/origin/' + source['branch']])
+
+
+			# For bare repos, we mirror the original repo
+			# (in particular, we do not distinguish local and remote branches).
+			if bare_repo:
+				args.extend([git_url, 'refs/heads/' + source['branch']
+						+ ':' + 'refs/heads/' + source['branch']])
+			else:
+				args.extend([git_url, 'refs/heads/' + source['branch']
+						+ ':' + 'refs/remotes/origin/' + source['branch']])
 		subprocess.check_call(args, cwd=source_dir)
 	elif 'hg' in source:
 		source_dir = os.path.join(subdir, src.name)

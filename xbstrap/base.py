@@ -288,6 +288,10 @@ class Config:
 		return self._root_yml['general'].get('everything_by_default', True)
 
 	@property
+	def xbstrap_mirror(self):
+		return self._commit_yml.get('general', dict()).get('xbstrap_mirror', None)
+
+	@property
 	def repository_url(self):
 		if 'repository' not in self._root_yml:
 			return None
@@ -595,6 +599,10 @@ class Source(RequirementsMixin):
 		if 'regenerate' in self._this_yml:
 			for step_yml in self._this_yml['regenerate']:
 				self._regenerate_steps.append(ScriptStep(step_yml))
+
+	@property
+	def cfg(self):
+		return self._cfg
 
 	@property
 	def name(self):
@@ -2047,7 +2055,7 @@ def mirror_src(cfg, src):
 	mirror_dir = os.path.join(cfg.build_root, 'mirror')
 	_util.try_mkdir(mirror_dir)
 
-	_vcs_utils.fetch_repo(cfg, src, mirror_dir, bare_repo=True)
+	_vcs_utils.fetch_repo(cfg, src, mirror_dir, ignore_mirror=True, bare_repo=True)
 
 # ---------------------------------------------------------------------------------------
 # Build planning.
