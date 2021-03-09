@@ -733,69 +733,13 @@ class Source(RequirementsMixin):
 		yield from self._regenerate_steps
 
 	def check_if_fetched(self, settings):
-		if 'git' in self._this_yml:
-			def get_local_commit(ref):
-				try:
-					out = subprocess.check_output(['git', 'show-ref', '--verify', ref],
-							cwd=self.source_dir, stderr=subprocess.DEVNULL).decode().splitlines()
-				except subprocess.CalledProcessError:
-					return None
-				assert len(out) == 1
-				(commit, outref) = out[0].split(' ')
-				return commit
-
-			def get_remote_commit(ref):
-				try:
-					out = subprocess.check_output(['git', 'ls-remote', '--exit-code',
-						self._this_yml['git'], ref]).decode().splitlines()
-				except subprocess.CalledProcessError:
-					return None
-				assert len(out) == 1
-				(commit, outref) = out[0].split('\t')
-				return commit
-
-			# There is a TOCTOU here; we assume that users do not concurrently delete directories.
-			if not os.path.isdir(self.source_dir):
-				return ItemState(missing=True)
-			if 'tag' in self._this_yml:
-				ref = 'refs/tags/' + self._this_yml['tag']
-				tracking_ref = 'refs/tags/' + self._this_yml['tag']
-			else:
-				ref = 'refs/heads/' + self._this_yml['branch']
-				tracking_ref = 'refs/remotes/origin/' + self._this_yml['branch']
-			local_commit = get_local_commit(tracking_ref)
-			if local_commit is None:
-				return ItemState(missing=True)
-
-			# Only check remote commits for
-			check_remote = False
-			if settings.check_remotes >= 2:
-				check_remote = True
-			if settings.check_remotes >= 1 and 'tag' not in self._this_yml:
-				check_remote = True
-
-			if check_remote:
-				log_info('Checking for remote updates of {}'.format(self.name))
-				remote_commit = get_remote_commit(ref)
-				if local_commit != remote_commit:
-					return ItemState(updatable=True)
-		elif 'hg' in self._this_yml:
-			if not os.path.isdir(self.source_dir):
-				return ItemState(missing=True)
-			args = ['hg', 'manifest', '--pager', 'never', '-r',]
-			if 'tag' in self._this_yml:
-				args.append(self._this_yml['tag'])
-			else:
-				args.append(self._this_yml['branch'])
-			if subprocess.call(args, cwd=self.source_dir, stdout=subprocess.DEVNULL) != 0:
-				return ItemState(missing=True)
-		elif 'svn' in self._this_yml:
-			if not os.path.isdir(self.source_dir):
-				return ItemState(missing=True)
+		s = _vcs_utils.check_repo(self, check_remotes=settings.check_remotes)
+		if s == _vcs_utils.RepoStatus.MISSING:
+			return ItemState(missing=True)
+		elif s == _vcs_utils.RepoStatus.OUTDATED:
+			return ItemState(updatable=True)
 		else:
-			assert 'url' in self._this_yml
-			if not os.access(self.source_archive_file, os.F_OK):
-				return ItemState(missing=True)
+			assert s == _vcs_utils.RepoStatus.GOOD
 
 		path = os.path.join(self.source_dir, 'fetched.xbstrap')
 		try:

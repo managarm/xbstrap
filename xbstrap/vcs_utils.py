@@ -1,11 +1,84 @@
 # SPDX-License-Identifier: MIT
 
+from enum import Enum
 import os
 import shutil
 import subprocess
 import urllib.request
 
 from . import util as _util
+
+class RepoStatus(Enum):
+	GOOD = 0
+	MISSING = 1
+	OUTDATED = 2
+
+def check_repo(src, *, check_remotes=0):
+	if 'git' in src._this_yml:
+		def get_local_commit(ref):
+			try:
+				out = subprocess.check_output(['git', 'show-ref', '--verify', ref],
+						cwd=src.source_dir, stderr=subprocess.DEVNULL).decode().splitlines()
+			except subprocess.CalledProcessError:
+				return None
+			assert len(out) == 1
+			(commit, outref) = out[0].split(' ')
+			return commit
+
+		def get_remote_commit(ref):
+			try:
+				out = subprocess.check_output(['git', 'ls-remote', '--exit-code',
+					src._this_yml['git'], ref]).decode().splitlines()
+			except subprocess.CalledProcessError:
+				return None
+			assert len(out) == 1
+			(commit, outref) = out[0].split('\t')
+			return commit
+
+		# There is a TOCTOU here; we assume that users do not concurrently delete directories.
+		if not os.path.isdir(src.source_dir):
+			return RepoStatus.MISSING
+		if 'tag' in src._this_yml:
+			ref = 'refs/tags/' + src._this_yml['tag']
+			tracking_ref = 'refs/tags/' + src._this_yml['tag']
+		else:
+			ref = 'refs/heads/' + src._this_yml['branch']
+			tracking_ref = 'refs/remotes/origin/' + src._this_yml['branch']
+		local_commit = get_local_commit(tracking_ref)
+		if local_commit is None:
+			return RepoStatus.MISSING
+
+		# Only check remote commits for
+		do_check_remote = False
+		if check_remotes >= 2:
+			do_check_remote = True
+		if check_remotes >= 1 and 'tag' not in src._this_yml:
+			do_check_remote = True
+
+		if do_check_remote:
+			log_info('Checking for remote updates of {}'.format(src.name))
+			remote_commit = get_remote_commit(ref)
+			if local_commit != remote_commit:
+				return RepoStatus.OUTDATED
+	elif 'hg' in src._this_yml:
+		if not os.path.isdir(src.source_dir):
+			return RepoStatus.MISSING
+		args = ['hg', 'manifest', '--pager', 'never', '-r',]
+		if 'tag' in src._this_yml:
+			args.append(src._this_yml['tag'])
+		else:
+			args.append(src._this_yml['branch'])
+		if subprocess.call(args, cwd=src.source_dir, stdout=subprocess.DEVNULL) != 0:
+			return RepoStatus.MISSING
+	elif 'svn' in src._this_yml:
+		if not os.path.isdir(src.source_dir):
+			return RepoStatus.MISSING
+	else:
+		assert 'url' in src._this_yml
+		if not os.access(src.source_archive_file, os.F_OK):
+			return RepoStatus.MISSING
+
+	return RepoStatus.GOOD
 
 def fetch_repo(cfg, src):
 	source = src._this_yml
