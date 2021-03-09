@@ -56,7 +56,7 @@ def check_repo(src, *, check_remotes=0):
 			do_check_remote = True
 
 		if do_check_remote:
-			log_info('Checking for remote updates of {}'.format(src.name))
+			_util.log_info('Checking for remote updates of {}'.format(src.name))
 			remote_commit = get_remote_commit(ref)
 			if local_commit != remote_commit:
 				return RepoStatus.OUTDATED

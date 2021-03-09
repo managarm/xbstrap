@@ -10,7 +10,6 @@ import shutil
 import subprocess
 import urllib.request
 import stat
-import sys
 import tarfile
 import tempfile
 import zipfile
@@ -50,17 +49,17 @@ def load_bootstrap_yaml(path):
 	n = 0
 	for e in global_bootstrap_validator.iter_errors(yml):
 		if n == 0:
-			log_err("Failed to validate boostrap.yml")
-		log_err("* Error in file: {}, YAML element: {}\n"
+			_util.log_err("Failed to validate boostrap.yml")
+		_util.log_err("* Error in file: {}, YAML element: {}\n"
 				"           {}".format(path, '/'.join(str(elem) for elem in e.absolute_path), e.message))
 		any_errors = True
 		n += 1
 		if n >= 10:
-			log_err("Reporting only the first 10 errors")
+			_util.log_err("Reporting only the first 10 errors")
 			break
 
 	if any_errors:
-		log_warn("Validation issues will become hard errors in the future")
+		_util.log_warn("Validation issues will become hard errors in the future")
 
 	return yml
 
@@ -128,15 +127,6 @@ def installtree(src_root, dest_root):
 			try_unlink(dest_path)
 			shutil.copy2(src_path, dest_path)
 
-
-def log_info(msg):
-	print('{}xbstrap{}: {}'.format(colorama.Style.BRIGHT, colorama.Style.RESET_ALL, msg))
-
-def log_warn(msg):
-	print("{}xbstrap{}: {}{}{}".format(colorama.Style.BRIGHT, colorama.Style.NORMAL, colorama.Fore.YELLOW, msg, colorama.Style.RESET_ALL), file=sys.stderr)
-
-def log_err(msg):
-	print("{}xbstrap{}: {}{}{}".format(colorama.Style.BRIGHT, colorama.Style.NORMAL, colorama.Fore.RED, msg, colorama.Style.RESET_ALL), file=sys.stderr)
 
 class GenericException(Exception):
 	def __init__(self, msg):
@@ -1526,7 +1516,7 @@ def run_program(cfg, context, subject, args,
 			manifest['source_root'] = cfg.source_root
 			manifest['build_root'] = cfg.build_root
 
-			log_info("Running {} (tools: {}) in dummy container".format(
+			_util.log_info("Running {} (tools: {}) in dummy container".format(
 					args, [tool.name for tool in pkg_queue]))
 
 			if debug_manifests:
@@ -1546,7 +1536,7 @@ def run_program(cfg, context, subject, args,
 			manifest['source_root'] = container_yml['src_mount']
 			manifest['build_root'] = container_yml['build_mount']
 
-			log_info("Running {} (tools: {}) in Docker".format(
+			_util.log_info("Running {} (tools: {}) in Docker".format(
 					args, [tool.name for tool in pkg_queue]))
 
 			if debug_manifests:
@@ -1569,7 +1559,7 @@ def run_program(cfg, context, subject, args,
 		manifest['source_root'] = cfg.source_root
 		manifest['build_root'] = cfg.build_root
 
-		log_info("Running {} (tools: {})".format(
+		_util.log_info("Running {} (tools: {})".format(
 				args, [tool.name for tool in pkg_queue]))
 
 		if debug_manifests:
@@ -1608,7 +1598,7 @@ def postprocess_libtool(cfg, pkg):
 def fetch_src(cfg, src):
 	_util.try_mkdir(src.sub_dir)
 
-	_vcs_utils.fetch_repo(cfg, src)
+	_vcs_utils.fetch_repo(cfg, src, src.sub_dir)
 
 	src.mark_as_fetched()
 
@@ -1878,7 +1868,7 @@ def build_pkg(cfg, pkg, reproduce=False):
 			exist_stat = os.stat(os.path.join(pkg.collect_dir, path))
 
 			if stat.S_IFMT(repro_stat.st_mode) != stat.S_IFMT(exist_stat.st_mode):
-				log_info("File type mismatch in file {}".format(path))
+				_util.log_info("File type mismatch in file {}".format(path))
 				any_issues = True
 				continue
 
@@ -1886,12 +1876,12 @@ def build_pkg(cfg, pkg, reproduce=False):
 				if not filecmp.cmp(os.path.join(pkg.collect_dir, path),
 						os.path.join(pkg.staging_dir, path),
 						shallow=False):
-					log_info("Content mismatch in file {}".format(path))
+					_util.log_info("Content mismatch in file {}".format(path))
 					any_issues = True
 					continue
 
 		if not any_issues:
-			log_info("Build was reproduced exactly")
+			_util.log_info("Build was reproduced exactly")
 		else:
 			raise GenericException('Could not reproduce all files')
 
@@ -1927,25 +1917,25 @@ def pack_pkg(cfg, pkg, reproduce=False):
 		xbps_file = '{}-{}.x86_64.xbps'.format(pkg.name, version)
 
 		if not reproduce:
-			log_info("Running {}".format(args))
+			_util.log_info("Running {}".format(args))
 			subprocess.call(args, cwd=cfg.xbps_repository_dir, stdout=output)
 
 			args = ['xbps-rindex', '-fa',
 					os.path.join(cfg.xbps_repository_dir, xbps_file)
 			]
-			log_info("Running {}".format(args))
+			_util.log_info("Running {}".format(args))
 			subprocess.call(args, stdout=output)
 		else:
-			log_info("Running {}".format(args))
+			_util.log_info("Running {}".format(args))
 			subprocess.call(args, cwd=cfg.package_out_dir, stdout=output)
 
 			if not filecmp.cmp(os.path.join(cfg.package_out_dir, xbps_file),
 					os.path.join(cfg.xbps_repository_dir, xbps_file),
 					shallow=False):
-				log_info("Mismatch in {}".format(xbps_file))
+				_util.log_info("Mismatch in {}".format(xbps_file))
 				raise GenericException('Could not reproduce pack')
 
-			log_info("Pack was reproduced exactly")
+			_util.log_info("Pack was reproduced exactly")
 	else:
 		raise GenericException('Package management configuration does not support pack')
 
@@ -1963,7 +1953,7 @@ def install_pkg(cfg, pkg):
 			'--repository', cfg.xbps_repository_dir,
 			pkg.name
 		]
-		log_info("Running {}".format(args))
+		_util.log_info("Running {}".format(args))
 		subprocess.check_call(args, stdout=output)
 	else:
 		installtree(pkg.staging_dir, cfg.sysroot_dir)
@@ -1983,7 +1973,7 @@ def pull_pkg_pack(cfg, pkg):
 	# Download the repodata file.
 	rd_path = os.path.join(cfg.xbps_repository_dir, 'remote-x86_64-repodata')
 	rd_url = urllib.parse.urljoin(repo_url + '/', 'x86_64-repodata')
-	log_info('Downloading x86_64-repodata from {}'.format(repo_url))
+	_util.log_info('Downloading x86_64-repodata from {}'.format(repo_url))
 	_util.interactive_download(rd_url, rd_path)
 
 	# Find the package within the repodata's index file.
@@ -1995,7 +1985,7 @@ def pull_pkg_pack(cfg, pkg):
 	# Download the xbps file.
 	xbps_file = '{}.x86_64.xbps'.format(index[pkg.name]['pkgver'])
 	pkg_url = urllib.parse.urljoin(repo_url + '/', xbps_file)
-	log_info('Downloading {} from {}'.format(xbps_file, repo_url))
+	_util.log_info('Downloading {} from {}'.format(xbps_file, repo_url))
 	_util.interactive_download(pkg_url, os.path.join(cfg.xbps_repository_dir, xbps_file))
 
 	# Run xbps-rindex.
@@ -2006,7 +1996,7 @@ def pull_pkg_pack(cfg, pkg):
 	args = ['xbps-rindex', '-fa',
 			os.path.join(cfg.xbps_repository_dir, xbps_file)
 	]
-	log_info("Running {}".format(args))
+	_util.log_info("Running {}".format(args))
 	subprocess.call(args, stdout=output)
 
 def run_task(cfg, task):
@@ -2542,9 +2532,9 @@ class Plan:
 				if self._items[(action, subject)].active]
 
 		if scheduled:
-			log_info('Running the following plan:')
+			_util.log_info('Running the following plan:')
 		else:
-			log_info('Nothing to do')
+			_util.log_info('Nothing to do')
 		for (action, subject) in scheduled:
 			if isinstance(subject, HostStage):
 				if subject.stage_name:
@@ -2596,7 +2586,7 @@ class Plan:
 					self.progress_file.flush()
 
 			if self.keep_going and any_failed_edges:
-				log_info('Skipping action {} of {} due to failed prerequisites [{}/{}]'.format(
+				_util.log_info('Skipping action {} of {} due to failed prerequisites [{}/{}]'.format(
 						Action.strings[action], subject.subject_id,
 						n + 1, len(scheduled)))
 				item.exec_status = ExecutionStatus.PREREQS_FAILED
@@ -2613,7 +2603,7 @@ class Plan:
 				continue
 
 			assert not any_failed_edges
-			log_info('{} {} [{}/{}]'.format(
+			_util.log_info('{} {} [{}/{}]'.format(
 					Action.strings[action], subject.subject_id,
 					n + 1, len(scheduled)))
 			try:
@@ -2675,7 +2665,7 @@ class Plan:
 				any_failed_items = True
 
 		if any_failed_items:
-			log_info('The following steps failed:')
+			_util.log_info('The following steps failed:')
 			for (action, subject) in scheduled:
 				item = self._items[(action, subject)]
 				assert item.exec_status != ExecutionStatus.NULL
