@@ -31,7 +31,7 @@ setup(name='xbstrap',
 	package_data={
 		'xbstrap': ['schema.yml']
 	},
-	scripts=['scripts/xbstrap', 'scripts/xbstrap-pipeline'],
+	scripts=['scripts/xbstrap', 'scripts/xbstrap-mirror', 'scripts/xbstrap-pipeline'],
 	install_requires=[
 		'colorama',
 		'jsonschema',

@@ -723,7 +723,7 @@ class Source(RequirementsMixin):
 		yield from self._regenerate_steps
 
 	def check_if_fetched(self, settings):
-		s = _vcs_utils.check_repo(self, check_remotes=settings.check_remotes)
+		s = _vcs_utils.check_repo(self, self.sub_dir, check_remotes=settings.check_remotes)
 		if s == _vcs_utils.RepoStatus.MISSING:
 			return ItemState(missing=True)
 		elif s == _vcs_utils.RepoStatus.OUTDATED:
@@ -738,6 +738,17 @@ class Source(RequirementsMixin):
 			# This is a special case: we already found that the commit exists.
 			return ItemState()
 		return ItemState(timestamp=stat.st_mtime)
+
+	def check_if_mirrord(self, settings):
+		s = _vcs_utils.check_repo(self, 'mirror', check_remotes=settings.check_remotes)
+		if s == _vcs_utils.RepoStatus.MISSING:
+			return ItemState(missing=True)
+		elif s == _vcs_utils.RepoStatus.OUTDATED:
+			return ItemState(updatable=True)
+		else:
+			assert s == _vcs_utils.RepoStatus.GOOD
+
+		return ItemState()
 
 	def mark_as_fetched(self):
 		touch(os.path.join(self.source_dir, 'fetched.xbstrap'))
@@ -2032,6 +2043,16 @@ def run_tool_task(cfg, task):
 # Build planning.
 # ---------------------------------------------------------------------------------------
 
+def mirror_src(cfg, src):
+	mirror_dir = os.path.join(cfg.build_root, 'mirror')
+	_util.try_mkdir(mirror_dir)
+
+	_vcs_utils.fetch_repo(cfg, src, mirror_dir, bare_repo=True)
+
+# ---------------------------------------------------------------------------------------
+# Build planning.
+# ---------------------------------------------------------------------------------------
+
 class Action(Enum):
 	NULL = 0
 	# Source-related actions.
@@ -2058,6 +2079,8 @@ class Action(Enum):
 	RUN_TOOL = 19
 	WANT_TOOL = 20
 	WANT_PKG = 21
+	# xbstrap-mirror functionality.
+	MIRROR_SRC = 22
 
 Action.strings = {
 	Action.FETCH_SRC: 'fetch',
@@ -2081,6 +2104,7 @@ Action.strings = {
 	Action.RUN_TOOL: 'run',
 	Action.WANT_TOOL: 'want-tool',
 	Action.WANT_PKG: 'want-pkg',
+	Action.MIRROR_SRC: 'mirror',
 }
 
 class PlanState(Enum):
@@ -2156,6 +2180,7 @@ class PlanItem:
 			Action.RUN_TOOL: lambda s, c: ItemState(missing=True),
 			Action.WANT_TOOL: lambda s, c: s.check_if_fully_installed(c),
 			Action.WANT_PKG: lambda s, c: s.check_staging(c),
+			Action.MIRROR_SRC: lambda s, c: s.check_if_mirrord(c),
 		}
 		self._state = visitors[self.action](self.subject, self.settings)
 
@@ -2653,6 +2678,8 @@ class Plan:
 					# 'want' actions denote dependencies outside of the build scope.
 					# If they are activated, the plan fails unconditionally.
 					raise ExecutionFailureException(action, subject)
+				elif action == Action.MIRROR_SRC:
+					mirror_src(self._cfg, subject)
 				else:
 					raise AssertionError("Unexpected action")
 				item.exec_status = ExecutionStatus.SUCCESS
