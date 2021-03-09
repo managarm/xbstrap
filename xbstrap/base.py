@@ -139,7 +139,7 @@ class RollingIdUnavailableException(Exception):
 class ResetMode(Enum):
 	NONE = 0
 	RESET = 1
-	HARD_RESET = 1
+	HARD_RESET = 2
 
 class ItemSettings:
 	def __init__(self):
