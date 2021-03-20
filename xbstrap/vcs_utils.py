@@ -85,13 +85,14 @@ def check_repo(src, subdir, *, check_remotes=0):
 
 		if not os.path.isdir(source_dir):
 			return RepoStatus.MISSING
-	else:
-		assert 'url' in src._this_yml
-
+	elif 'url' in src._this_yml:
 		source_archive_file = os.path.join(subdir, src.name + '.' + src.source_archive_format)
 
 		if not os.access(source_archive_file, os.F_OK):
 			return RepoStatus.MISSING
+	else:
+		# VCS-less source.
+		pass
 
 	return RepoStatus.GOOD
 
@@ -178,9 +179,7 @@ def fetch_repo(cfg, src, subdir, *, ignore_mirror=False, bare_repo=False):
 		_util.try_mkdir(source_dir)
 		args = [svn, 'co', source['svn'], source_dir]
 		subprocess.check_call(args)
-	else:
-		assert 'url' in source
-
+	elif 'url' in source:
 		source_dir = os.path.join(subdir, src.name)
 		source_archive_file = os.path.join(subdir, src.name + '.' + src.source_archive_format)
 
@@ -188,3 +187,6 @@ def fetch_repo(cfg, src, subdir, *, ignore_mirror=False, bare_repo=False):
 		with urllib.request.urlopen(source['url']) as req:
 			with open(source_archive_file, 'wb') as f:
 				shutil.copyfileobj(req, f)
+	else:
+		# VCS-less source.
+		pass

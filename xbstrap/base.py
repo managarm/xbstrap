@@ -1672,7 +1672,7 @@ def checkout_src(cfg, src, settings):
 			args.append('-r')
 			args.append(source['rev'])
 		subprocess.check_call(args, cwd=src.source_dir)
-	else:
+	elif 'url' in source:
 		if src.source_archive_format == 'raw' and 'filename' in source:
 			shutil.copyfile(src.source_archive_file, os.path.join(src.sub_dir, src.name, source['filename']))
 		elif src.source_archive_format.startswith('zip'):
@@ -1696,6 +1696,9 @@ def checkout_src(cfg, src, settings):
 					if info.name.startswith(prefix):
 						info.name = src.name + '/' + info.name[len(prefix):]
 						tar.extract(info, src.sub_dir)
+	else:
+		# VCS-less sources.
+		pass
 
 	src.mark_as_checkedout()
 
@@ -1724,10 +1727,12 @@ def patch_src(cfg, src):
 		elif 'hg' in source:
 			subprocess.check_call(['hg', 'import', os.path.join(src.patch_dir, patch)],
 				cwd=src.source_dir)
-		else:
+		elif 'url' in source:
 			path_strip = str(source['patch-path-strip']) if 'patch-path-strip' in source else '0'
 			with open(os.path.join(src.patch_dir, patch), 'r') as fd:
 				subprocess.check_call(['patch', '-p', path_strip, '--merge'], stdin=fd, cwd=src.source_dir)
+		else:
+			_util.log_err("VCS-less sources do not support patches")
 
 	src.mark_as_patched()
 
