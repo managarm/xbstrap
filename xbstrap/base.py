@@ -2059,7 +2059,12 @@ def run_tool_task(cfg, task):
 # ---------------------------------------------------------------------------------------
 
 def mirror_src(cfg, src):
-	mirror_dir = os.path.join(cfg.build_root, 'mirror')
+	vcs = _vcs_utils.vcs_name(src)
+	if vcs is None:
+		return
+
+	mirror_dir = os.path.join(cfg.build_root, 'mirror', vcs)
+	_util.try_mkdir(os.path.join(cfg.build_root, 'mirror'))
 	_util.try_mkdir(mirror_dir)
 
 	_vcs_utils.fetch_repo(cfg, src, mirror_dir, ignore_mirror=True, bare_repo=True)

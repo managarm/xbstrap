@@ -13,6 +13,18 @@ class RepoStatus(Enum):
 	MISSING = 1
 	OUTDATED = 2
 
+def vcs_name(src):
+	if 'git' in src._this_yml:
+		return 'git'
+	elif 'hg' in src._this_yml:
+		return 'hg'
+	elif 'svn' in src._this_yml:
+		return 'svn'
+	elif 'url' in src._this_yml:
+		return 'url'
+	else:
+		return None
+
 def check_repo(src, subdir, *, check_remotes=0):
 	if 'git' in src._this_yml:
 		source_dir = os.path.join(subdir, src.name)
@@ -21,7 +33,7 @@ def check_repo(src, subdir, *, check_remotes=0):
 		if xbstrap_mirror is None:
 			git_url = src._this_yml['git']
 		else:
-			git_url = urllib.parse.urljoin(xbstrap_mirror + '/', src.name)
+			git_url = urllib.parse.urljoin(xbstrap_mirror + '/git/', src.name)
 
 		def get_local_commit(ref):
 			try:
@@ -109,7 +121,7 @@ def fetch_repo(cfg, src, subdir, *, ignore_mirror=False, bare_repo=False):
 		if xbstrap_mirror is None:
 			git_url = src._this_yml['git']
 		else:
-			git_url = urllib.parse.urljoin(xbstrap_mirror + '/', src.name)
+			git_url = urllib.parse.urljoin(xbstrap_mirror + '/git/', src.name)
 
 		git = shutil.which('git')
 		if git is None:
