@@ -422,12 +422,29 @@ class Config:
 		else:
 			return decl.get('default', None)
 
+	def check_labels(self, s):
+		label_yml = self._site_yml.get('labels', dict())
+
+		if 'match' in label_yml:
+			match_list = label_yml['match']
+			if not any(l in s for l in match_list):
+				return False
+
+		ban_list = label_yml.get('ban', [])
+		if any(l in s for l in ban_list):
+			return False
+
+		return True
+
 	def get_source(self, name):
 		return self._sources[name]
 
 	def get_tool_pkg(self, name):
 		if name in self._tool_pkgs:
-			return self._tool_pkgs[name]
+			tool = self._tool_pkgs[name]
+			if not self.check_labels(tool.label_set):
+				raise GenericException(f"Tool {name} does not match label configuration")
+			return tool
 		else:
 			raise GenericException(f"Unknown tool {name}")
 
@@ -441,14 +458,23 @@ class Config:
 		yield from self._sources.values()
 
 	def all_tools(self):
-		yield from self._tool_pkgs.values()
+		for tool in self._tool_pkgs.values():
+			if not self.check_labels(tool.label_set):
+				continue
+			yield tool
 
 	def all_pkgs(self):
-		yield from self._target_pkgs.values()
+		for pkg in self._target_pkgs.values():
+			if not self.check_labels(pkg.label_set):
+				continue
+			yield pkg
 
 	def get_target_pkg(self, name):
 		if name in self._target_pkgs:
-			return self._target_pkgs[name]
+			pkg = self._target_pkgs[name]
+			if not self.check_labels(pkg.label_set):
+				raise GenericException(f"Package {name} does not match label configuration")
+			return pkg
 		else:
 			raise GenericException(f"Unknown package {name}")
 
@@ -881,6 +907,7 @@ class HostPackage(RequirementsMixin):
 	def __init__(self, cfg, pkg_yml):
 		self._cfg = cfg
 		self._this_yml = pkg_yml
+		self._labels = set(pkg_yml.get('labels', []))
 		self._configure_steps = [ ]
 		self._stages = dict()
 		self._tasks = dict()
@@ -902,6 +929,10 @@ class HostPackage(RequirementsMixin):
 				if not 'name' in task_yml:
 					raise RuntimeError("no name specified in task of tool {}".format(self.name))
 				self._tasks[task_yml['name']] = PackageRunTask(cfg, self, task_yml)
+
+	@property
+	def label_set(self):
+		return self._labels
 
 	@property
 	def exports_shared_libs(self):
@@ -1042,6 +1073,7 @@ class TargetPackage(RequirementsMixin):
 	def __init__(self, cfg, pkg_yml):
 		self._cfg = cfg
 		self._this_yml = pkg_yml
+		self._labels = set(pkg_yml.get('labels', []))
 		self._configure_steps = [ ]
 		self._build_steps = [ ]
 		self._tasks = dict()
@@ -1059,6 +1091,10 @@ class TargetPackage(RequirementsMixin):
 				if not 'name' in task_yml:
 					raise RuntimeError("no name specified in task of package {}".format(self.name))
 				self._tasks[task_yml['name']] = PackageRunTask(cfg, self, task_yml)
+
+	@property
+	def label_set(self):
+		return self._labels
 
 	@property
 	def source(self):

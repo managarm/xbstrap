@@ -244,6 +244,10 @@ properties:
                     type: string
                 'revision':
                     type: integer
+                'labels':
+                    type: array
+                    items:
+                        type: string
                 'stability_level':
                     type: string
                     enum: ['stable', 'unstable', 'broken']
@@ -286,6 +290,10 @@ properties:
                     type: string
                 'revision':
                     type: integer
+                'labels':
+                    type: array
+                    items:
+                        type: string
                 'default':
                     type: boolean
                 'stability_level':
