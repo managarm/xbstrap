@@ -1390,7 +1390,7 @@ def execute_manifest(manifest):
 			os.chmod(vscript, 0o775)
 			explicit_pkgconfig = True
 		elif yml['virtual'] == 'pkgconfig-for-target':
-			vscript = os.path.join(vb.name, '{}-pkg-config'.format(yml['triple']))
+			vscript = os.path.join(vb.name, '{}-pkg-config'.format(substitute(yml['triple'])))
 			with open(vscript, 'wt') as f:
 				f.write('#!/bin/sh\n'
 					+ 'PKG_CONFIG_PATH= '
