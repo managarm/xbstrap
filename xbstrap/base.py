@@ -2096,7 +2096,7 @@ def run_tool_task(cfg, task):
 
 def mirror_src(cfg, src):
 	vcs = _vcs_utils.vcs_name(src)
-	if vcs is None:
+	if vcs != "git":
 		return
 
 	mirror_dir = os.path.join(cfg.build_root, 'mirror', vcs)

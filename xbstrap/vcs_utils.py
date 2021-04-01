@@ -145,6 +145,10 @@ def fetch_repo(cfg, src, subdir, *, ignore_mirror=False, bare_repo=False):
 		if src.is_rolling_version:
 			shallow = False
 
+		# We cannot shallow clone mirrors
+		if bare_repo:
+			shallow = False
+
 		args = [git, 'fetch']
 		if 'tag' in source:
 			if shallow:
@@ -157,6 +161,7 @@ def fetch_repo(cfg, src, subdir, *, ignore_mirror=False, bare_repo=False):
 			#       - some remotes support fetching individual SHA1s.
 			if 'commit' in source or fixed_commit is not None:
 				shallow = False
+
 			# When initializing the repository, we fetch only one commit.
 			# For updates, we fetch all *new* commits (= default behavior of 'git fetch').
 			# We do not unshallow the repository.
