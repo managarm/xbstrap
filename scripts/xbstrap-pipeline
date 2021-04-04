@@ -168,7 +168,8 @@ def do_compute_graph(args):
 						continue
 					out_job['needed']['pkgs'].append({
 						'name': subject.name,
-						'version': subject.version
+						'version': subject.version,
+						'architecture': subject.architecture
 					})
 			out_root[job.name] = out_job
 

@@ -2679,6 +2679,8 @@ class Plan:
 						'subject': subject.subject_id,
 						'artifact_files': []
 					}
+					if action == Action.PACK_PKG:
+						yml['architecture'] = pkg.architecture
 					if action == Action.RUN:
 						for af in subject.artifact_files:
 							yml['artifact_files'].append({'name': af.name, 'filepath': af.filepath})
