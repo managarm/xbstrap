@@ -2004,8 +2004,10 @@ def pack_pkg(cfg, pkg, reproduce=False):
 			args = ['xbps-rindex', '-fa',
 					os.path.join(cfg.xbps_repository_dir, xbps_file)
 			]
+			environ = os.environ.copy()
+			environ['XBPS_ARCH'] = pkg.architecture
 			_util.log_info("Running {}".format(args))
-			subprocess.call(args, stdout=output)
+			subprocess.call(args, env=environ, stdout=output)
 		else:
 			_util.log_info("Running {}".format(args))
 			subprocess.call(args, cwd=cfg.package_out_dir, stdout=output)
@@ -2077,8 +2079,10 @@ def pull_pkg_pack(cfg, pkg):
 	args = ['xbps-rindex', '-fa',
 			os.path.join(cfg.xbps_repository_dir, xbps_file)
 	]
+	environ = os.environ.copy()
+	environ['XBPS_ARCH'] = pkg.architecture
 	_util.log_info("Running {}".format(args))
-	subprocess.call(args, stdout=output)
+	subprocess.call(args, env=environ, stdout=output)
 
 def run_task(cfg, task):
 	tools_required = []
