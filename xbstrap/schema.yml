@@ -288,6 +288,20 @@ properties:
             properties:
                 'name':
                     type: string
+                'metadata':
+                    type: object
+                    additionalProperties: false
+                    properties:
+                        'summary': { type: string }
+                        'description': { type: string }
+                        'spdx': { type: string }
+                        'website': { type: string }
+                        'maintainer':
+                            type: string
+                            pattern: '^.+ <[^>]+>$'
+                        'categories':
+                            type: array
+                            items: { type: string }
                 'revision':
                     type: integer
                 'labels':

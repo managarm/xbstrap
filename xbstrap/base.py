@@ -1972,9 +1972,24 @@ def pack_pkg(cfg, pkg, reproduce=False):
 		args = ['xbps-create', '-A', 'x86_64',
 			'-s', pkg.name,
 			'-n', '{}-{}'.format(pkg.name, version),
-			'-D', pkg.xbps_dependency_string(),
-			pkg.staging_dir
+			'-D', pkg.xbps_dependency_string()
 		]
+
+		metadata = pkg._this_yml.get('metadata', dict())
+		if 'summary' in metadata:
+			args += ['--desc', metadata['summary']]
+		if 'description' in metadata:
+			args += ['--long-desc', metadata['description']]
+		if 'spdx' in metadata:
+			args += ['--license', metadata['spdx']]
+		if 'website' in metadata:
+			args += ['--homepage', metadata['website']]
+		if 'maintainer' in metadata:
+			args += ['--maintainer', metadata['maintainer']]
+		if 'categories' in metadata:
+			args += ['--tags', ' '.join(metadata['categories'])]
+
+		args += [pkg.staging_dir]
 
 		xbps_file = '{}-{}.x86_64.xbps'.format(pkg.name, version)
 
