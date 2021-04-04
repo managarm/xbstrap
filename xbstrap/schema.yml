@@ -318,6 +318,7 @@ properties:
                 'source': { $ref: '#/definitions/nested_source' }
                 'from_source':
                     type: string
+                'architecture': { type: string }
                 'configure': { $ref: '#/definitions/build_steps' }
                 'build': { $ref: '#/definitions/build_steps' }
                 'install': { $ref: '#/definitions/build_steps' }

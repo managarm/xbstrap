@@ -1158,7 +1158,11 @@ class TargetPackage(RequirementsMixin):
 
 	@property
 	def architecture(self):
-		return 'x86_64'
+		def substitute(varname):
+			if varname.startswith('OPTION:'):
+				return self._cfg.get_option_value(varname[7:])
+
+		return replace_at_vars(self._this_yml.get('architecture', 'x86_64'), substitute)
 
 	@property
 	def configure_steps(self):
