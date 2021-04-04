@@ -1157,6 +1157,10 @@ class TargetPackage(RequirementsMixin):
 		return self._this_yml['implict_package']
 
 	@property
+	def architecture(self):
+		return 'x86_64'
+
+	@property
 	def configure_steps(self):
 		yield from self._configure_steps
 
@@ -1969,7 +1973,7 @@ def pack_pkg(cfg, pkg, reproduce=False):
 		if verbosity:
 			output = None
 
-		args = ['xbps-create', '-A', 'x86_64',
+		args = ['xbps-create', '-A', pkg.architecture,
 			'-s', pkg.name,
 			'-n', '{}-{}'.format(pkg.name, version),
 			'-D', pkg.xbps_dependency_string()
@@ -1991,7 +1995,7 @@ def pack_pkg(cfg, pkg, reproduce=False):
 
 		args += [pkg.staging_dir]
 
-		xbps_file = '{}-{}.x86_64.xbps'.format(pkg.name, version)
+		xbps_file = '{}-{}.{}.xbps'.format(pkg.name, version, pkg.architecture)
 
 		if not reproduce:
 			_util.log_info("Running {}".format(args))
@@ -2048,9 +2052,9 @@ def pull_pkg_pack(cfg, pkg):
 	_util.try_mkdir(cfg.xbps_repository_dir)
 
 	# Download the repodata file.
-	rd_path = os.path.join(cfg.xbps_repository_dir, 'remote-x86_64-repodata')
-	rd_url = urllib.parse.urljoin(repo_url + '/', 'x86_64-repodata')
-	_util.log_info('Downloading x86_64-repodata from {}'.format(repo_url))
+	rd_path = os.path.join(cfg.xbps_repository_dir, 'remote-{}-repodata'.format(pkg.architecture))
+	rd_url = urllib.parse.urljoin(repo_url + '/', '{}-repodata'.format(pkg.architecture))
+	_util.log_info('Downloading {}-repodata from {}'.format(repo_url, pkg.architecture))
 	_util.interactive_download(rd_url, rd_path)
 
 	# Find the package within the repodata's index file.
@@ -2060,7 +2064,7 @@ def pull_pkg_pack(cfg, pkg):
 	assert 'pkgver' in index[pkg.name]
 
 	# Download the xbps file.
-	xbps_file = '{}.x86_64.xbps'.format(index[pkg.name]['pkgver'])
+	xbps_file = '{}.{}.xbps'.format(index[pkg.name]['pkgver'], pkg.architecture)
 	pkg_url = urllib.parse.urljoin(repo_url + '/', xbps_file)
 	_util.log_info('Downloading {} from {}'.format(xbps_file, repo_url))
 	_util.interactive_download(pkg_url, os.path.join(cfg.xbps_repository_dir, xbps_file))
