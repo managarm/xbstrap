@@ -158,7 +158,7 @@ class ItemState:
 		self.updatable = updatable
 		self.timestamp = timestamp
 
-ArtifactFile = collections.namedtuple('ArtifactFile', ['name', 'filepath'])
+ArtifactFile = collections.namedtuple('ArtifactFile', ['name', 'filepath', 'architecture'])
 
 class Config:
 	def __init__(self, path):
@@ -1021,6 +1021,14 @@ class HostPackage(RequirementsMixin):
 			raise GenericException(f"Unknown task {task} in tool {self.name}")
 
 	@property
+	def architecture(self):
+		def substitute(varname):
+			if varname.startswith('OPTION:'):
+				return self._cfg.get_option_value(varname[7:])
+
+		return replace_at_vars(self._this_yml.get('architecture', 'x86_64'), substitute)
+
+	@property
 	def configure_steps(self):
 		yield from self._configure_steps
 
@@ -1336,7 +1344,8 @@ class RunTask(RequirementsMixin):
 		entries = self._this_yml.get('artifact_files', [])
 		for e in entries:
 			path = replace_at_vars(e['path'], substitute)
-			yield ArtifactFile(e['name'], os.path.join(path, e['name']))
+			architecture = replace_at_vars(e.get('architecture', 'x86_64'), substitute)
+			yield ArtifactFile(e['name'], os.path.join(path, e['name']), architecture)
 
 def config_for_dir():
 	return Config('')
@@ -2687,11 +2696,17 @@ class Plan:
 						'subject': subject.subject_id,
 						'artifact_files': []
 					}
+					if action == Action.ARCHIVE_TOOL:
+						yml['architecture'] = subject.architecture
 					if action == Action.PACK_PKG:
-						yml['architecture'] = pkg.architecture
+						yml['architecture'] = subject.architecture
 					if action == Action.RUN:
 						for af in subject.artifact_files:
-							yml['artifact_files'].append({'name': af.name, 'filepath': af.filepath})
+							yml['artifact_files'].append({
+								'name': af.name,
+								'filepath': af.filepath,
+								'architecture': af.architecture
+							})
 					self.progress_file.write(yaml.safe_dump(yml, explicit_end=True))
 					self.progress_file.flush()
 

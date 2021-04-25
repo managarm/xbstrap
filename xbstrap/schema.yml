@@ -258,6 +258,7 @@ properties:
                     type: boolean
                 'exports_shared_libs':
                     type: boolean
+                'architecture': { type: string }
                 'configure': { $ref: '#/definitions/build_steps' }
                 'compile': { $ref: '#/definitions/build_steps' }
                 'install': { $ref: '#/definitions/build_steps' }
@@ -350,10 +351,9 @@ properties:
                         additionalProperties: false
                         required: ['name', 'path']
                         properties:
-                            'name':
-                                type: string
-                            'path':
-                                type: string
+                            'name': { type: string }
+                            'path': { type: string }
+                            'architecture': { type: string }
                 'args': { $ref: '#/definitions/args' }
                 'containerless': { type: boolean }
                 'quiet': { type: boolean }
