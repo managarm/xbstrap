@@ -133,9 +133,9 @@ def fetch_repo(cfg, src, subdir, *, ignore_mirror=False, bare_repo=False):
 		if init:
 			_util.try_mkdir(source_dir)
 			if bare_repo:
-				subprocess.check_call([git, 'init', '--bare'], cwd=source_dir)
+				subprocess.check_call([git, 'init', '-b', 'master', '--bare'], cwd=source_dir)
 			else:
-				subprocess.check_call([git, 'init'], cwd=source_dir)
+				subprocess.check_call([git, 'init', '-b', 'master'], cwd=source_dir)
 			# We always set the remote to the true remote, not a mirror.
 			subprocess.check_call([git, 'remote', 'add', 'origin', source['git']],
 					cwd=source_dir)
