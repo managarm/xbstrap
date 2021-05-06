@@ -33,3 +33,25 @@ If the `configure` script shall be run again, use instead:
 ```
 xbstrap install --reconfigure foobar
 ```
+
+## Local development
+
+To install your local copy, run the following command:
+```
+pip install --user -e .
+```
+
+### Using Docker
+
+For containerized builds, most `xbstrap` commands will run in two stages: once on the host, then again on the container to
+actually execute the build steps. Therefore, installing `xbstrap` locally (as shown above) is not sufficient in this case.
+
+In addition, you must change the `Dockerfile` so that instead of grabbing `xbstrap` from the `pip` repositories, it installs from the host:
+1. Remove the `pip3 install xbstrap` line.
+1. Add the following lines:
+```docker
+ADD xbstrap /var/bootstrap-managarm/local-xbstrap
+RUN pip3 install -e /var/bootstrap-managarm/local-xbstrap
+```
+1. Copy or symlink your local `xbstrap` into `src/docker`, so that it can be accessed by the previous step.
+1. Rebuild the docker container as usual with `docker build -t managarm-buildenv --build-arg=USER=$(id -u) src/docker`

@@ -128,6 +128,8 @@ definitions:
                 'containerless': { type: boolean }
                 'quiet':
                     type: boolean
+                'cargo_home':
+                    type: boolean
 
     'args':
         oneOf:

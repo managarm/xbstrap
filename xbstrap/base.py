@@ -508,6 +508,12 @@ class ScriptStep:
 			return False
 		return self._step_yml['quiet']
 
+	@property
+	def cargo_home(self):
+		if 'cargo_home' not in self._step_yml:
+			return True
+		return self._step_yml['cargo_home']
+
 class RequirementsMixin:
 	@property
 	def source_dependencies(self):
@@ -1465,6 +1471,9 @@ def execute_manifest(manifest):
 	if manifest['quiet']:
 		output = subprocess.DEVNULL
 
+	if manifest['cargo_home']:
+		environ['CARGO_HOME'] = os.path.join(build_root, 'cargo-home')
+
 	# Determine the working directory.
 	if manifest['workdir'] is not None:
 		workdir = replace_at_vars(manifest['workdir'], substitute)
@@ -1492,7 +1501,7 @@ def execute_manifest(manifest):
 
 def run_program(cfg, context, subject, args,
 		tool_pkgs=[], virtual_tools=[], workdir=None, extra_environ=dict(),
-		for_package=False, containerless=False, quiet=False):
+		for_package=False, containerless=False, quiet=False, cargo_home=True):
 	pkg_queue = []
 	pkg_visited = set()
 
@@ -1518,6 +1527,7 @@ def run_program(cfg, context, subject, args,
 		'workdir': workdir,
 		'extra_environ': extra_environ,
 		'quiet': quiet,
+		'cargo_home': cargo_home,
 		'for_package': for_package,
 		'virtual_tools': list(virtual_tools),
 		'tools': [],
@@ -1648,7 +1658,8 @@ def run_step(cfg, context, subject, step, tool_pkgs, virtual_tools,
 			extra_environ=step.environ,
 			for_package=for_package,
 			containerless=step.containerless,
-			quiet=step.quiet and not verbosity)
+			quiet=step.quiet and not verbosity,
+                        cargo_home=step.cargo_home)
 
 def postprocess_libtool(cfg, pkg):
 	for libdir in ['lib', 'lib64', 'lib32', 'usr/lib', 'usr/lib64', 'usr/lib32']:
