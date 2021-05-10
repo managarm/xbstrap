@@ -4,6 +4,7 @@ import collections
 from enum import Enum
 import errno
 import filecmp
+import json
 import os
 import re
 import shutil
@@ -1619,8 +1620,7 @@ def run_program(cfg, context, subject, args,
 			proc.wait()
 			if proc.returncode != 0:
 				raise ProgramFailureException()
-		else:
-			assert runtime == 'docker'
+		elif runtime == 'docker':
 			if any(prop not in container_yml for prop in ['src_mount', 'build_mount', 'image']):
 				raise GenericException("Docker runtime requires src_mount, build_mount and image properties")
 
@@ -1647,6 +1647,95 @@ def run_program(cfg, context, subject, args,
 			proc.wait()
 			if proc.returncode != 0:
 				raise ProgramFailureException()
+		else:
+			assert runtime == 'runc'
+			manifest['source_root'] = container_yml['src_mount']
+			manifest['build_root'] = container_yml['build_mount']
+
+			_util.log_info("Running {} (tools: {}) via runc".format(
+					args, [tool.name for tool in pkg_queue]))
+
+			if debug_manifests:
+				print(yaml.dump(manifest))
+
+			config_json = {
+				'ociVersion': '1.0.2',
+				'process': {
+					'terminal': False,
+					'user': {'uid': 0, 'gid': 0},
+					'args': ['xbstrap', 'execute-manifest', '-c', yaml.dump(manifest)],
+					'env': [
+						'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+						'TERM=xterm'
+					],
+					'cwd': '/',
+					'noNewPrivileges': True
+				},
+				'root': {
+					'path': container_yml['rootfs'],
+					'readonly': True
+				},
+				'hostname': container_yml['id'],
+				'mounts': [
+					{
+						'destination': container_yml['src_mount'],
+						'source': cfg.source_root,
+						'options': ['bind'],
+						'type': 'none'
+					},
+					{
+						'destination': container_yml['build_mount'],
+						'source': cfg.build_root,
+						'options': ['bind'],
+						'type': 'none'
+					},
+					{
+						"destination": "/tmp",
+						"type": "tmpfs",
+						"source": "tmp",
+						"options": [
+							"nosuid",
+							"noexec",
+							"nodev",
+							"mode=1777",
+							"size=65536k"
+						]
+					},
+					{
+						'destination': '/proc',
+						'source': 'proc',
+						'type': 'proc'
+					},
+				],
+				'linux': {
+					'uidMappings': [
+						{'containerID': 0, 'hostID': os.getuid(), 'size': 1}
+					],
+					'gidMappings': [
+						{'containerID': 0, 'hostID': os.getgid(), 'size': 1}
+					],
+					'namespaces': [
+						{'type': 'user'},
+						{'type': 'pid'},
+						{'type': 'mount'},
+						{'type': 'ipc'},
+						{'type': 'uts'}
+					]
+				}
+			}
+
+			with tempfile.TemporaryDirectory() as bundle_dir:
+				with open(os.path.join(bundle_dir, 'config.json'), 'w') as f:
+					json.dump(config_json, f)
+
+				proc = subprocess.Popen([
+						'runc', 'run',
+						'-b', bundle_dir,
+						container_yml['id']
+				])
+				proc.wait()
+				if proc.returncode != 0:
+					raise ProgramFailureException()
 	else:
 		manifest['source_root'] = cfg.source_root
 		manifest['build_root'] = cfg.build_root
