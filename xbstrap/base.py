@@ -404,7 +404,7 @@ class Config:
 
 	@property
 	def cargo_config_toml(self):
-		yml = self._site_yml.get('general', dict())
+		yml = self._root_yml.get('general', dict())
 		if 'cargo' in yml:
 			return yml['cargo']['config_toml']
 		else:

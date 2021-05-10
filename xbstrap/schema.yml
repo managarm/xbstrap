@@ -151,6 +151,12 @@ properties:
                 type: string
             'everything_by_default':
                 type: boolean
+            'cargo':
+                type: object
+                additionalProperties: false
+                properties:
+                    'config_toml':
+                        type: string
     'repository':
         type: object
         additionalProperties: false

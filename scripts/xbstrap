@@ -71,7 +71,7 @@ def do_init(args):
 	if cfg.cargo_config_toml is not None:
 		print('Creating cargo-home/config.toml')
 		os.makedirs('cargo-home', exist_ok=True)
-		shutil.copy(cfg.cargo_config_toml, 'cargo-home/config.toml')
+		shutil.copy(os.path.join(args.src_root, cfg.cargo_config_toml), 'cargo-home/config.toml')
 
 		container = cfg._site_yml.get('container', dict())
 		if 'build_mount' in container:
