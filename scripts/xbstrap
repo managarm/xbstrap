@@ -67,28 +67,32 @@ def do_init(args):
 	else:
 		os.symlink(os.path.join(args.src_root, 'bootstrap.yml'), 'bootstrap.link')
 
-
-	print('Creating cargo-home/config.toml')
-	os.makedirs('cargo-home', exist_ok=True)
-	shutil.copy(os.path.join(args.src_root, 'extrafiles/config.toml'),
-		    'cargo-home/config.toml')
-
 	cfg = xbstrap.base.config_for_dir()
-	container = cfg._site_yml.get('container', dict())
+	if cfg.cargo_config_toml is not None:
+		print('Creating cargo-home/config.toml')
+		os.makedirs('cargo-home', exist_ok=True)
+		shutil.copy(cfg.cargo_config_toml, 'cargo-home/config.toml')
 
-	try:
-		build_root = container['build_mount']
-	except KeyError:
-		print('Using non-Docker build')
-		build_root = os.getcwd()
+		container = cfg._site_yml.get('container', dict())
+		if 'build_mount' in container:
+			build_root = container['build_mount']
+			source_root = container['src_mount']
+		else:
+			print('Using non-Docker build')
+			build_root = os.getcwd()
+			source_root = os.path.abspath(args.src_root)
 
-	with open('cargo-home/config.toml', 'r') as f:
-		content = f.read()
-		content = content.replace("@BUILD_ROOT@", build_root)
-		content = content.replace("@SRC_ROOT@", args.src_root)
+		with open('cargo-home/config.toml', 'r') as f:
+			def substitute(varname):
+				if varname == 'SOURCE_ROOT':
+					return source_root
+				elif varname == 'BUILD_ROOT':
+					return build_root
 
-	with open('cargo-home/config.toml', 'w') as f:
-		f.write(content)
+			content = xbstrap.base.replace_at_vars(f.read(), substitute)
+
+		with open('cargo-home/config.toml', 'w') as f:
+			f.write(content)
 
 do_init.parser = main_subparsers.add_parser('init')
 do_init.parser.add_argument('src_root', type=str)

@@ -403,6 +403,14 @@ class Config:
 			return os.path.join(self.build_root, self._root_yml['directories']['packages'])
 
 	@property
+	def cargo_config_toml(self):
+		yml = self._site_yml.get('general', dict())
+		if 'cargo' in yml:
+			return yml['cargo']['config_toml']
+		else:
+			return None
+
+	@property
 	def all_options(self):
 		for yml in self._root_yml.get('declare_options', []):
 			yield yml['name']
@@ -1527,7 +1535,7 @@ def run_program(cfg, context, subject, args,
 		'workdir': workdir,
 		'extra_environ': extra_environ,
 		'quiet': quiet,
-		'cargo_home': cargo_home,
+		'cargo_home': cfg.cargo_config_toml is not None and cargo_home,
 		'for_package': for_package,
 		'virtual_tools': list(virtual_tools),
 		'tools': [],
@@ -1659,7 +1667,7 @@ def run_step(cfg, context, subject, step, tool_pkgs, virtual_tools,
 			for_package=for_package,
 			containerless=step.containerless,
 			quiet=step.quiet and not verbosity,
-                        cargo_home=step.cargo_home)
+			cargo_home=step.cargo_home)
 
 def postprocess_libtool(cfg, pkg):
 	for libdir in ['lib', 'lib64', 'lib32', 'usr/lib', 'usr/lib64', 'usr/lib32']:
