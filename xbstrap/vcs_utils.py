@@ -2,6 +2,7 @@
 
 from enum import Enum
 import os
+import re
 import shutil
 import subprocess
 import urllib.request
@@ -24,6 +25,13 @@ def vcs_name(src):
 		return 'url'
 	else:
 		return None
+
+def determine_git_version(git):
+	output = subprocess.check_output([git, 'version'], encoding='ascii');
+	matches = re.match(r'^git version (\d+).(\d+).(\d+)', output)
+	if matches is None:
+		raise RuntimeError(f"Could not parse git version string: '{output}'")
+	return tuple(int(matches.group(i)) for i in range(1, 4))
 
 def check_repo(src, subdir, *, check_remotes=0):
 	if 'git' in src._this_yml:
@@ -129,13 +137,22 @@ def fetch_repo(cfg, src, subdir, *, ignore_mirror=False, bare_repo=False):
 		commit_yml = cfg._commit_yml.get('commits', dict()).get(src.name, dict())
 		fixed_commit = commit_yml.get('fixed_commit', None)
 
+		git_version = determine_git_version(git)
+
+		# Newer versions of git remit a warning if -b is not passed.
+		# (We do not care about the name of the master branch, but we need to
+		# get rid of the warning.)
+		b_args = []
+		if git_version >= (2, 28, 0):
+			b_args = ['-b', 'master']
+
 		init = not os.path.isdir(source_dir)
 		if init:
 			_util.try_mkdir(source_dir)
 			if bare_repo:
-				subprocess.check_call([git, 'init', '-b', 'master', '--bare'], cwd=source_dir)
+				subprocess.check_call([git, 'init', '--bare'], cwd=source_dir)
 			else:
-				subprocess.check_call([git, 'init', '-b', 'master'], cwd=source_dir)
+				subprocess.check_call([git, 'init'] + b_args, cwd=source_dir)
 			# We always set the remote to the true remote, not a mirror.
 			subprocess.check_call([git, 'remote', 'add', 'origin', source['git']],
 					cwd=source_dir)
