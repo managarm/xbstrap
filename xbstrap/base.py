@@ -1647,8 +1647,7 @@ def run_program(cfg, context, subject, args,
 			proc.wait()
 			if proc.returncode != 0:
 				raise ProgramFailureException()
-		else:
-			assert runtime == 'runc'
+		elif runtime == 'runc':
 			manifest['source_root'] = container_yml['src_mount']
 			manifest['build_root'] = container_yml['build_mount']
 
@@ -1733,6 +1732,51 @@ def run_program(cfg, context, subject, args,
 						'-b', bundle_dir,
 						container_yml['id']
 				])
+				proc.wait()
+				if proc.returncode != 0:
+					raise ProgramFailureException()
+		else:
+			assert runtime == 'cbuildrt'
+
+			manifest['source_root'] = container_yml['src_mount']
+			manifest['build_root'] = container_yml['build_mount']
+
+			_util.log_info("Running {} (tools: {}) via cbuildrt".format(
+					args, [tool.name for tool in pkg_queue]))
+
+			if debug_manifests:
+				print(yaml.dump(manifest))
+
+			cbuild_json = {
+				'user': {'uid': container_yml['uid'], 'gid': container_yml['gid']},
+				'process': {
+					'args': ['xbstrap', 'execute-manifest', '-c', yaml.dump(manifest)]
+				},
+				'rootfs': container_yml['rootfs'],
+				'bindMounts': [
+					{
+						'destination': container_yml['src_mount'],
+						'source': cfg.source_root
+					},
+					{
+						'destination': container_yml['build_mount'],
+						'source': cfg.build_root
+					}
+				]
+			}
+			print(cbuild_json)
+
+			with tempfile.NamedTemporaryFile('w+') as f:
+				json.dump(cbuild_json, f)
+				f.flush()
+
+				environ = os.environ.copy()
+				_util.build_environ_paths(environ, 'PATH',
+						prepend=[os.path.expanduser('~/.xbstrap/bin')])
+
+				proc = subprocess.Popen([
+					'cbuildrt', f.name
+				], env=environ)
 				proc.wait()
 				if proc.returncode != 0:
 					raise ProgramFailureException()
