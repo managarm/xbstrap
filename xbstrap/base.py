@@ -1672,7 +1672,7 @@ def run_program(cfg, context, subject, args,
 					'noNewPrivileges': True
 				},
 				'root': {
-					'path': container_yml['rootfs'],
+					'path': os.path.join(os.getcwd(), container_yml['rootfs']),
 					'readonly': True
 				},
 				'hostname': container_yml['id'],
