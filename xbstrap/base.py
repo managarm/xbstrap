@@ -1772,7 +1772,7 @@ def run_program(cfg, context, subject, args,
 
 				environ = os.environ.copy()
 				_util.build_environ_paths(environ, 'PATH',
-						prepend=[os.path.expanduser('~/.xbstrap/bin')])
+						prepend=[os.path.join(_util.find_home(), 'bin')])
 
 				proc = subprocess.Popen([
 					'cbuildrt', f.name

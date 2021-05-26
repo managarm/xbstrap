@@ -17,6 +17,11 @@ def log_warn(msg):
 def log_err(msg):
 	print("{}xbstrap{}: {}{}{}".format(colorama.Style.BRIGHT, colorama.Style.NORMAL, colorama.Fore.RED, msg, colorama.Style.RESET_ALL), file=sys.stderr)
 
+def find_home():
+	if 'XBSTRAP_HOME' in os.environ:
+		return os.environ['XBSTRAP_HOME']
+	return os.path.expanduser('~/.xbstrap')
+
 def try_mkdir(path, recursive=False):
 	try:
 		if not recursive:
