@@ -441,8 +441,34 @@ def do_download(args):
 			for info in tar:
 				tar.extract(info, pkg.staging_dir)
 
-do_download.parser = main_subparsers.add_parser('download',
+do_download.parser = main_subparsers.add_parser('download-archive',
 		parents=[select_pkgs.parser])
+
+def do_download_tool(args):
+	cfg = xbstrap.base.config_for_dir()
+	sel = select_tools(cfg, args)
+
+	if cfg.tool_archives_url is None:
+		raise RuntimeError('No repository URL in bootstrap.yml')
+
+	xbstrap.util.try_mkdir(cfg.package_out_dir)
+
+	for tool in sel:
+		url = urllib.parse.urljoin(cfg.tool_archives_url + '/', tool.name + '.tar.gz')
+		print('{}xbstrap{}: Downloading tool {} from {}'.format(
+				colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
+				tool.name, url))
+		xbstrap.util.interactive_download(url, tool.archive_file)
+
+		xbstrap.base.try_rmtree(tool.prefix_dir)
+		os.mkdir(tool.prefix_dir)
+		with tarfile.open(tool.archive_file, 'r|gz') as tar:
+			for info in tar:
+				tar.extract(info, tool.prefix_dir)
+
+do_download_tool.parser = main_subparsers.add_parser('download-tool-archive',
+		parents=[select_tools.parser])
+do_download_tool.parser.set_defaults(_impl=do_download_tool)
 
 def do_install(args):
 	cfg = xbstrap.base.config_for_dir()

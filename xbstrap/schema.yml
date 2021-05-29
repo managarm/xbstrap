@@ -167,6 +167,8 @@ properties:
         type: object
         additionalProperties: false
         properties:
+            'tool_archives':
+                type: string
             'xbps':
                 type: string
     'directories':

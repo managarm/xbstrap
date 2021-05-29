@@ -302,6 +302,12 @@ class Config:
 		return self._root_yml['repository']['url']
 
 	@property
+	def tool_archives_url(self):
+		if 'repositories' not in self._root_yml:
+			return None
+		return self._root_yml['repositories'].get('tool_archives', None)
+
+	@property
 	def use_xbps(self):
 		if 'pkg_management' not in self._site_yml:
 			return False
