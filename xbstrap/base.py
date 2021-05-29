@@ -1242,6 +1242,7 @@ class TargetPackage(RequirementsMixin):
 			environ = os.environ.copy()
 			_util.build_environ_paths(environ, 'PATH',
 					prepend=[os.path.join(_util.find_home(), 'bin')])
+			environ['XBPS_ARCH'] = self.architecture
 
 			try:
 				out = subprocess.check_output(['xbps-query',
@@ -1259,6 +1260,7 @@ class TargetPackage(RequirementsMixin):
 			environ = os.environ.copy()
 			_util.build_environ_paths(environ, 'PATH',
 					prepend=[os.path.join(_util.find_home(), 'bin')])
+			environ['XBPS_ARCH'] = self.architecture
 
 			try:
 				out = subprocess.check_output(['xbps-query',
@@ -2215,6 +2217,7 @@ def install_pkg(cfg, pkg):
 		environ = os.environ.copy()
 		_util.build_environ_paths(environ, 'PATH',
 				prepend=[os.path.join(_util.find_home(), 'bin')])
+		environ['XBPS_ARCH'] = pkg.architecture
 
 		args = ['xbps-install', '-fy',
 			'-r', cfg.sysroot_dir,
