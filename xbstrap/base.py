@@ -1780,7 +1780,6 @@ def run_program(cfg, context, subject, args,
 					}
 				]
 			}
-			print(cbuild_json)
 
 			with tempfile.NamedTemporaryFile('w+') as f:
 				json.dump(cbuild_json, f)
