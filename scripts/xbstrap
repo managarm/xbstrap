@@ -426,7 +426,7 @@ def do_download(args):
 	if cfg.repository_url is None:
 		raise RuntimeError('No repository URL in bootstrap.yml')
 
-	xbstrap.base.try_mkdir(cfg.package_out_dir)
+	xbstrap.util.try_mkdir(cfg.package_out_dir)
 
 	for pkg in sel:
 		url = urllib.parse.urljoin(cfg.repository_url + '/', pkg.name + '.tar.gz')
@@ -624,6 +624,35 @@ def do_rolling_determine(args):
 do_rolling_determine.parser = rolling_subparsers.add_parser('determine')
 do_rolling_determine.parser.add_argument("--json", action="store_true")
 do_rolling_determine.parser.set_defaults(_impl=do_rolling_determine)
+
+#----------------------------------------------------------------------------------------
+
+def do_prereqs(args):
+	comps = set(args.components)
+	valid_comps = ['cbuildrt']
+	if not comps.issubset(valid_comps):
+		raise RuntimeError(f"Unknown component given; choose from: {valid_comps}");
+
+	home = xbstrap.util.find_home()
+	bin_dir = os.path.join(home, 'bin')
+	xbstrap.util.try_mkdir(home)
+	xbstrap.util.try_mkdir(bin_dir)
+
+	if 'cbuildrt' in comps:
+		url = 'https://github.com/managarm/cbuildrt'
+		url += '/releases/latest/download/cbuildrt-linux-x86_64-static.tar'
+		tar_path = os.path.join(home, 'cbuildrt.tar')
+
+		xbstrap.util.interactive_download(url, tar_path)
+		with tarfile.open(tar_path, 'r') as tar:
+			for info in tar:
+				if info.name == 'cbuildrt':
+					tar.extract(info, bin_dir)
+		os.chmod(os.path.join(bin_dir, 'cbuildrt'), 0o755)
+
+do_prereqs.parser = main_subparsers.add_parser('prereqs')
+do_prereqs.parser.add_argument("components", type=str, nargs='*')
+do_prereqs.parser.set_defaults(_impl=do_prereqs)
 
 #----------------------------------------------------------------------------------------
 
