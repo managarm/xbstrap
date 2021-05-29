@@ -629,7 +629,7 @@ do_rolling_determine.parser.set_defaults(_impl=do_rolling_determine)
 
 def do_prereqs(args):
 	comps = set(args.components)
-	valid_comps = ['cbuildrt']
+	valid_comps = ['cbuildrt', 'xbps']
 	if not comps.issubset(valid_comps):
 		raise RuntimeError(f"Unknown component given; choose from: {valid_comps}");
 
@@ -649,6 +649,17 @@ def do_prereqs(args):
 				if info.name == 'cbuildrt':
 					tar.extract(info, bin_dir)
 		os.chmod(os.path.join(bin_dir, 'cbuildrt'), 0o755)
+	elif 'xbps' in comps:
+		url = 'https://alpha.de.repo.voidlinux.org/static'
+		url += '/xbps-static-static-0.59_5.x86_64-musl.tar.xz'
+		tar_path = os.path.join(home, 'xbps.tar.xz')
+
+		xbstrap.util.interactive_download(url, tar_path)
+		with tarfile.open(tar_path, 'r|xz') as tar:
+			for info in tar:
+				if os.path.dirname(info.name) == './usr/bin':
+					info.name = os.path.basename(info.name)
+					tar.extract(info, bin_dir)
 
 do_prereqs.parser = main_subparsers.add_parser('prereqs')
 do_prereqs.parser.add_argument("components", type=str, nargs='*')
