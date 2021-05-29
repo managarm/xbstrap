@@ -1239,11 +1239,15 @@ class TargetPackage(RequirementsMixin):
 
 	def check_if_packed(self, settings):
 		if self._cfg.use_xbps:
+			environ = os.environ.copy()
+			_util.build_environ_paths(environ, 'PATH',
+					prepend=[os.path.join(_util.find_home(), 'bin')])
+
 			try:
 				out = subprocess.check_output(['xbps-query',
 					'--repository=' + self._cfg.xbps_repository_dir,
 					self.name
-				])
+				], env=environ)
 				return ItemState()
 			except subprocess.CalledProcessError:
 				return ItemState(missing=True)
@@ -1252,11 +1256,15 @@ class TargetPackage(RequirementsMixin):
 
 	def check_if_installed(self, settings):
 		if self._cfg.use_xbps:
+			environ = os.environ.copy()
+			_util.build_environ_paths(environ, 'PATH',
+					prepend=[os.path.join(_util.find_home(), 'bin')])
+
 			try:
 				out = subprocess.check_output(['xbps-query',
 					'-r', self._cfg.sysroot_dir,
 					self.name
-				])
+				], env=environ)
 				if b'state: installed' not in out.splitlines():
 					return ItemState(missing=True)
 				return ItemState()
@@ -2138,6 +2146,10 @@ def pack_pkg(cfg, pkg, reproduce=False):
 		if verbosity:
 			output = None
 
+		environ = os.environ.copy()
+		_util.build_environ_paths(environ, 'PATH',
+				prepend=[os.path.join(_util.find_home(), 'bin')])
+
 		args = ['xbps-create', '-A', pkg.architecture,
 			'-s', pkg.name,
 			'-n', '{}-{}'.format(pkg.name, version),
@@ -2164,18 +2176,22 @@ def pack_pkg(cfg, pkg, reproduce=False):
 
 		if not reproduce:
 			_util.log_info("Running {}".format(args))
-			subprocess.call(args, cwd=cfg.xbps_repository_dir, stdout=output)
+			subprocess.call(args, env=environ, cwd=cfg.xbps_repository_dir, stdout=output)
 
 			args = ['xbps-rindex', '-fa',
 					os.path.join(cfg.xbps_repository_dir, xbps_file)
 			]
+
 			environ = os.environ.copy()
+			_util.build_environ_paths(environ, 'PATH',
+					prepend=[os.path.join(_util.find_home(), 'bin')])
 			environ['XBPS_ARCH'] = pkg.architecture
+
 			_util.log_info("Running {}".format(args))
 			subprocess.call(args, env=environ, stdout=output)
 		else:
 			_util.log_info("Running {}".format(args))
-			subprocess.call(args, cwd=cfg.package_out_dir, stdout=output)
+			subprocess.call(args, env=environ, cwd=cfg.package_out_dir, stdout=output)
 
 			if not filecmp.cmp(os.path.join(cfg.package_out_dir, xbps_file),
 					os.path.join(cfg.xbps_repository_dir, xbps_file),
@@ -2196,13 +2212,17 @@ def install_pkg(cfg, pkg):
 		if verbosity:
 			output = None
 
+		environ = os.environ.copy()
+		_util.build_environ_paths(environ, 'PATH',
+				prepend=[os.path.join(_util.find_home(), 'bin')])
+
 		args = ['xbps-install', '-fy',
 			'-r', cfg.sysroot_dir,
 			'--repository', cfg.xbps_repository_dir,
 			pkg.name
 		]
 		_util.log_info("Running {}".format(args))
-		subprocess.check_call(args, stdout=output)
+		subprocess.check_call(args, env=environ, stdout=output)
 	else:
 		installtree(pkg.staging_dir, cfg.sysroot_dir)
 		pkg.mark_as_installed()
@@ -2244,8 +2264,12 @@ def pull_pkg_pack(cfg, pkg):
 	args = ['xbps-rindex', '-fa',
 			os.path.join(cfg.xbps_repository_dir, xbps_file)
 	]
+
 	environ = os.environ.copy()
+	_util.build_environ_paths(environ, 'PATH',
+			prepend=[os.path.join(_util.find_home(), 'bin')])
 	environ['XBPS_ARCH'] = pkg.architecture
+
 	_util.log_info("Running {}".format(args))
 	subprocess.call(args, env=environ, stdout=output)
 
