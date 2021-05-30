@@ -157,16 +157,12 @@ properties:
                 properties:
                     'config_toml':
                         type: string
-    'repository':
-        type: object
-        additionalProperties: false
-        properties:
-            'url':
-                type: string
     'repositories':
         type: object
         additionalProperties: false
         properties:
+            'pkg_archives':
+                type: string
             'tool_archives':
                 type: string
             'xbps':

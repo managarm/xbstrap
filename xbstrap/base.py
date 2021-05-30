@@ -294,12 +294,10 @@ class Config:
 		return self._commit_yml.get('general', dict()).get('xbstrap_mirror', None)
 
 	@property
-	def repository_url(self):
-		if 'repository' not in self._root_yml:
+	def pkg_archives_url(self):
+		if 'repositories' not in self._root_yml:
 			return None
-		if 'url' not in self._root_yml['repository']:
-			return None
-		return self._root_yml['repository']['url']
+		return self._root_yml['repositories'].get('pkg_archives', None)
 
 	@property
 	def tool_archives_url(self):

@@ -423,13 +423,13 @@ def do_download(args):
 	cfg = xbstrap.base.config_for_dir()
 	sel = select_pkgs(cfg, args)
 
-	if cfg.repository_url is None:
+	if cfg.pkg_archives_url is None:
 		raise RuntimeError('No repository URL in bootstrap.yml')
 
 	xbstrap.util.try_mkdir(cfg.package_out_dir)
 
 	for pkg in sel:
-		url = urllib.parse.urljoin(cfg.repository_url + '/', pkg.name + '.tar.gz')
+		url = urllib.parse.urljoin(cfg.pkg_archives_url + '/', pkg.name + '.tar.gz')
 		print('{}xbstrap{}: Downloading package {} from {}'.format(
 				colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
 				pkg.name, url))
