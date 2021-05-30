@@ -451,7 +451,7 @@ def do_download_tool(args):
 	if cfg.tool_archives_url is None:
 		raise RuntimeError('No repository URL in bootstrap.yml')
 
-	xbstrap.util.try_mkdir(cfg.package_out_dir)
+	xbstrap.util.try_mkdir(cfg.tool_out_dir)
 
 	for tool in sel:
 		url = urllib.parse.urljoin(cfg.tool_archives_url + '/', tool.name + '.tar.gz')
