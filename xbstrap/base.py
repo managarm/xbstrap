@@ -701,11 +701,20 @@ class Source(RequirementsMixin):
 				assert shallow_stdout == 'false'
 
 			# Now count the number of commits.
+			commit_yml = self._cfg._commit_yml.get('commits', dict()).get(self.name, dict())
+			fixed_commit = commit_yml.get('fixed_commit', None)
+
 			if 'tag' in self._this_yml:
 				tracking_ref = 'refs/tags/' + self._this_yml['tag']
 			else:
-				ref = 'refs/heads/' + self._this_yml['branch']
 				tracking_ref = 'refs/remotes/origin/' + self._this_yml['branch']
+				if 'commit' in self._this_yml:
+					tracking_ref = self._this_yml['commit']
+					if fixed_commit is not None:
+						raise GenericException("Commit of source {} cannot be fixed in bootstrap-commits.yml: commit is already fixed in bootstrap.yml".format(self.name));
+				else:
+					if fixed_commit is not None:
+						tracking_ref = fixed_commit
 
 			try:
 				count_out = subprocess.check_output(['git', 'rev-list', '--count', tracking_ref],
