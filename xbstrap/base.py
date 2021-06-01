@@ -1916,7 +1916,7 @@ def checkout_src(cfg, src, settings):
 				'tar.bz2': 'bz2'
 			}
 			with tarfile.open(src.source_archive_file,
-					'r|' + compression[src.source_archive_format]) as tar:
+					'r:' + compression[src.source_archive_format]) as tar:
 				for info in tar:
 					if 'extract_path' not in source:
 						prefix = ''
@@ -2045,7 +2045,7 @@ def install_tool_stage(cfg, stage):
 	stage.mark_as_installed()
 
 def archive_tool(cfg, tool):
-	with tarfile.open(tool.archive_file, 'w|gz') as tar:
+	with tarfile.open(tool.archive_file, 'w:gz') as tar:
 		for ent in os.listdir(tool.prefix_dir):
 			tar.add(os.path.join(tool.prefix_dir, ent), arcname=ent)
 
@@ -2243,7 +2243,7 @@ def install_pkg(cfg, pkg):
 		pkg.mark_as_installed()
 
 def archive_pkg(cfg, pkg):
-	with tarfile.open(pkg.archive_file, 'w|gz') as tar:
+	with tarfile.open(pkg.archive_file, 'w:gz') as tar:
 		for ent in os.listdir(pkg.staging_dir):
 			tar.add(os.path.join(pkg.staging_dir, ent), arcname=ent)
 

@@ -437,7 +437,7 @@ def do_download(args):
 
 		xbstrap.base.try_rmtree(pkg.staging_dir)
 		os.mkdir(pkg.staging_dir)
-		with tarfile.open(pkg.archive_file, 'r|gz') as tar:
+		with tarfile.open(pkg.archive_file, 'r:gz') as tar:
 			for info in tar:
 				tar.extract(info, pkg.staging_dir)
 
@@ -462,7 +462,7 @@ def do_download_tool(args):
 
 		xbstrap.base.try_rmtree(tool.prefix_dir)
 		os.mkdir(tool.prefix_dir)
-		with tarfile.open(tool.archive_file, 'r|gz') as tar:
+		with tarfile.open(tool.archive_file, 'r:gz') as tar:
 			for info in tar:
 				tar.extract(info, tool.prefix_dir)
 
@@ -683,7 +683,7 @@ def do_prereqs(args):
 
 		print(f"Downloading xbps from {url}")
 		xbstrap.util.interactive_download(url, tar_path)
-		with tarfile.open(tar_path, 'r|xz') as tar:
+		with tarfile.open(tar_path, 'r:xz') as tar:
 			for info in tar:
 				if os.path.dirname(info.name) == './usr/bin':
 					info.name = os.path.basename(info.name)
