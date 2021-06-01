@@ -669,17 +669,19 @@ def do_prereqs(args):
 		url += '/releases/latest/download/cbuildrt-linux-x86_64-static.tar'
 		tar_path = os.path.join(home, 'cbuildrt.tar')
 
+		print(f"Downloading cbuildrt from {url}")
 		xbstrap.util.interactive_download(url, tar_path)
 		with tarfile.open(tar_path, 'r') as tar:
 			for info in tar:
 				if info.name == 'cbuildrt':
 					tar.extract(info, bin_dir)
 		os.chmod(os.path.join(bin_dir, 'cbuildrt'), 0o755)
-	elif 'xbps' in comps:
+	if 'xbps' in comps:
 		url = 'https://alpha.de.repo.voidlinux.org/static'
 		url += '/xbps-static-static-0.59_5.x86_64-musl.tar.xz'
 		tar_path = os.path.join(home, 'xbps.tar.xz')
 
+		print(f"Downloading xbps from {url}")
 		xbstrap.util.interactive_download(url, tar_path)
 		with tarfile.open(tar_path, 'r|xz') as tar:
 			for info in tar:
