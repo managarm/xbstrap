@@ -42,15 +42,32 @@ def build_environ_paths(environ, varname, prepend):
 		environ[varname] = joined
 
 def interactive_download(url, path):
-	print('...', end='') # This will become the status line.
+
+	istty = os.isatty(1) # This is stdout.
+	if istty:
+		print('...', end='') # This will become the status line.
 
 	def show_progress(num_blocks, block_size, file_size):
 		progress = min(num_blocks * block_size, file_size)
-		print('\r\x1b[K{:8.0f} KiB / {:8.0f} KiB, {:7.2f}%'.format(progress / 1024,
+		rewind = ''
+		newline = ''
+		if istty:
+			rewind = '\r'
+		else:
+			discrete = lambda n: int(10 * n * block_size / file_size)
+			if num_blocks > 0 and discrete(num_blocks - 1) == discrete(num_blocks):
+				return
+			newline = '\n'
+		frac = progress / file_size
+		print('{}[{}{}]\x1b[K{:8.0f} KiB / {:8.0f} KiB, {:7.2f}%'.format(rewind,
+				'#' * int(20 * frac),
+				' ' * (20 - int(20 * frac)),
+				progress / 1024,
 				file_size / 1024,
-				progress / file_size * 100), end='')
+				progress / file_size * 100), end=newline)
 
 	temp_path = path + '.download'
 	urllib.request.urlretrieve(url, temp_path, show_progress)
 	os.rename(temp_path, path)
-	print()
+	if istty:
+		print()
