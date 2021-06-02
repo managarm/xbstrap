@@ -1927,6 +1927,7 @@ def checkout_src(cfg, src, settings):
 						tar.extract(info, src.sub_dir)
 	else:
 		# VCS-less sources.
+		os.makedirs(src.source_dir, exist_ok=True)
 		pass
 
 	src.mark_as_checkedout()
