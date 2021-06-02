@@ -539,19 +539,28 @@ class RequirementsMixin:
 			sources_seen.add(source)
 			sources_stack.append(source)
 
+		def visit_yml(yml):
+			if isinstance(yml, dict):
+				visit(yml['name'])
+
+				if yml.get('recursive', False):
+					for source in self._cfg.get_source(yml['name']).sources_required:
+						visit(yml['name'])
+			else:
+				assert isinstance(yml, str)
+				visit(yml)
+
 		# Recursively visit all sources
-		for source in self._this_yml.get('sources_required', []):
-			visit(source)
+		for yml in self._this_yml.get('sources_required', []):
+			visit_yml(yml)
 
 		while sources_stack:
 			source = sources_stack.pop()
 			assert isinstance(source, str)
 			yield source
 
-			source_obj = self._cfg.get_source(source)
-			for source in source_obj.sources_required:
-				if source_obj._this_yml.get('recursive_sources', False):
-					visit(source)
+			for yml in self._cfg.get_source(source).sources_required:
+				visit_yml(yml)
 
 	@property
 	def tool_dependencies(self):
@@ -1951,7 +1960,6 @@ def checkout_src(cfg, src, settings):
 						tar.extract(info, src.sub_dir)
 	else:
 		# VCS-less sources.
-		os.makedirs(src.source_dir, exist_ok=True)
 		pass
 
 	src.mark_as_checkedout()

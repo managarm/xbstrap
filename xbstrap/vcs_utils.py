@@ -112,6 +112,10 @@ def check_repo(src, subdir, *, check_remotes=0):
 			return RepoStatus.MISSING
 	else:
 		# VCS-less source.
+		source_dir = os.path.join(subdir, src.name)
+
+		if not os.path.isdir(source_dir):
+			return RepoStatus.MISSING
 		pass
 
 	return RepoStatus.GOOD
@@ -223,4 +227,6 @@ def fetch_repo(cfg, src, subdir, *, ignore_mirror=False, bare_repo=False):
 				shutil.copyfileobj(req, f)
 	else:
 		# VCS-less source.
+		source_dir = os.path.join(subdir, src.name)
+		_util.try_mkdir(source_dir)
 		pass
