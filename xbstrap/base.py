@@ -530,8 +530,28 @@ class ScriptStep:
 class RequirementsMixin:
 	@property
 	def source_dependencies(self):
-		if 'sources_required' in self._this_yml:
-			yield from self._this_yml['sources_required']
+		sources_seen = set()
+		sources_stack = []
+
+		def visit(source):
+			if source in sources_seen:
+				return
+			sources_seen.add(source)
+			sources_stack.append(source)
+
+		# Recursively visit all sources
+		for source in self._this_yml.get('sources_required', []):
+			visit(source)
+
+		while sources_stack:
+			source = sources_stack.pop()
+			assert isinstance(source, str)
+			yield source
+
+			source_obj = self._cfg.get_source(source)
+			for source in source_obj.sources_required:
+				if source_obj._this_yml.get('recursive_sources', False):
+					visit(source)
 
 	@property
 	def tool_dependencies(self):
@@ -681,6 +701,10 @@ class Source(RequirementsMixin):
 	@property
 	def is_rolling_version(self):
 		return self._this_yml.get('rolling_version', False)
+
+	@property
+	def sources_required(self):
+		return self._this_yml.get('sources_required', [])
 
 	@property
 	def rolling_id(self):
