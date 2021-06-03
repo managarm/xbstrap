@@ -2,7 +2,15 @@ definitions:
     'source_deps':
         type: array
         items:
-            type: string
+            oneOf:
+              - type: string
+              - type: object
+                additionalProperties: false
+                properties:
+                    'name':
+                        type: string
+                    'recursive':
+                        type: boolean
 
     'tool_deps':
         type: array

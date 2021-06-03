@@ -530,8 +530,39 @@ class ScriptStep:
 class RequirementsMixin:
 	@property
 	def source_dependencies(self):
-		if 'sources_required' in self._this_yml:
-			yield from self._this_yml['sources_required']
+		sources_seen = set()
+		sources_stack = []
+
+		def visit(source):
+			if source in sources_seen:
+				return
+			sources_seen.add(source)
+			sources_stack.append(source)
+
+		def visit_yml(yml):
+			if isinstance(yml, dict):
+				this_source = yml['name']
+			else:
+				assert isinstance(yml, str)
+				this_source = yml
+
+			visit(this_source)
+
+		# Recursively visit all sources
+		for yml in self._this_yml.get('sources_required', []):
+			visit_yml(yml)
+
+		while sources_stack:
+			source = sources_stack.pop()
+			assert isinstance(source, str)
+			yield source
+
+			for yml in self._cfg.get_source(source)._this_yml.get('sources_required', []):
+				if not isinstance(yml, dict):
+					continue
+				if not yml.get('recursive', False):
+					continue
+				visit_yml(yml)
 
 	@property
 	def tool_dependencies(self):
