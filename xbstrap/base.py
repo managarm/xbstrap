@@ -541,14 +541,12 @@ class RequirementsMixin:
 
 		def visit_yml(yml):
 			if isinstance(yml, dict):
-				visit(yml['name'])
-
-				if yml.get('recursive', False):
-					for source in self._cfg.get_source(yml['name'])._this_yml.get('sources_required', []):
-						visit(yml['name'])
+				this_source = yml['name']
 			else:
 				assert isinstance(yml, str)
-				visit(yml)
+				this_source = yml
+
+			visit(this_source)
 
 		# Recursively visit all sources
 		for yml in self._this_yml.get('sources_required', []):
@@ -560,6 +558,10 @@ class RequirementsMixin:
 			yield source
 
 			for yml in self._cfg.get_source(source)._this_yml.get('sources_required', []):
+				if not isinstance(yml, dict):
+					continue
+				if not yml.get('recursive', False):
+					continue
 				visit_yml(yml)
 
 	@property
