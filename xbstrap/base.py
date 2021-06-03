@@ -544,7 +544,7 @@ class RequirementsMixin:
 				visit(yml['name'])
 
 				if yml.get('recursive', False):
-					for source in self._cfg.get_source(yml['name']).sources_required:
+					for source in self._cfg.get_source(yml['name'])._this_yml.get('sources_required', []):
 						visit(yml['name'])
 			else:
 				assert isinstance(yml, str)
@@ -559,7 +559,7 @@ class RequirementsMixin:
 			assert isinstance(source, str)
 			yield source
 
-			for yml in self._cfg.get_source(source).sources_required:
+			for yml in self._cfg.get_source(source)._this_yml.get('sources_required', []):
 				visit_yml(yml)
 
 	@property
@@ -710,10 +710,6 @@ class Source(RequirementsMixin):
 	@property
 	def is_rolling_version(self):
 		return self._this_yml.get('rolling_version', False)
-
-	@property
-	def sources_required(self):
-		return self._this_yml.get('sources_required', [])
 
 	@property
 	def rolling_id(self):
