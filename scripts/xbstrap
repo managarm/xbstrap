@@ -243,10 +243,22 @@ def select_tools(cfg, args):
 	if args.all:
 		return [tool for tool in cfg.all_tools() if tool.is_default]
 	else:
-		return [cfg.get_tool_pkg(name) for name in args.tools]
+		sel = [cfg.get_target_pkg(name) for name in args.tools]
+
+		if args.build_deps_of is not None:
+			for pkg_name in args.build_deps_of:
+				pkg = cfg.get_target_pkg(pkg_name)
+				for tool in pkg.tool_dependencies:
+					sel.append(cfg.get_tool_pkg(tool))
+
+		# Deduplicate sel
+		sel = list(dict.fromkeys(sel))
+
+		return sel
 
 select_tools.parser = argparse.ArgumentParser(add_help=False)
 select_tools.parser.add_argument('--all', action='store_true')
+select_tools.parser.add_argument('--build-deps-of', type=str, action='append')
 select_tools.parser.add_argument('tools', nargs='*', type=str)
 
 def reconfigure_and_recompile_tools(plan, args, sel):
