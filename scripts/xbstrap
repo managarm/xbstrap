@@ -243,10 +243,22 @@ def select_tools(cfg, args):
 	if args.all:
 		return [tool for tool in cfg.all_tools() if tool.is_default]
 	else:
-		return [cfg.get_tool_pkg(name) for name in args.tools]
+		sel = [cfg.get_target_pkg(name) for name in args.tools]
+
+		if args.build_deps_of is not None:
+			for pkg_name in args.build_deps_of:
+				pkg = cfg.get_target_pkg(pkg_name)
+				for tool in pkg.tool_dependencies:
+					sel.append(cfg.get_tool_pkg(tool))
+
+		# Deduplicate sel
+		sel = list(dict.fromkeys(sel))
+
+		return sel
 
 select_tools.parser = argparse.ArgumentParser(add_help=False)
 select_tools.parser.add_argument('--all', action='store_true')
+select_tools.parser.add_argument('--build-deps-of', type=str, action='append')
 select_tools.parser.add_argument('tools', nargs='*', type=str)
 
 def reconfigure_and_recompile_tools(plan, args, sel):
@@ -448,6 +460,18 @@ def do_download_tool(args):
 	cfg = xbstrap.base.config_for_dir()
 	sel = select_tools(cfg, args)
 
+	if len(sel) == 0:
+		print('{}xbstrap{}: No tools to download'.format(colorama.Style.BRIGHT, colorama.Style.RESET_ALL))
+		return
+
+	if args.dry_run:
+		for tool in sel:
+			url = urllib.parse.urljoin(cfg.tool_archives_url + '/', tool.name + '.tar.gz')
+			print('{}xbstrap{}: Will download tool {} from {}'.format(
+					colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
+					tool.name, url))
+		return
+
 	if cfg.tool_archives_url is None:
 		raise RuntimeError('No repository URL in bootstrap.yml')
 
@@ -468,6 +492,8 @@ def do_download_tool(args):
 
 do_download_tool.parser = main_subparsers.add_parser('download-tool-archive',
 		parents=[select_tools.parser])
+do_download_tool.parser.add_argument('-n', '--dry-run', action='store_true',
+		help="show which tools will be installed but don't download anything")
 do_download_tool.parser.set_defaults(_impl=do_download_tool)
 
 def do_install(args):
