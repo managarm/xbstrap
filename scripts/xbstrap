@@ -460,16 +460,16 @@ def do_download_tool(args):
 	cfg = xbstrap.base.config_for_dir()
 	sel = select_tools(cfg, args)
 
-	if args.dry_run:
-		if len(sel) == 0:
-			print('{}xbstrap{}: No tools to download'.format(colorama.Style.BRIGHT, colorama.Style.RESET_ALL))
+	if len(sel) == 0:
+		print('{}xbstrap{}: No tools to download'.format(colorama.Style.BRIGHT, colorama.Style.RESET_ALL))
+		return
 
+	if args.dry_run:
 		for tool in sel:
 			url = urllib.parse.urljoin(cfg.tool_archives_url + '/', tool.name + '.tar.gz')
 			print('{}xbstrap{}: Will download tool {} from {}'.format(
 					colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
 					tool.name, url))
-		
 		return
 
 	if cfg.tool_archives_url is None:
