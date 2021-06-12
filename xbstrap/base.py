@@ -2191,38 +2191,46 @@ def pack_pkg(cfg, pkg, reproduce=False):
 		if verbosity:
 			output = None
 
-		environ = os.environ.copy()
-		_util.build_environ_paths(environ, 'PATH',
-				prepend=[os.path.join(_util.find_home(), 'bin')])
+		with tempfile.TemporaryDirectory() as pack_dir:
+			installtree(pkg.staging_dir, pack_dir)
 
-		args = ['xbps-create', '-A', pkg.architecture,
-			'-s', pkg.name,
-			'-n', '{}-{}'.format(pkg.name, version),
-			'-D', pkg.xbps_dependency_string()
-		]
 
-		metadata = pkg._this_yml.get('metadata', dict())
-		if 'summary' in metadata:
-			args += ['--desc', metadata['summary']]
-		if 'description' in metadata:
-			args += ['--long-desc', metadata['description']]
-		if 'spdx' in metadata:
-			args += ['--license', metadata['spdx']]
-		if 'website' in metadata:
-			args += ['--homepage', metadata['website']]
-		if 'maintainer' in metadata:
-			args += ['--maintainer', metadata['maintainer']]
-		if 'categories' in metadata:
-			args += ['--tags', ' '.join(metadata['categories'])]
+			# The directory is now prepared, call xbps-create.
+			environ = os.environ.copy()
+			_util.build_environ_paths(environ, 'PATH',
+					prepend=[os.path.join(_util.find_home(), 'bin')])
 
-		args += [pkg.staging_dir]
+			args = ['xbps-create', '-A', pkg.architecture,
+				'-s', pkg.name,
+				'-n', '{}-{}'.format(pkg.name, version),
+				'-D', pkg.xbps_dependency_string()
+			]
 
-		xbps_file = '{}-{}.{}.xbps'.format(pkg.name, version, pkg.architecture)
+			metadata = pkg._this_yml.get('metadata', dict())
+			if 'summary' in metadata:
+				args += ['--desc', metadata['summary']]
+			if 'description' in metadata:
+				args += ['--long-desc', metadata['description']]
+			if 'spdx' in metadata:
+				args += ['--license', metadata['spdx']]
+			if 'website' in metadata:
+				args += ['--homepage', metadata['website']]
+			if 'maintainer' in metadata:
+				args += ['--maintainer', metadata['maintainer']]
+			if 'categories' in metadata:
+				args += ['--tags', ' '.join(metadata['categories'])]
+
+			args += [pack_dir]
+
+			xbps_file = '{}-{}.{}.xbps'.format(pkg.name, version, pkg.architecture)
+
+			_util.log_info("Running {}".format(args))
+			if not reproduce:
+				subprocess.call(args, env=environ, cwd=cfg.xbps_repository_dir, stdout=output)
+			else:
+				subprocess.call(args, env=environ, cwd=cfg.package_out_dir, stdout=output)
 
 		if not reproduce:
-			_util.log_info("Running {}".format(args))
-			subprocess.call(args, env=environ, cwd=cfg.xbps_repository_dir, stdout=output)
-
 			args = ['xbps-rindex', '-fa',
 					os.path.join(cfg.xbps_repository_dir, xbps_file)
 			]
@@ -2235,9 +2243,6 @@ def pack_pkg(cfg, pkg, reproduce=False):
 			_util.log_info("Running {}".format(args))
 			subprocess.call(args, env=environ, stdout=output)
 		else:
-			_util.log_info("Running {}".format(args))
-			subprocess.call(args, env=environ, cwd=cfg.package_out_dir, stdout=output)
-
 			if not filecmp.cmp(os.path.join(cfg.package_out_dir, xbps_file),
 					os.path.join(cfg.xbps_repository_dir, xbps_file),
 					shallow=False):
