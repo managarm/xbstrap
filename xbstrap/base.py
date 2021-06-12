@@ -2279,6 +2279,14 @@ def install_pkg(cfg, pkg):
 				prepend=[os.path.join(_util.find_home(), 'bin')])
 		environ['XBPS_ARCH'] = pkg.architecture
 
+		# Work around xbps: https://github.com/void-linux/xbps/issues/408
+		args = ['xbps-remove', '-Fy',
+			'-r', cfg.sysroot_dir,
+			pkg.name
+		]
+		_util.log_info("Running {}".format(args))
+		subprocess.call(args, env=environ, stdout=output)
+
 		args = ['xbps-install', '-fyU',
 			'-r', cfg.sysroot_dir,
 			'--repository', cfg.xbps_repository_dir,
