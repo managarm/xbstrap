@@ -2262,7 +2262,7 @@ def install_pkg(cfg, pkg):
 				prepend=[os.path.join(_util.find_home(), 'bin')])
 		environ['XBPS_ARCH'] = pkg.architecture
 
-		args = ['xbps-install', '-fy',
+		args = ['xbps-install', '-fyU',
 			'-r', cfg.sysroot_dir,
 			'--repository', cfg.xbps_repository_dir,
 			pkg.name
