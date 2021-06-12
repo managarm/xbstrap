@@ -2185,6 +2185,7 @@ def pack_pkg(cfg, pkg, reproduce=False):
 	version = pkg.compute_version(override_rolling_id=actual_rolling_id)
 
 	if cfg.use_xbps:
+		from . import xbps_utils as _xbps_utils
 		_util.try_mkdir(cfg.xbps_repository_dir)
 
 		output = subprocess.DEVNULL
@@ -2194,6 +2195,10 @@ def pack_pkg(cfg, pkg, reproduce=False):
 		with tempfile.TemporaryDirectory() as pack_dir:
 			installtree(pkg.staging_dir, pack_dir)
 
+			install_sh = _xbps_utils.compose_xbps_install(cfg, pkg)
+			if install_sh:
+				with open(os.path.join(pack_dir, 'INSTALL'), 'wt') as f:
+					f.write(install_sh)
 
 			# The directory is now prepared, call xbps-create.
 			environ = os.environ.copy()

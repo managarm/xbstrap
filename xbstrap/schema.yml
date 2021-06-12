@@ -343,6 +343,22 @@ properties:
                 'tasks':
                     type: array
                     items: { $ref: '#/definitions/nested_task' }
+                'scripts':
+                    type: object
+                    additionalProperties: false
+                    properties:
+                        'post_install':
+                            type: array
+                            items:
+                                type: object
+                                additionalProperties: false
+                                properties:
+                                    'args':
+                                        oneOf:
+                                          - type: string
+                                          - type: array
+                                            items:
+                                                type: string
     'tasks':
         type: array
         items:
