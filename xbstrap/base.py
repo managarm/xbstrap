@@ -1311,7 +1311,14 @@ class TargetPackage(RequirementsMixin):
 					'-r', self._cfg.sysroot_dir,
 					self.name
 				], env=environ)
-				if b'state: installed' not in out.splitlines():
+				valid_state = False
+				for line in out.splitlines():
+					if not line.startswith(b'state:'):
+						continue
+					if line == b'state: installed' or line == b'state: unpacked':
+						valid_state = True
+					break
+				if not valid_state:
 					return ItemState(missing=True)
 				return ItemState()
 			except subprocess.CalledProcessError:
