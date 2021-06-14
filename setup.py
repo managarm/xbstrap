@@ -14,7 +14,11 @@ class CompletionDevelop(develop):
 		if(os.access('/etc/bash_completion.d', os.W_OK)):
 			shutil.copyfile('extrafiles/completion.sh', '/etc/bash_completion.d/xbstrap')
 		else:
-			print('Insufficient permissions to install the completion script to /etc/bash_completion.d')
+			print('Insufficient permissions to install the bash completion script to /etc/bash_completion.d')
+		if(os.access('/usr/share/fish/vendor_completions.d/', os.W_OK)):
+			shutil.copyfile('extrafiles/completion.fish', '/usr/share/fish/vendor_completions.d/xbstrap.fish')
+		else:
+			print('Insufficient permissions to install the fish completion script to /usr/share/fish/vendor_completions.d')
 		develop.run(self)
 
 class CompletionInstall(install):
@@ -22,7 +26,11 @@ class CompletionInstall(install):
 		if(os.access('/etc/bash_completion.d', os.W_OK)):
 			shutil.copyfile('extrafiles/completion.sh', '/etc/bash_completion.d/xbstrap')
 		else:
-			print('Insufficient permissions to install the completion script to /etc/bash_completion.d')
+			print('Insufficient permissions to install the bash completion script to /etc/bash_completion.d')
+		if(os.access('/usr/share/fish/vendor_completions.d/', os.W_OK)):
+			shutil.copyfile('extrafiles/completion.fish', '/usr/share/fish/vendor_completions.d/xbstrap.fish')
+		else:
+			print('Insufficient permissions to install the fish completion script to /usr/share/fish/vendor_completions.d')
 		install.run(self)
 
 setup(name='xbstrap',
