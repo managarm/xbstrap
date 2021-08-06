@@ -328,23 +328,24 @@ do_run_job.parser.add_argument('--keep-going', action='store_true',
 do_run_job.parser.add_argument('--progress-file', type=str,
         help="file that receives machine-ready progress notifications")
 
-args = main_parser.parse_args()
+def main():
+    args = main_parser.parse_args()
 
-colorama.init()
+    colorama.init()
 
-if args.verbose:
-    xbstrap.base.verbosity = True
+    if args.verbose:
+        xbstrap.base.verbosity = True
 
-try:
-    if args.command == 'compute-graph':
-        do_compute_graph(args)
-    elif args.command == 'run-job':
-        do_run_job(args)
-    else:
-        assert not "Unexpected command"
-except (xbstrap.base.ExecutionFailureException, xbstrap.base.PlanFailureException) as e:
-    print('{}xbstrap{}: {}{}{}'.format(colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
-            colorama.Fore.RED, e, colorama.Style.RESET_ALL))
-    sys.exit(1)
-except KeyboardInterrupt as e:
-    sys.exit(1)
+    try:
+        if args.command == 'compute-graph':
+            do_compute_graph(args)
+        elif args.command == 'run-job':
+            do_run_job(args)
+        else:
+            assert not "Unexpected command"
+    except (xbstrap.base.ExecutionFailureException, xbstrap.base.PlanFailureException) as e:
+        print('{}xbstrap{}: {}{}{}'.format(colorama.Style.BRIGHT, colorama.Style.RESET_ALL,
+                colorama.Fore.RED, e, colorama.Style.RESET_ALL))
+        sys.exit(1)
+    except KeyboardInterrupt:
+        sys.exit(1)

@@ -2,7 +2,7 @@
 
 import os
 import shutil
-from setuptools import setup
+from setuptools import find_packages, setup
 from setuptools.command.develop import develop
 from setuptools.command.install import install
 
@@ -35,11 +35,10 @@ class CompletionInstall(install):
 
 setup(name='xbstrap',
     version='0.24',
-    packages=['xbstrap'],
+    packages=find_packages(),
     package_data={
         'xbstrap': ['schema.yml']
     },
-    scripts=['scripts/xbstrap', 'scripts/xbstrap-mirror', 'scripts/xbstrap-pipeline'],
     install_requires=[
         'colorama',
         'jsonschema',
@@ -49,6 +48,13 @@ setup(name='xbstrap',
     cmdclass={
         'develop': CompletionDevelop,
         'install': CompletionInstall,
+    },
+    entry_points={
+        "console_scripts": [
+            "xbstrap = xbstrap:main",
+            "xbstrap-pipeline = xbstrap.pipeline:main",
+            "xbstrap-mirror = xbstrap.mirror:main",
+        ]
     },
 
     # Package metadata.

@@ -44,5 +44,6 @@ update_parser.add_argument('--paranoid', action='store_true',
 update_parser.add_argument('--keep-going', action='store_true',
         help="continue running even if some build steps fail")
 
-main_args = main_parser.parse_args()
-main_args.cmd(main_args)
+def main():
+    main_args = main_parser.parse_args()
+    main_args.cmd(main_args)
