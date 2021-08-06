@@ -38,6 +38,8 @@ class Pipeline:
 			name = 'batch:' + job_yml['name']
 			assert name not in self.jobs
 			job = Job(name, tools, pkgs)
+			if 'capabilities' in job_yml:
+				job.capabilities = set(job_yml['capabilities'])
 			self.jobs[name] = job
 
 			for name in job_yml.get('tasks', []):
@@ -78,6 +80,7 @@ class Job:
 		self.tools = set(tools)
 		self.pkgs = set(pkgs)
 		self.tasks = set()
+		self.capabilities = set()
 		self.unstable = False
 
 def pipeline_for_dir(cfg):
@@ -138,7 +141,8 @@ def do_compute_graph(args):
 
 			out_job = {
 				'unstable': job.unstable,
-				'up2date': up2date
+				'up2date': up2date,
+				'capabilities': list(job.capabilities),
 			}
 			out_job['products'] = {'tools': [], 'pkgs': [], 'files': []}
 			out_job['needed'] = {'tools': [], 'pkgs': []}
