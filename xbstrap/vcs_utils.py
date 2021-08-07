@@ -7,8 +7,8 @@ import subprocess
 import urllib.request
 from enum import Enum
 
-from . import util as _util
-from .base import GenericError
+import xbstrap.util as _util
+from xbstrap.exceptions import GenericError
 
 
 class RepoStatus(Enum):

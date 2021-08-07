@@ -20,8 +20,9 @@ import colorama
 import jsonschema
 import yaml
 
-from . import util as _util
-from . import vcs_utils as _vcs_utils
+import xbstrap.util as _util
+import xbstrap.vcs_utils as _vcs_utils
+from xbstrap.exceptions import GenericError, RollingIdUnavailableError
 
 verbosity = False
 debug_manifests = False
@@ -139,15 +140,6 @@ def installtree(src_root, dest_root):
         else:
             try_unlink(dest_path)
             shutil.copy2(src_path, dest_path)
-
-
-class GenericError(Exception):
-    pass
-
-
-class RollingIdUnavailableError(Exception):
-    def __init__(self, name):
-        super().__init__("No rolling_id specified for source {}".format(name))
 
 
 class ResetMode(Enum):

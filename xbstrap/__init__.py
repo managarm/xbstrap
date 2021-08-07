@@ -13,6 +13,7 @@ import yaml
 
 import xbstrap.base
 import xbstrap.cli_utils
+import xbstrap.exceptions
 import xbstrap.util
 
 # ---------------------------------------------------------------------------------------
@@ -942,7 +943,7 @@ def main():
     except (
         xbstrap.base.ExecutionFailureError,
         xbstrap.base.PlanFailureError,
-        xbstrap.base.GenericError,
+        xbstrap.exceptions.GenericError,
     ) as e:
         xbstrap.util.log_err(e)
         sys.exit(1)
