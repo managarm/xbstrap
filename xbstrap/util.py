@@ -79,7 +79,10 @@ def interactive_download(url, path):
         if istty:
             rewind = "\r"
         else:
-            discrete = lambda n: int(10 * n * block_size / file_size)
+
+            def discrete(n):
+                return int(10 * n * block_size / file_size)
+
             if num_blocks > 0 and discrete(num_blocks - 1) == discrete(num_blocks):
                 return
             newline = "\n"

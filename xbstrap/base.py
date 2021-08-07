@@ -71,7 +71,7 @@ def load_bootstrap_yaml(path):
 
 
 def touch(path):
-    with open(path, "w") as f:
+    with open(path, "w"):
         pass
 
 
@@ -113,7 +113,7 @@ def replace_at_vars(string, resolve):
         varname = m.group(1)
         result = resolve(varname)
         if result is None:
-            raise GenericException("Unexpected substitution {}".format(varname))
+            raise GenericError("Unexpected substitution {}".format(varname))
         return result
 
     return re.sub(r"@([\w:-]+)@", do_substitute, string)
@@ -141,12 +141,11 @@ def installtree(src_root, dest_root):
             shutil.copy2(src_path, dest_path)
 
 
-class GenericException(Exception):
-    def __init__(self, msg):
-        super().__init__(msg)
+class GenericError(Exception):
+    pass
 
 
-class RollingIdUnavailableException(Exception):
+class RollingIdUnavailableError(Exception):
     def __init__(self, name):
         super().__init__("No rolling_id specified for source {}".format(name))
 
@@ -236,12 +235,12 @@ class Config:
     ):
         if "imports" in current_yml and isinstance(current_yml["imports"], list):
             if current_yml is not self._root_yml:
-                raise GenericException("Nested imports are not supported")
+                raise GenericError("Nested imports are not supported")
             for import_def in current_yml["imports"]:
                 if "from" not in import_def and "file" not in import_def:
-                    raise GenericException("Unexpected data in import")
+                    raise GenericError("Unexpected data in import")
                 elif "from" in import_def and "file" in import_def:
-                    raise GenericException("Unexpected data in import")
+                    raise GenericError("Unexpected data in import")
 
                 if "from" in import_def:
                     import_path = os.path.join(
@@ -277,7 +276,7 @@ class Config:
                 if not (filter_sources is None) and (src.name not in filter_sources):
                     continue
                 if src.name in self._sources:
-                    raise GenericException("Duplicate source {}".format(src.name))
+                    raise GenericError("Duplicate source {}".format(src.name))
                 self._sources[src.name] = src
 
         if "tools" in current_yml and isinstance(current_yml["tools"], list):
@@ -285,7 +284,7 @@ class Config:
                 if "source" in pkg_yml:
                     src = Source(self, pkg_yml["name"], pkg_yml["source"])
                     if src.name in self._sources:
-                        raise GenericException("Duplicate source {}".format(src.name))
+                        raise GenericError("Duplicate source {}".format(src.name))
                     self._sources[src.name] = src
                 pkg = HostPackage(self, pkg_yml)
                 if not (filter_tools is None) and (pkg.name not in filter_tools):
@@ -297,7 +296,7 @@ class Config:
                 if "source" in pkg_yml:
                     src = Source(self, pkg_yml["name"], pkg_yml["source"])
                     if src.name in self._sources:
-                        raise GenericException("Duplicate source {}".format(src.name))
+                        raise GenericError("Duplicate source {}".format(src.name))
                     self._sources[src.name] = src
                 pkg = TargetPackage(self, pkg_yml)
                 if not (filter_pkgs is None) and (pkg.name not in filter_pkgs):
@@ -306,11 +305,11 @@ class Config:
 
         if "tasks" in current_yml and isinstance(current_yml["tasks"], list):
             for task_yml in current_yml["tasks"]:
-                if not "name" in task_yml:
+                if "name" not in task_yml:
                     raise RuntimeError("no name specified for task")
+                task = RunTask(self, task_yml)
                 if not (filter_tasks is None) and (task.name not in filter_tasks):
                     continue
-                task = RunTask(self, task_yml)
                 self._tasks[task.name] = task
 
     @property
@@ -505,11 +504,11 @@ class Config:
 
         if "match" in label_yml:
             match_list = label_yml["match"]
-            if not any(l in s for l in match_list):
+            if not any(x in s for x in match_list):
                 return False
 
         ban_list = label_yml.get("ban", [])
-        if any(l in s for l in ban_list):
+        if any(x in s for x in ban_list):
             return False
 
         return True
@@ -521,16 +520,16 @@ class Config:
         if name in self._tool_pkgs:
             tool = self._tool_pkgs[name]
             if not self.check_labels(tool.label_set):
-                raise GenericException(f"Tool {name} does not match label configuration")
+                raise GenericError(f"Tool {name} does not match label configuration")
             return tool
         else:
-            raise GenericException(f"Unknown tool {name}")
+            raise GenericError(f"Unknown tool {name}")
 
     def get_task(self, name):
         if name in self._tasks:
             return self._tasks[name]
         else:
-            raise GenericException(f"Unknown task {name}")
+            raise GenericError(f"Unknown task {name}")
 
     def all_sources(self):
         yield from self._sources.values()
@@ -551,10 +550,10 @@ class Config:
         if name in self._target_pkgs:
             pkg = self._target_pkgs[name]
             if not self.check_labels(pkg.label_set):
-                raise GenericException(f"Package {name} does not match label configuration")
+                raise GenericError(f"Package {name} does not match label configuration")
             return pkg
         else:
-            raise GenericException(f"Unknown package {name}")
+            raise GenericError(f"Unknown package {name}")
 
 
 class ScriptStep:
@@ -791,7 +790,7 @@ class Source(RequirementsMixin):
             assert len(out) == 1
             return out[0]
         else:
-            raise GenericException(
+            raise GenericError(
                 "Source {} does not have a variable checkout commit".format(self.name)
             )
 
@@ -804,7 +803,7 @@ class Source(RequirementsMixin):
         commit_yml = self._cfg._commit_yml.get("commits", dict()).get(self._name, dict())
         rolling_id = commit_yml.get("rolling_id")
         if rolling_id is None:
-            raise RollingIdUnavailableException(self._name)
+            raise RollingIdUnavailableError(self._name)
         return rolling_id
 
     def determine_rolling_id(self):
@@ -818,9 +817,9 @@ class Source(RequirementsMixin):
                 .strip()
             )
             if shallow_stdout == "true":
-                raise GenericException(
-                    "Cannot determine rolling version ID of source {} form shallow Git repository"
-                    .format(self._name)
+                raise GenericError(
+                    "Cannot determine rolling version ID of source {} "
+                    "from shallow Git repository".format(self._name)
                 )
             else:
                 assert shallow_stdout == "false"
@@ -836,7 +835,7 @@ class Source(RequirementsMixin):
                 if "commit" in self._this_yml:
                     tracking_ref = self._this_yml["commit"]
                     if fixed_commit is not None:
-                        raise GenericException(
+                        raise GenericError(
                             "Commit of source {} cannot be fixed in bootstrap-commits.yml: commit"
                             " is already fixed in bootstrap.yml".format(self.name)
                         )
@@ -853,7 +852,7 @@ class Source(RequirementsMixin):
                     .strip()
                 )
             except subprocess.CalledProcessError:
-                raise GenericException(
+                raise GenericError(
                     "Unable to determine rolling version ID of source {} via Git".format(
                         self._name
                     )
@@ -861,7 +860,7 @@ class Source(RequirementsMixin):
             # Make sure that we get a valid number.
             return str(int(count_out))
         else:
-            raise GenericException("@ROLLING_ID@ requires git")
+            raise GenericError("@ROLLING_ID@ requires git")
 
     @property
     def has_explicit_version(self):
@@ -1094,7 +1093,7 @@ class HostPackage(RequirementsMixin):
 
         if "tasks" in self._this_yml:
             for task_yml in self._this_yml["tasks"]:
-                if not "name" in task_yml:
+                if "name" not in task_yml:
                     raise RuntimeError("no name specified in task of tool {}".format(self.name))
                 self._tasks[task_yml["name"]] = PackageRunTask(cfg, self, task_yml)
 
@@ -1186,7 +1185,7 @@ class HostPackage(RequirementsMixin):
         if task in self._tasks:
             return self._tasks[task]
         else:
-            raise GenericException(f"Unknown task {task} in tool {self.name}")
+            raise GenericError(f"Unknown task {task} in tool {self.name}")
 
     @property
     def architecture(self):
@@ -1209,7 +1208,7 @@ class HostPackage(RequirementsMixin):
 
         revision = self._this_yml.get("revision", 1)
         if revision < 1:
-            raise GenericException("Tool {} specifies a revision < 1".format(self.name))
+            raise GenericError("Tool {} specifies a revision < 1".format(self.name))
 
         return source.compute_version(**kwargs) + "_" + str(revision)
 
@@ -1265,7 +1264,7 @@ class TargetPackage(RequirementsMixin):
 
         if "tasks" in self._this_yml:
             for task_yml in self._this_yml["tasks"]:
-                if not "name" in task_yml:
+                if "name" not in task_yml:
                     raise RuntimeError("no name specified in task of package {}".format(self.name))
                 self._tasks[task_yml["name"]] = PackageRunTask(cfg, self, task_yml)
 
@@ -1358,7 +1357,7 @@ class TargetPackage(RequirementsMixin):
 
         revision = self._this_yml.get("revision", 1)
         if revision < 1:
-            raise GenericException("Package {} specifies a revision < 1".format(self.name))
+            raise GenericError("Package {} specifies a revision < 1".format(self.name))
 
         return source.compute_version(**kwargs) + "_" + str(revision)
 
@@ -1370,7 +1369,7 @@ class TargetPackage(RequirementsMixin):
         if task in self._tasks:
             return self._tasks[task]
         else:
-            raise GenericException(f"Unknown task {task} in package {self.name}")
+            raise GenericError(f"Unknown task {task} in package {self.name}")
 
     def check_if_configured(self, settings):
         path = os.path.join(self.build_dir, "configured.xbstrap")
@@ -1400,7 +1399,7 @@ class TargetPackage(RequirementsMixin):
             environ["XBPS_ARCH"] = self.architecture
 
             try:
-                out = subprocess.check_output(
+                subprocess.check_call(
                     ["xbps-query", "--repository=" + self._cfg.xbps_repository_dir, self.name],
                     env=environ,
                 )
@@ -1408,7 +1407,7 @@ class TargetPackage(RequirementsMixin):
             except subprocess.CalledProcessError:
                 return ItemState(missing=True)
         else:
-            raise GenericException("Package management configuration does not support pack")
+            raise GenericError("Package management configuration does not support pack")
 
     def check_if_installed(self, settings):
         if self._cfg.use_xbps:
@@ -1528,7 +1527,7 @@ class RunTask(RequirementsMixin):
             elif varname == "SYSROOT_DIR":
                 return self._cfg.sysroot_dir
             elif varname.startswith("OPTION:"):
-                return cfg.get_option_value(varname[7:])
+                return self._cfg.get_option_value(varname[7:])
 
         entries = self._this_yml.get("artifact_files", [])
         for e in entries:
@@ -1619,7 +1618,7 @@ def execute_manifest(manifest):
             os.chmod(vscript, 0o775)
             explicit_pkgconfig = True
         else:
-            raise GenericException("Unknown virtual tool {}".format(yml["virtual"]))
+            raise GenericError("Unknown virtual tool {}".format(yml["virtual"]))
 
     # Determine the arguments.
     if isinstance(manifest["args"], list):
@@ -1688,7 +1687,7 @@ def execute_manifest(manifest):
         elif manifest["context"] is None:
             workdir = build_root
         else:
-            raise GenericException("Unexpected context")
+            raise GenericError("Unexpected context")
 
     subprocess.check_call(args, env=environ, cwd=workdir, stdout=output, stderr=output)
 
@@ -1817,10 +1816,10 @@ def run_program(
             proc = subprocess.Popen(["xbstrap", "execute-manifest", "-c", yaml.dump(manifest)])
             proc.wait()
             if proc.returncode != 0:
-                raise ProgramFailureException()
+                raise ProgramFailureError()
         elif runtime == "docker":
             if any(prop not in container_yml for prop in ["src_mount", "build_mount", "image"]):
-                raise GenericException(
+                raise GenericError(
                     "Docker runtime requires src_mount, build_mount and image properties"
                 )
 
@@ -1859,7 +1858,7 @@ def run_program(
             proc = subprocess.Popen(docker_args)
             proc.wait()
             if proc.returncode != 0:
-                raise ProgramFailureException()
+                raise ProgramFailureError()
         elif runtime == "runc":
             manifest["source_root"] = container_yml["src_mount"]
             manifest["build_root"] = container_yml["build_mount"]
@@ -1930,7 +1929,7 @@ def run_program(
                 proc = subprocess.Popen(["runc", "run", "-b", bundle_dir, container_yml["id"]])
                 proc.wait()
                 if proc.returncode != 0:
-                    raise ProgramFailureException()
+                    raise ProgramFailureError()
         else:
             assert runtime == "cbuildrt"
 
@@ -1968,7 +1967,7 @@ def run_program(
                 proc = subprocess.Popen(["cbuildrt", f.name], env=environ)
                 proc.wait()
                 if proc.returncode != 0:
-                    raise ProgramFailureException()
+                    raise ProgramFailureError()
     else:
         manifest["source_root"] = cfg.source_root
         manifest["build_root"] = cfg.build_root
@@ -2040,7 +2039,7 @@ def checkout_src(cfg, src, settings):
 
         if "tag" in source:
             if fixed_commit is not None:
-                raise GenericException(
+                raise GenericError(
                     "Commit of source {} cannot be fixed in bootstrap-commits.yml: source builds"
                     " form a branch".format(src.name)
                 )
@@ -2053,7 +2052,7 @@ def checkout_src(cfg, src, settings):
                     cwd=src.source_dir,
                 )
             else:
-                raise GenericException(
+                raise GenericError(
                     "Refusing to checkout tag '{}' of source {}".format(source["tag"], src.name)
                 )
         else:
@@ -2061,7 +2060,7 @@ def checkout_src(cfg, src, settings):
             if "commit" in source:
                 commit = source["commit"]
                 if fixed_commit is not None:
-                    raise GenericException(
+                    raise GenericError(
                         "Commit of source {} cannot be fixed in bootstrap-commits.yml: commit is"
                         " already fixed in bootstrap.yml".format(src.name)
                     )
@@ -2186,8 +2185,6 @@ def regenerate_src(cfg, src):
 
 
 def configure_tool(cfg, pkg):
-    src = cfg.get_source(pkg.source)
-
     try_rmtree(pkg.build_dir)
     _util.try_mkdir(pkg.build_dir, True)
 
@@ -2203,7 +2200,6 @@ def configure_tool(cfg, pkg):
 
 def compile_tool_stage(cfg, stage):
     pkg = stage.pkg
-    src = cfg.get_source(pkg.source)
 
     for step in stage.compile_steps:
         tool_pkgs = []
@@ -2225,10 +2221,10 @@ def install_tool_stage(cfg, stage):
         actual_rolling_id = src.determine_rolling_id()
         try:
             if src.rolling_id != actual_rolling_id:
-                raise GenericException(
+                raise GenericError(
                     "Rolling ID of tool {} does not match true rolling ID".format(tool.name)
                 )
-        except RollingIdUnavailableException:
+        except RollingIdUnavailableError:
             pass
     else:
         actual_rolling_id = None
@@ -2265,8 +2261,6 @@ def archive_tool(cfg, tool):
 
 
 def configure_pkg(cfg, pkg):
-    src = cfg.get_source(pkg.source)
-
     try_rmtree(pkg.build_dir)
     _util.try_mkdir(pkg.build_dir, True)
 
@@ -2281,8 +2275,6 @@ def configure_pkg(cfg, pkg):
 
 
 def build_pkg(cfg, pkg, reproduce=False):
-    src = cfg.get_source(pkg.source)
-
     _util.try_mkdir(cfg.package_out_dir)
     try_rmtree(pkg.collect_dir)
     os.mkdir(pkg.collect_dir)
@@ -2320,11 +2312,11 @@ def build_pkg(cfg, pkg, reproduce=False):
         repro_only = repro_paths.difference(exist_paths)
         exist_only = exist_paths.difference(repro_paths)
         if repro_only:
-            raise GenericException(
+            raise GenericError(
                 "Paths {} only exist in reproducted build".format(", ".join(repro_only))
             )
         if exist_only:
-            raise GenericException(
+            raise GenericError(
                 "Paths {} only exist in existing build".format(", ".join(repro_only))
             )
 
@@ -2351,7 +2343,7 @@ def build_pkg(cfg, pkg, reproduce=False):
         if not any_issues:
             _util.log_info("Build was reproduced exactly")
         else:
-            raise GenericException("Could not reproduce all files")
+            raise GenericError("Could not reproduce all files")
 
 
 def pack_pkg(cfg, pkg, reproduce=False):
@@ -2361,10 +2353,10 @@ def pack_pkg(cfg, pkg, reproduce=False):
         actual_rolling_id = src.determine_rolling_id()
         try:
             if src.rolling_id != actual_rolling_id:
-                raise GenericException(
+                raise GenericError(
                     "Rolling ID of package {} does not match true rolling ID".format(pkg.name)
                 )
-        except RollingIdUnavailableException:
+        except RollingIdUnavailableError:
             pass
     else:
         actual_rolling_id = None
@@ -2452,11 +2444,11 @@ def pack_pkg(cfg, pkg, reproduce=False):
                 shallow=False,
             ):
                 _util.log_info("Mismatch in {}".format(xbps_file))
-                raise GenericException("Could not reproduce pack")
+                raise GenericError("Could not reproduce pack")
 
             _util.log_info("Pack was reproduced exactly")
     else:
-        raise GenericException("Package management configuration does not support pack")
+        raise GenericError("Package management configuration does not support pack")
 
 
 def install_pkg(cfg, pkg):
@@ -2528,7 +2520,7 @@ def pull_pkg_pack(cfg, pkg):
     # Find the package within the repodata's index file.
     index = _xbps_utils.read_repodata(rd_path)
     if pkg.name not in index:
-        raise GenericException("Package {} not found in remote repository".format(pkg.name))
+        raise GenericError("Package {} not found in remote repository".format(pkg.name))
     assert "pkgver" in index[pkg.name]
 
     # Download the xbps file.
@@ -2569,8 +2561,6 @@ def run_task(cfg, task):
 
 
 def run_pkg_task(cfg, task):
-    src = cfg.get_source(task.pkg.source)
-
     tools_required = []
     for dep_name in task.pkg.tool_dependencies:
         tools_required.append(cfg.get_tool_pkg(dep_name))
@@ -2587,8 +2577,6 @@ def run_pkg_task(cfg, task):
 
 
 def run_tool_task(cfg, task):
-    src = cfg.get_source(task.pkg.source)
-
     tools_required = []
     for dep_name in task.pkg.tool_dependencies:
         tools_required.append(cfg.get_tool_pkg(dep_name))
@@ -2762,12 +2750,12 @@ class PlanItem:
         self._state = visitors[self.action](self.subject, self.settings)
 
 
-class ProgramFailureException(Exception):
+class ProgramFailureError(Exception):
     def __init__(self):
         super().__init__("Program failed")
 
 
-class ExecutionFailureException(Exception):
+class ExecutionFailureError(Exception):
     def __init__(self, step, subject):
         super().__init__(
             "Action {} of {} {} failed".format(
@@ -2778,7 +2766,7 @@ class ExecutionFailureException(Exception):
         self.subject = subject
 
 
-class PlanFailureException(Exception):
+class PlanFailureError(Exception):
     def __init__(self):
         super().__init__("Plan failed")
 
@@ -2844,8 +2832,6 @@ class Plan:
             for task_name in s.tasks_ordered_before:
                 dep_task = self._cfg.get_task(task_name)
                 item.order_before_edges.add((action.RUN, dep_task))
-
-        sid = subject.subject_id
 
         if action == Action.FETCH_SRC:
             # FETCH_SRC has no dependencies.
@@ -2972,7 +2958,6 @@ class Plan:
         for pair in edges:
             if pair not in self._items:
                 continue
-            edge_item = self._items[pair]
             item.edge_list.append(pair)
 
     def _do_materialization(self):
@@ -3012,7 +2997,7 @@ class Plan:
             elif item.plan_state == PlanState.EXPANDING:
                 for circ_item in stack:
                     print(Action.strings[circ_item.action], circ_item.subject.subject_id)
-                raise GenericException("Package has circular dependencies")
+                raise GenericError("Package has circular dependencies")
             else:
                 # Packages that are already ordered do not need to be considered again.
                 assert item.plan_state == PlanState.ORDERED
@@ -3233,7 +3218,7 @@ class Plan:
 
             if self.only_wanted and (action, subject) not in self.wanted:
                 if not self.keep_going:
-                    raise ExecutionFailureException(action, subject)
+                    raise ExecutionFailureError(action, subject)
                 item.exec_status = ExecutionStatus.NOT_WANTED
                 emit_progress("not-wanted")
                 any_failed_items = True
@@ -3287,11 +3272,11 @@ class Plan:
                 elif action == Action.WANT_TOOL:
                     # 'want' actions denote dependencies outside of the build scope.
                     # If they are activated, the plan fails unconditionally.
-                    raise ExecutionFailureException(action, subject)
+                    raise ExecutionFailureError(action, subject)
                 elif action == Action.WANT_PKG:
                     # 'want' actions denote dependencies outside of the build scope.
                     # If they are activated, the plan fails unconditionally.
-                    raise ExecutionFailureException(action, subject)
+                    raise ExecutionFailureError(action, subject)
                 elif action == Action.MIRROR_SRC:
                     mirror_src(self._cfg, subject)
                 else:
@@ -3300,13 +3285,13 @@ class Plan:
                 emit_progress("success")
             except (
                 subprocess.CalledProcessError,
-                ProgramFailureException,
-                ExecutionFailureException,
+                ProgramFailureError,
+                ExecutionFailureError,
             ):
                 item.exec_status = ExecutionStatus.STEP_FAILED
                 emit_progress("failure")
                 if not self.keep_going:
-                    raise ExecutionFailureException(action, subject)
+                    raise ExecutionFailureError(action, subject)
                 any_failed_items = True
 
         if any_failed_items:
@@ -3337,4 +3322,4 @@ class Plan:
                     print(" (not wanted)", end="")
                 print()
 
-            raise PlanFailureException()
+            raise PlanFailureError()

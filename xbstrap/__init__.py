@@ -183,7 +183,6 @@ handle_plan_args.parser.add_argument(
 
 def do_list_srcs(args):
     cfg = xbstrap.base.config_for_dir()
-    plan = xbstrap.base.Plan(cfg)
     for src in cfg.all_sources():
         print("Source: {}".format(src.name))
 
@@ -941,9 +940,9 @@ def main():
         else:
             assert not "Unexpected command"
     except (
-        xbstrap.base.ExecutionFailureException,
-        xbstrap.base.PlanFailureException,
-        xbstrap.base.GenericException,
+        xbstrap.base.ExecutionFailureError,
+        xbstrap.base.PlanFailureError,
+        xbstrap.base.GenericError,
     ) as e:
         xbstrap.util.log_err(e)
         sys.exit(1)

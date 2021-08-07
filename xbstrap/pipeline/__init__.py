@@ -378,8 +378,8 @@ def main():
         else:
             assert not "Unexpected command"
     except (
-        xbstrap.base.ExecutionFailureException,
-        xbstrap.base.PlanFailureException,
+        xbstrap.base.ExecutionFailureError,
+        xbstrap.base.PlanFailureError,
     ) as e:
         print(
             "{}xbstrap{}: {}{}{}".format(

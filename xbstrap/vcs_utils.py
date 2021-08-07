@@ -8,6 +8,7 @@ import urllib.request
 from enum import Enum
 
 from . import util as _util
+from .base import GenericError
 
 
 class RepoStatus(Enum):
@@ -157,7 +158,7 @@ def fetch_repo(cfg, src, subdir, *, ignore_mirror=False, bare_repo=False):
 
         git = shutil.which("git")
         if git is None:
-            raise GenericException("git not found; please install it and retry")
+            raise GenericError("git not found; please install it and retry")
         commit_yml = cfg._commit_yml.get("commits", dict()).get(src.name, dict())
         fixed_commit = commit_yml.get("fixed_commit", None)
 
@@ -234,7 +235,7 @@ def fetch_repo(cfg, src, subdir, *, ignore_mirror=False, bare_repo=False):
 
         hg = shutil.which("hg")
         if hg is None:
-            raise GenericException("mercurial (hg) not found; please install it and retry")
+            raise GenericError("mercurial (hg) not found; please install it and retry")
         _util.try_mkdir(source_dir)
         args = [hg, "clone", source["hg"], source_dir]
         subprocess.check_call(args)
@@ -243,7 +244,7 @@ def fetch_repo(cfg, src, subdir, *, ignore_mirror=False, bare_repo=False):
 
         svn = shutil.which("svn")
         if svn is None:
-            raise GenericException("subversion (svn) not found; please install it and retry")
+            raise GenericError("subversion (svn) not found; please install it and retry")
         _util.try_mkdir(source_dir)
         args = [svn, "co", source["svn"], source_dir]
         subprocess.check_call(args)
