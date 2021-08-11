@@ -172,6 +172,7 @@ class Config:
 		self._tool_stages = dict()
 		self._target_pkgs = dict()
 		self._tasks = dict()
+		self._site_archs = set()
 
 		self._bootstrap_path = os.path.join(path,
 				os.path.dirname(os.readlink(os.path.join(path, 'bootstrap.link'))))
@@ -194,6 +195,16 @@ class Config:
 
 		self._parse_yml(os.path.join(path, os.readlink(os.path.join(path, 'bootstrap.link'))),
 				self._root_yml)
+
+		# Collect all architectures that this build uses.
+		for tool in self._tool_pkgs.values():
+			arch = tool.architecture
+			if arch != 'noarch':
+				self._site_archs.add(arch)
+		for pkg in self._target_pkgs.values():
+			arch = pkg.architecture
+			if arch != 'noarch':
+				self._site_archs.add(arch)
 
 	def _parse_yml(self, current_path, current_yml,
 			filter_sources = None, filter_tools = None, filter_pkgs = None, filter_tasks = None):
@@ -318,6 +329,10 @@ class Config:
 		if 'container' not in self._site_yml:
 			return None
 		return self._site_yml['container'].get('runtime')
+
+	@property
+	def site_architectures(self):
+		return self._site_archs
 
 	@property
 	def source_root(self):
@@ -2243,17 +2258,21 @@ def pack_pkg(cfg, pkg, reproduce=False):
 				subprocess.call(args, env=environ, cwd=cfg.package_out_dir, stdout=output)
 
 		if not reproduce:
-			args = ['xbps-rindex', '-fa',
-					os.path.join(cfg.xbps_repository_dir, xbps_file)
-			]
+			rindex_archs = [pkg.architecture]
+			if pkg.architecture == 'noarch':
+				rindex_archs = cfg.site_architectures
+			for arch in rindex_archs:
+				args = ['xbps-rindex', '-fa',
+						os.path.join(cfg.xbps_repository_dir, xbps_file)
+				]
 
-			environ = os.environ.copy()
-			_util.build_environ_paths(environ, 'PATH',
-					prepend=[os.path.join(_util.find_home(), 'bin')])
-			environ['XBPS_ARCH'] = pkg.architecture
+				environ = os.environ.copy()
+				_util.build_environ_paths(environ, 'PATH',
+						prepend=[os.path.join(_util.find_home(), 'bin')])
+				environ['XBPS_ARCH'] = arch
 
-			_util.log_info("Running {}".format(args))
-			subprocess.call(args, env=environ, stdout=output)
+				_util.log_info("Running {} ({})".format(args, arch))
+				subprocess.call(args, env=environ, stdout=output)
 		else:
 			if not filecmp.cmp(os.path.join(cfg.package_out_dir, xbps_file),
 					os.path.join(cfg.xbps_repository_dir, xbps_file),
@@ -2274,10 +2293,16 @@ def install_pkg(cfg, pkg):
 		if verbosity:
 			output = None
 
+		# noarch pkgs use the first "true" architecture.
+		# TODO: this should be dependent on the sysroot that we are installing into.
+		effective_arch = pkg.architecture
+		if pkg.architecture == 'noarch':
+			effective_arch = list(cfg.site_architectures)[0]
+
 		environ = os.environ.copy()
 		_util.build_environ_paths(environ, 'PATH',
 				prepend=[os.path.join(_util.find_home(), 'bin')])
-		environ['XBPS_ARCH'] = pkg.architecture
+		environ['XBPS_ARCH'] = effective_arch
 
 		# Work around xbps: https://github.com/void-linux/xbps/issues/408
 		args = ['xbps-remove', '-Fy',
@@ -2309,10 +2334,15 @@ def pull_pkg_pack(cfg, pkg):
 
 	_util.try_mkdir(cfg.xbps_repository_dir)
 
+	# noarch pkgs use the first "true" architecture.
+	effective_arch = pkg.architecture
+	if pkg.architecture == 'noarch':
+		effective_arch = list(cfg.site_architectures)[0]
+
 	# Download the repodata file.
-	rd_path = os.path.join(cfg.xbps_repository_dir, 'remote-{}-repodata'.format(pkg.architecture))
-	rd_url = urllib.parse.urljoin(repo_url + '/', '{}-repodata'.format(pkg.architecture))
-	_util.log_info('Downloading {}-repodata from {}'.format(repo_url, pkg.architecture))
+	rd_path = os.path.join(cfg.xbps_repository_dir, 'remote-{}-repodata'.format(effective_arch))
+	rd_url = urllib.parse.urljoin(repo_url + '/', '{}-repodata'.format(effective_arch))
+	_util.log_info('Downloading {}-repodata from {}'.format(effective_arch, repo_url))
 	_util.interactive_download(rd_url, rd_path)
 
 	# Find the package within the repodata's index file.
@@ -2332,17 +2362,21 @@ def pull_pkg_pack(cfg, pkg):
 	if verbosity:
 		output = None
 
-	args = ['xbps-rindex', '-fa',
-			os.path.join(cfg.xbps_repository_dir, xbps_file)
-	]
+	rindex_archs = [pkg.architecture]
+	if pkg.architecture == 'noarch':
+		rindex_archs = cfg.site_architectures
+	for arch in rindex_archs:
+		args = ['xbps-rindex', '-fa',
+				os.path.join(cfg.xbps_repository_dir, xbps_file)
+		]
 
-	environ = os.environ.copy()
-	_util.build_environ_paths(environ, 'PATH',
-			prepend=[os.path.join(_util.find_home(), 'bin')])
-	environ['XBPS_ARCH'] = pkg.architecture
+		environ = os.environ.copy()
+		_util.build_environ_paths(environ, 'PATH',
+				prepend=[os.path.join(_util.find_home(), 'bin')])
+		environ['XBPS_ARCH'] = arch
 
-	_util.log_info("Running {}".format(args))
-	subprocess.call(args, env=environ, stdout=output)
+		_util.log_info("Running {} ({})".format(args, arch))
+		subprocess.call(args, env=environ, stdout=output)
 
 def run_task(cfg, task):
 	tools_required = []
