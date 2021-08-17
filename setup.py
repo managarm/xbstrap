@@ -45,6 +45,14 @@ setup(name='xbstrap',
         'pyyaml',
         'zstandard', # For xbps support.
     ],
+    extras_require={
+        "test": [
+            "black",
+            "flake8",
+            "pep8-naming",
+            "flake8-isort",
+        ]
+    },
     cmdclass={
         'develop': CompletionDevelop,
         'install': CompletionInstall,

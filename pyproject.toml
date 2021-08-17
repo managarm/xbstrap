@@ -1,0 +1,8 @@
+# unfortunately, black chooses not to support setup.cfg
+[tool.black]
+line-length = 99
+target-version = ["py37"]
+
+[tool.isort]
+py_version = 37
+profile = "black"
