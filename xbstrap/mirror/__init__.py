@@ -6,8 +6,9 @@ import argparse
 import xbstrap.base
 
 main_parser = argparse.ArgumentParser()
-main_subcmds = main_parser.add_subparsers(metavar='<command>')
+main_subcmds = main_parser.add_subparsers(metavar="<command>")
 main_subcmds.required = True
+
 
 def do_update(args):
     cfg = xbstrap.base.config_for_dir()
@@ -31,18 +32,32 @@ def do_update(args):
 
     plan.run_plan()
 
-update_parser = main_subcmds.add_parser('update')
+
+update_parser = main_subcmds.add_parser("update")
 update_parser.set_defaults(cmd=do_update)
-update_parser.add_argument('-n', '--dry-run', action='store_true',
-        help="compute a plan but do not execute it")
-update_parser.add_argument('-C', '--no-check', action='store_true',
-        help="do not skip packages that are already built/installed/etc.")
-update_parser.add_argument('-U', '--no-update', action='store_true',
-        help="do not check for package updates")
-update_parser.add_argument('--paranoid', action='store_true',
-        help="also consider unlikely updates (e.g., changes of git tags)")
-update_parser.add_argument('--keep-going', action='store_true',
-        help="continue running even if some build steps fail")
+update_parser.add_argument(
+    "-n", "--dry-run", action="store_true", help="compute a plan but do not execute it"
+)
+update_parser.add_argument(
+    "-C",
+    "--no-check",
+    action="store_true",
+    help="do not skip packages that are already built/installed/etc.",
+)
+update_parser.add_argument(
+    "-U", "--no-update", action="store_true", help="do not check for package updates"
+)
+update_parser.add_argument(
+    "--paranoid",
+    action="store_true",
+    help="also consider unlikely updates (e.g., changes of git tags)",
+)
+update_parser.add_argument(
+    "--keep-going",
+    action="store_true",
+    help="continue running even if some build steps fail",
+)
+
 
 def main():
     main_args = main_parser.parse_args()

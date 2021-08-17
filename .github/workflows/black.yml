@@ -1,0 +1,20 @@
+name: Lint and check formatting
+
+on: [push, pull_request]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-python@v2
+        with:
+          python-version: '3.7'
+      - name: Install the test requirements
+        run: "pip install '.[test]'"
+      - uses: psf/black@stable
+      - uses: suo/flake8-github-action@releases/v1
+        with:
+          checkName: lint  # needs to be the same as job name
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
