@@ -1585,6 +1585,19 @@ def execute_manifest(manifest):
                 paths.append(
                     os.path.join(build_root, tool_yml["prefix_subdir"], "share/pkgconfig")
                 )
+
+                if os.uname().sysname == "Linux":
+                    paths.append(
+                        os.path.join(
+                            build_root,
+                            tool_yml["prefix_subdir"],
+                            "lib/" + os.uname().machine + "-linux-gnu/pkgconfig",
+                        )
+                    )
+
+            if os.uname().sysname == "Linux":
+                paths.append("/usr/lib/" + os.uname().machine + "-linux-gnu/pkgconfig")
+
             with open(vscript, "wt") as f:
                 f.write(
                     "#!/bin/sh\n"
