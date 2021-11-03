@@ -2607,11 +2607,13 @@ def mirror_src(cfg, src):
     if vcs != "git":
         return
 
-    mirror_dir = os.path.join(cfg.build_root, "mirror", vcs)
-    _util.try_mkdir(os.path.join(cfg.build_root, "mirror"))
-    _util.try_mkdir(mirror_dir)
+    mirror_root = os.path.join(cfg.build_root, "mirror")
+    mirror_dir = os.path.join(mirror_root, vcs)
+    with _util.lock_directory(mirror_root):
+        _util.try_mkdir(os.path.join(cfg.build_root, "mirror"))
+        _util.try_mkdir(mirror_dir)
 
-    _vcs_utils.fetch_repo(cfg, src, mirror_dir, ignore_mirror=True, bare_repo=True)
+        _vcs_utils.fetch_repo(cfg, src, mirror_dir, ignore_mirror=True, bare_repo=True)
 
 
 # ---------------------------------------------------------------------------------------
