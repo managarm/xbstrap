@@ -13,6 +13,9 @@ import xbstrap.cli_utils
 
 main_parser = argparse.ArgumentParser()
 main_parser.add_argument("-v", dest="verbose", action="store_true", help="verbose")
+main_parser.add_argument(
+    "-S", type=str, dest="source_dir", help="source dir (in place of bootstrap.link)"
+)
 main_subparsers = main_parser.add_subparsers(dest="command")
 
 
@@ -102,7 +105,7 @@ class PipelineItem:
 
 
 def do_compute_graph(args):
-    cfg = xbstrap.base.config_for_dir()
+    cfg = xbstrap.base.config_for_dir(args.source_dir)
     pipe = pipeline_for_dir(cfg)
 
     if args.version_file:
@@ -311,7 +314,7 @@ do_compute_graph.parser.add_argument(
 
 
 def do_run_job(args):
-    cfg = xbstrap.base.config_for_dir()
+    cfg = xbstrap.base.config_for_dir(args.source_dir)
     pipe = pipeline_for_dir(cfg)
     job = pipe.get_job(args.job)
 

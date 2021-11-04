@@ -22,11 +22,18 @@ import xbstrap.util
 
 main_parser = argparse.ArgumentParser()
 main_parser.add_argument("-v", dest="verbose", action="store_true", help="verbose")
+main_parser.add_argument(
+    "-S", type=str, dest="source_dir", help="source dir (in place of bootstrap.link)"
+)
 main_subparsers = main_parser.add_subparsers(dest="command")
 
 
+def config_for_args(args):
+    return xbstrap.base.config_for_dir(src_dir_override=args.source_dir)
+
+
 def do_runtool(args):
-    cfg = xbstrap.base.config_for_dir()
+    cfg = config_for_args(args)
 
     tool_pkgs = []
     workdir = None
@@ -77,7 +84,7 @@ def do_init(args):
     else:
         os.symlink(os.path.join(args.src_root, "bootstrap.yml"), "bootstrap.link")
 
-    cfg = xbstrap.base.config_for_dir()
+    cfg = config_for_args(args)
     if cfg.cargo_config_toml is not None:
         print("Creating cargo-home/config.toml")
         os.makedirs("cargo-home", exist_ok=True)
@@ -183,7 +190,7 @@ handle_plan_args.parser.add_argument(
 
 
 def do_list_srcs(args):
-    cfg = xbstrap.base.config_for_dir()
+    cfg = config_for_args(args)
     for src in cfg.all_sources():
         print("Source: {}".format(src.name))
 
@@ -192,7 +199,7 @@ do_list_srcs.parser = main_subparsers.add_parser("list-srcs")
 
 
 def do_fetch(args):
-    cfg = xbstrap.base.config_for_dir()
+    cfg = config_for_args(args)
     plan = xbstrap.base.Plan(cfg)
     handle_plan_args(cfg, plan, args)
 
@@ -214,7 +221,7 @@ do_fetch.parser.add_argument("source", nargs="*", type=str)
 
 
 def do_checkout(args):
-    cfg = xbstrap.base.config_for_dir()
+    cfg = config_for_args(args)
     plan = xbstrap.base.Plan(cfg)
     handle_plan_args(cfg, plan, args)
 
@@ -236,7 +243,7 @@ do_checkout.parser.add_argument("source", nargs="*", type=str)
 
 
 def do_patch(args):
-    cfg = xbstrap.base.config_for_dir()
+    cfg = config_for_args(args)
     plan = xbstrap.base.Plan(cfg)
     handle_plan_args(cfg, plan, args)
 
@@ -258,7 +265,7 @@ do_patch.parser.add_argument("source", nargs="*", type=str)
 
 
 def do_regenerate(args):
-    cfg = xbstrap.base.config_for_dir()
+    cfg = config_for_args(args)
     plan = xbstrap.base.Plan(cfg)
     handle_plan_args(cfg, plan, args)
 
@@ -325,7 +332,7 @@ recompile_tools_parser.set_defaults(reconfigure=False, recompile=False)
 
 
 def do_configure_tool(args):
-    cfg = xbstrap.base.config_for_dir()
+    cfg = config_for_args(args)
     sel = select_tools(cfg, args)
     plan = xbstrap.base.Plan(cfg)
     handle_plan_args(cfg, plan, args)
@@ -339,7 +346,7 @@ do_configure_tool.parser = main_subparsers.add_parser(
 
 
 def do_compile_tool(args):
-    cfg = xbstrap.base.config_for_dir()
+    cfg = config_for_args(args)
     sel = select_tools(cfg, args)
     plan = xbstrap.base.Plan(cfg)
     handle_plan_args(cfg, plan, args)
@@ -361,7 +368,7 @@ do_compile_tool.parser = main_subparsers.add_parser(
 
 
 def do_install_tool(args):
-    cfg = xbstrap.base.config_for_dir()
+    cfg = config_for_args(args)
     sel = select_tools(cfg, args)
     plan = xbstrap.base.Plan(cfg)
     handle_plan_args(cfg, plan, args)
@@ -441,7 +448,7 @@ rebuild_pkgs_parser.set_defaults(reconfigure=False, rebuild=False)
 
 
 def do_configure(args):
-    cfg = xbstrap.base.config_for_dir()
+    cfg = config_for_args(args)
     sel = select_pkgs(cfg, args)
     plan = xbstrap.base.Plan(cfg)
     handle_plan_args(cfg, plan, args)
@@ -455,7 +462,7 @@ do_configure.parser = main_subparsers.add_parser(
 
 
 def do_build(args):
-    cfg = xbstrap.base.config_for_dir()
+    cfg = config_for_args(args)
     sel = select_pkgs(cfg, args)
     plan = xbstrap.base.Plan(cfg)
     handle_plan_args(cfg, plan, args)
@@ -471,7 +478,7 @@ do_build.parser = main_subparsers.add_parser(
 
 
 def do_reproduce_build(args):
-    cfg = xbstrap.base.config_for_dir()
+    cfg = config_for_args(args)
     sel = select_pkgs(cfg, args)
     plan = xbstrap.base.Plan(cfg)
     handle_plan_args(cfg, plan, args)
@@ -487,7 +494,7 @@ do_reproduce_build.parser = main_subparsers.add_parser(
 
 
 def do_pack(args):
-    cfg = xbstrap.base.config_for_dir()
+    cfg = config_for_args(args)
     sel = select_pkgs(cfg, args)
     plan = xbstrap.base.Plan(cfg)
     handle_plan_args(cfg, plan, args)
@@ -503,7 +510,7 @@ do_pack.parser = main_subparsers.add_parser(
 
 
 def do_reproduce_pack(args):
-    cfg = xbstrap.base.config_for_dir()
+    cfg = config_for_args(args)
     sel = select_pkgs(cfg, args)
     plan = xbstrap.base.Plan(cfg)
     handle_plan_args(cfg, plan, args)
@@ -519,7 +526,7 @@ do_reproduce_pack.parser = main_subparsers.add_parser(
 
 
 def do_download(args):
-    cfg = xbstrap.base.config_for_dir()
+    cfg = config_for_args(args)
     sel = select_pkgs(cfg, args)
 
     if cfg.pkg_archives_url is None:
@@ -547,7 +554,7 @@ do_download.parser = main_subparsers.add_parser("download-archive", parents=[sel
 
 
 def do_download_tool(args):
-    cfg = xbstrap.base.config_for_dir()
+    cfg = config_for_args(args)
     sel = select_tools(cfg, args)
 
     if len(sel) == 0:
@@ -602,7 +609,7 @@ do_download_tool.parser.set_defaults(_impl=do_download_tool)
 
 
 def do_install(args):
-    cfg = xbstrap.base.config_for_dir()
+    cfg = config_for_args(args)
     sel = select_pkgs(cfg, args)
     plan = xbstrap.base.Plan(cfg)
     handle_plan_args(cfg, plan, args)
@@ -623,7 +630,7 @@ do_install.parser = main_subparsers.add_parser(
 
 
 def do_archive_tool(args):
-    cfg = xbstrap.base.config_for_dir()
+    cfg = config_for_args(args)
     sel = select_tools(cfg, args)
     plan = xbstrap.base.Plan(cfg)
     handle_plan_args(cfg, plan, args)
@@ -637,7 +644,7 @@ do_archive_tool.parser = main_subparsers.add_parser(
 
 
 def do_archive(args):
-    cfg = xbstrap.base.config_for_dir()
+    cfg = config_for_args(args)
     sel = select_pkgs(cfg, args)
     plan = xbstrap.base.Plan(cfg)
     handle_plan_args(cfg, plan, args)
@@ -653,7 +660,7 @@ do_archive.parser = main_subparsers.add_parser(
 
 
 def do_pull_pack(args):
-    cfg = xbstrap.base.config_for_dir()
+    cfg = config_for_args(args)
     sel = select_pkgs(cfg, args)
     plan = xbstrap.base.Plan(cfg)
     handle_plan_args(cfg, plan, args)
@@ -670,7 +677,7 @@ pull_pack_parser.set_defaults(_impl=do_pull_pack)
 
 
 def do_list_tools(args):
-    cfg = xbstrap.base.config_for_dir()
+    cfg = config_for_args(args)
     for tool in cfg.all_tools():
         print(tool.name)
 
@@ -679,7 +686,7 @@ do_list_tools.parser = main_subparsers.add_parser("list-tools")
 
 
 def do_list_pkgs(args):
-    cfg = xbstrap.base.config_for_dir()
+    cfg = config_for_args(args)
     for tool in cfg.all_pkgs():
         print(tool.name)
 
@@ -690,7 +697,7 @@ do_list_pkgs.parser = main_subparsers.add_parser("list-pkgs")
 def do_run_task(args):
     args.all = False
 
-    cfg = xbstrap.base.config_for_dir()
+    cfg = config_for_args(args)
     plan = xbstrap.base.Plan(cfg)
     handle_plan_args(cfg, plan, args)
 
@@ -734,7 +741,7 @@ var_commits_subparsers = var_commits_parser.add_subparsers(dest="command")
 
 
 def do_var_commits_fetch(args):
-    cfg = xbstrap.base.config_for_dir()
+    cfg = config_for_args(args)
     plan = xbstrap.base.Plan(cfg)
     handle_plan_args(cfg, plan, args)
 
@@ -753,7 +760,7 @@ do_var_commits_fetch.parser.set_defaults(_impl=do_var_commits_fetch)
 
 
 def do_var_commits_determine(args):
-    cfg = xbstrap.base.config_for_dir()
+    cfg = config_for_args(args)
 
     out_yml = dict()
     for src in cfg.all_sources():
@@ -778,7 +785,7 @@ rolling_subparsers = rolling_parser.add_subparsers(dest="command")
 
 
 def do_rolling_fetch(args):
-    cfg = xbstrap.base.config_for_dir()
+    cfg = config_for_args(args)
     plan = xbstrap.base.Plan(cfg)
     handle_plan_args(cfg, plan, args)
 
@@ -795,7 +802,7 @@ do_rolling_fetch.parser.set_defaults(_impl=do_rolling_fetch)
 
 
 def do_rolling_determine(args):
-    cfg = xbstrap.base.config_for_dir()
+    cfg = config_for_args(args)
     out_yml = dict()
     for src in cfg.all_sources():
         if not src.is_rolling_version:
