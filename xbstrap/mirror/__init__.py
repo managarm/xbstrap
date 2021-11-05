@@ -6,12 +6,15 @@ import argparse
 import xbstrap.base
 
 main_parser = argparse.ArgumentParser()
+main_parser.add_argument(
+    "-S", type=str, dest="source_dir", help="source dir (in place of bootstrap.link)"
+)
 main_subcmds = main_parser.add_subparsers(metavar="<command>")
 main_subcmds.required = True
 
 
 def do_update(args):
-    cfg = xbstrap.base.config_for_dir()
+    cfg = xbstrap.base.config_for_dir(args.source_dir)
     plan = xbstrap.base.Plan(cfg)
 
     if args.dry_run:

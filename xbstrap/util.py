@@ -1,7 +1,10 @@
 # SPDX-License-Identifier: MIT
 
+import contextlib
 import errno
+import fcntl
 import os
+import os.path as path
 import sys
 import urllib.parse
 import urllib.request
@@ -104,3 +107,12 @@ def interactive_download(url, path):
     os.rename(temp_path, path)
     if istty:
         print()
+
+
+@contextlib.contextmanager
+def lock_directory(directory, mode=fcntl.LOCK_EX):
+    try_mkdir(directory)
+    fname = path.join(directory, ".xbstrap_lock")
+    with open(fname, "w") as f:
+        fcntl.flock(f.fileno(), mode)
+        yield

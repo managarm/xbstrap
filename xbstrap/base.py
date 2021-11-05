@@ -170,7 +170,7 @@ ArtifactFile = collections.namedtuple("ArtifactFile", ["name", "filepath", "arch
 
 
 class Config:
-    def __init__(self, path):
+    def __init__(self, path, changed_source_root=None):
         self._config_path = path
         self._root_yml = None
         self._site_yml = dict()
@@ -182,11 +182,13 @@ class Config:
         self._tasks = dict()
         self._site_archs = set()
 
-        self._bootstrap_path = os.path.join(
+        self._bootstrap_path = changed_source_root or os.path.join(
             path, os.path.dirname(os.readlink(os.path.join(path, "bootstrap.link")))
         )
 
-        root_path = os.path.join(path, os.readlink(os.path.join(path, "bootstrap.link")))
+        self.source_root = os.path.abspath(self._bootstrap_path)
+
+        root_path = os.path.join(self._bootstrap_path, "bootstrap.yml")
         self._root_yml = load_bootstrap_yaml(root_path)
 
         try:
@@ -202,9 +204,7 @@ class Config:
         except FileNotFoundError:
             pass
 
-        self._parse_yml(
-            os.path.join(path, os.readlink(os.path.join(path, "bootstrap.link"))), self._root_yml
-        )
+        self._parse_yml(root_path, self._root_yml)
 
         # Collect all architectures that this build uses.
         for tool in self._tool_pkgs.values():
@@ -357,10 +357,6 @@ class Config:
     @property
     def site_architectures(self):
         return self._site_archs
-
-    @property
-    def source_root(self):
-        return os.path.join(os.getcwd(), os.path.dirname(os.readlink("bootstrap.link")))
 
     @property
     def build_root(self):
@@ -1528,8 +1524,8 @@ class RunTask(RequirementsMixin):
             yield ArtifactFile(e["name"], os.path.join(path, e["name"]), architecture)
 
 
-def config_for_dir():
-    return Config("")
+def config_for_dir(*, src_dir_override=None):
+    return Config("", changed_source_root=src_dir_override)
 
 
 def execute_manifest(manifest):
@@ -2607,11 +2603,13 @@ def mirror_src(cfg, src):
     if vcs != "git":
         return
 
-    mirror_dir = os.path.join(cfg.build_root, "mirror", vcs)
-    _util.try_mkdir(os.path.join(cfg.build_root, "mirror"))
-    _util.try_mkdir(mirror_dir)
+    mirror_root = os.path.join(cfg.build_root, "mirror")
+    mirror_dir = os.path.join(mirror_root, vcs)
+    with _util.lock_directory(mirror_root):
+        _util.try_mkdir(os.path.join(cfg.build_root, "mirror"))
+        _util.try_mkdir(mirror_dir)
 
-    _vcs_utils.fetch_repo(cfg, src, mirror_dir, ignore_mirror=True, bare_repo=True)
+        _vcs_utils.fetch_repo(cfg, src, mirror_dir, ignore_mirror=True, bare_repo=True)
 
 
 # ---------------------------------------------------------------------------------------
