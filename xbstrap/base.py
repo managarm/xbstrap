@@ -359,8 +359,16 @@ class Config:
         return self._site_archs
 
     @property
-    def build_root(self):
+    def host_build_root(self):
         return os.getcwd()
+
+    @property
+    def build_root(self):
+        # if using a cbuildrt/docker/runc context, use it's build path
+        bldmnt = self._site_yml.get("container", {}).get("build_mount", None)
+        if bldmnt:
+            return bldmnt
+        return self.host_build_root
 
     @property
     def sysroot_subdir(self):
@@ -1843,7 +1851,7 @@ def run_program(
                 "-v",
                 cfg.source_root + ":" + container_yml["src_mount"],
                 "-v",
-                cfg.build_root + ":" + container_yml["build_mount"],
+                cfg.host_build_root + ":" + container_yml["build_mount"],
             ]
             if os.isatty(0):  # FD zero = stdin.
                 docker_args += ["-t"]
@@ -1898,7 +1906,7 @@ def run_program(
                     },
                     {
                         "destination": container_yml["build_mount"],
-                        "source": cfg.build_root,
+                        "source": cfg.host_build_root,
                         "options": ["bind"],
                         "type": "none",
                     },
@@ -1952,7 +1960,7 @@ def run_program(
                 "rootfs": container_yml["rootfs"],
                 "bindMounts": [
                     {"destination": container_yml["src_mount"], "source": cfg.source_root},
-                    {"destination": container_yml["build_mount"], "source": cfg.build_root},
+                    {"destination": container_yml["build_mount"], "source": cfg.host_build_root},
                 ],
             }
 
