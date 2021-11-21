@@ -37,12 +37,17 @@ def do_runtool(args):
 
     tool_pkgs = []
     workdir = None
+    context = None
+    subject = None
     for_package = False
 
     if args.build is not None:
         pkg = cfg.get_target_pkg(args.build)
 
-        workdir = pkg.build_dir
+        context = "pkg"
+        workdir = "@THIS_BUILD_DIR@"
+        subject = pkg
+
         tool_pkgs.extend(cfg.get_tool_pkg(name) for name in pkg.tool_dependencies)
         args = args.opts
         for_package = True
@@ -62,8 +67,8 @@ def do_runtool(args):
 
     xbstrap.base.run_program(
         cfg,
-        None,
-        None,
+        context,
+        subject,
         args,
         tool_pkgs=tool_pkgs,
         workdir=workdir,
