@@ -17,8 +17,7 @@ main_parser.add_argument(
     "-S", type=str, dest="source_dir", help="source dir (in place of bootstrap.link)"
 )
 main_parser.add_argument(
-    "-C", type=str, dest="build_dir", help="build dir (in place of cwd)",
-    default=""
+    "-C", type=str, dest="build_dir", help="build dir (in place of cwd)", default=""
 )
 main_subparsers = main_parser.add_subparsers(dest="command")
 
@@ -388,15 +387,7 @@ def main():
         xbstrap.base.ExecutionFailureError,
         xbstrap.base.PlanFailureError,
     ) as e:
-        print(
-            "{}xbstrap{}: {}{}{}".format(
-                colorama.Style.BRIGHT,
-                colorama.Style.RESET_ALL,
-                colorama.Fore.RED,
-                e,
-                colorama.Style.RESET_ALL,
-            )
-        )
+        xbstrap.util.log_err(e)
         sys.exit(1)
     except KeyboardInterrupt:
         sys.exit(1)

@@ -15,6 +15,7 @@ import xbstrap.base
 import xbstrap.cli_utils
 import xbstrap.exceptions
 import xbstrap.util
+from xbstrap.util import eprint
 
 # ---------------------------------------------------------------------------------------
 # Command line parsing.
@@ -26,8 +27,7 @@ main_parser.add_argument(
     "-S", type=str, dest="source_dir", help="source dir (in place of bootstrap.link)"
 )
 main_parser.add_argument(
-    "-C", type=str, dest="build_dir", help="build dir (in place of cwd)",
-    default=""
+    "-C", type=str, dest="build_dir", help="build dir (in place of cwd)", default=""
 )
 main_subparsers = main_parser.add_subparsers(dest="command")
 
@@ -84,13 +84,13 @@ def do_init(args):
     if not os.access(os.path.join(args.src_root, "bootstrap.yml"), os.F_OK):
         raise RuntimeError("Given src_root does not contain a bootstrap.yml")
     elif os.path.exists("bootstrap.link"):
-        print("warning: bootstrap.link already exists, skipping...")
+        xbstrap.util.log_warn("bootstrap.link already exists, skipping...")
     else:
         os.symlink(os.path.join(args.src_root, "bootstrap.yml"), "bootstrap.link")
 
     cfg = config_for_args(args)
     if cfg.cargo_config_toml is not None:
-        print("Creating cargo-home/config.toml")
+        eprint("Creating cargo-home/config.toml")
         os.makedirs("cargo-home", exist_ok=True)
         shutil.copy(os.path.join(args.src_root, cfg.cargo_config_toml), "cargo-home/config.toml")
 
@@ -99,7 +99,7 @@ def do_init(args):
             build_root = container["build_mount"]
             source_root = container["src_mount"]
         else:
-            print("Using non-Docker build")
+            eprint("Using non-Docker build")
             build_root = os.getcwd()
             source_root = os.path.abspath(args.src_root)
 
@@ -196,7 +196,7 @@ handle_plan_args.parser.add_argument(
 def do_list_srcs(args):
     cfg = config_for_args(args)
     for src in cfg.all_sources():
-        print("Source: {}".format(src.name))
+        eprint("Source: {}".format(src.name))
 
 
 do_list_srcs.parser = main_subparsers.add_parser("list-srcs")
@@ -209,7 +209,7 @@ def do_fetch(args):
 
     if args.all:
         for src in cfg.all_sources():
-            print("Fetching  {}".format(src.name))
+            eprint("Fetching  {}".format(src.name))
             plan.wanted.add((xbstrap.base.Action.FETCH_SRC, src))
     else:
         for src_name in args.source:
@@ -231,7 +231,7 @@ def do_checkout(args):
 
     if args.all:
         for src in cfg.all_sources():
-            print("Checking Out  {}".format(src.name))
+            eprint("Checking Out  {}".format(src.name))
             plan.wanted.add((xbstrap.base.Action.CHECKOUT_SRC, src))
     else:
         for src_name in args.source:
@@ -253,7 +253,7 @@ def do_patch(args):
 
     if args.all:
         for src in cfg.all_sources():
-            print("Patching  {}".format(src.name))
+            eprint("Patching  {}".format(src.name))
             plan.wanted.add((xbstrap.base.Action.PATCH_SRC, src))
     else:
         for src_name in args.source:
@@ -275,7 +275,7 @@ def do_regenerate(args):
 
     if args.all:
         for src in cfg.all_sources():
-            print("Regenerating  {}".format(src.name))
+            eprint("Regenerating  {}".format(src.name))
             plan.wanted.add((xbstrap.base.Action.REGENERATE_SRC, src))
     else:
         for src_name in args.source:
@@ -540,11 +540,7 @@ def do_download(args):
 
     for pkg in sel:
         url = urllib.parse.urljoin(cfg.pkg_archives_url + "/", pkg.name + ".tar.gz")
-        print(
-            "{}xbstrap{}: Downloading package {} from {}".format(
-                colorama.Style.BRIGHT, colorama.Style.RESET_ALL, pkg.name, url
-            )
-        )
+        xbstrap.util.log_info("Downloading package {} from {}".format(pkg.name, url))
         xbstrap.util.interactive_download(url, pkg.archive_file)
 
         xbstrap.base.try_rmtree(pkg.staging_dir)
@@ -562,21 +558,13 @@ def do_download_tool(args):
     sel = select_tools(cfg, args)
 
     if len(sel) == 0:
-        print(
-            "{}xbstrap{}: No tools to download".format(
-                colorama.Style.BRIGHT, colorama.Style.RESET_ALL
-            )
-        )
+        xbstrap.util.log_info("No tools to download")
         return
 
     if args.dry_run:
         for tool in sel:
             url = urllib.parse.urljoin(cfg.tool_archives_url + "/", tool.name + ".tar.gz")
-            print(
-                "{}xbstrap{}: Will download tool {} from {}".format(
-                    colorama.Style.BRIGHT, colorama.Style.RESET_ALL, tool.name, url
-                )
-            )
+            xbstrap.util.log_info("Will download tool {} from {}".format(tool.name, url))
         return
 
     if cfg.tool_archives_url is None:
@@ -586,11 +574,7 @@ def do_download_tool(args):
 
     for tool in sel:
         url = urllib.parse.urljoin(cfg.tool_archives_url + "/", tool.name + ".tar.gz")
-        print(
-            "{}xbstrap{}: Downloading tool {} from {}".format(
-                colorama.Style.BRIGHT, colorama.Style.RESET_ALL, tool.name, url
-            )
-        )
+        xbstrap.log_info("Downloading tool {} from {}".format(tool.name, url))
         xbstrap.util.interactive_download(url, tool.archive_file)
 
         xbstrap.base.try_rmtree(tool.prefix_dir)
@@ -842,7 +826,7 @@ def do_prereqs(args):
         url += "/releases/latest/download/cbuildrt-linux-x86_64-static.tar"
         tar_path = os.path.join(home, "cbuildrt.tar")
 
-        print(f"Downloading cbuildrt from {url}")
+        xbstrap.util.log_info(f"Downloading cbuildrt from {url}")
         xbstrap.util.interactive_download(url, tar_path)
         with tarfile.open(tar_path, "r") as tar:
             for info in tar:
@@ -854,7 +838,7 @@ def do_prereqs(args):
         url += "/xbps-static-static-0.59_5.x86_64-musl.tar.xz"
         tar_path = os.path.join(home, "xbps.tar.xz")
 
-        print(f"Downloading xbps from {url}")
+        xbstrap.util.log_info(f"Downloading xbps from {url}")
         xbstrap.util.interactive_download(url, tar_path)
         with tarfile.open(tar_path, "r:xz") as tar:
             for info in tar:
@@ -892,14 +876,8 @@ def main():
         xbstrap.base.verbosity = True
 
     if not xbstrap.base.native_yaml_available:
-        print(
-            "{}xbstrap{}: {}Using pure Python YAML parser\n"
-            "       : Install libyaml for improved performance{}".format(
-                colorama.Style.BRIGHT,
-                colorama.Style.RESET_ALL,
-                colorama.Fore.YELLOW,
-                colorama.Style.RESET_ALL,
-            )
+        xbstrap.log_warn(
+            "Using pure Python YAML parser\n       : Install libyaml for improved performance"
         )
 
     try:

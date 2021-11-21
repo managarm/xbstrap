@@ -23,6 +23,7 @@ import yaml
 import xbstrap.util as _util
 import xbstrap.vcs_utils as _vcs_utils
 from xbstrap.exceptions import GenericError, RollingIdUnavailableError
+from xbstrap.util import eprint  # special cased since it's used a lot
 
 verbosity = False
 debug_manifests = False
@@ -1813,7 +1814,7 @@ def run_program(
             )
 
             if debug_manifests:
-                print(yaml.dump(manifest))
+                eprint(yaml.dump(manifest))
 
             proc = subprocess.Popen(["xbstrap", "execute-manifest", "-c", yaml.dump(manifest)])
             proc.wait()
@@ -1833,7 +1834,7 @@ def run_program(
             )
 
             if debug_manifests:
-                print(yaml.dump(manifest))
+                eprint(yaml.dump(manifest))
 
             docker_args = [
                 "docker",
@@ -1870,7 +1871,7 @@ def run_program(
             )
 
             if debug_manifests:
-                print(yaml.dump(manifest))
+                eprint(yaml.dump(manifest))
 
             config_json = {
                 "ociVersion": "1.0.2",
@@ -1945,7 +1946,7 @@ def run_program(
             )
 
             if debug_manifests:
-                print(yaml.dump(manifest))
+                eprint(yaml.dump(manifest))
 
             cbuild_json = {
                 "user": {"uid": container_yml["uid"], "gid": container_yml["gid"]},
@@ -1977,7 +1978,7 @@ def run_program(
         _util.log_info("Running {} (tools: {})".format(args, [tool.name for tool in pkg_queue]))
 
         if debug_manifests:
-            print(yaml.dump(manifest))
+            eprint(yaml.dump(manifest))
 
         execute_manifest(manifest)
 
@@ -2011,7 +2012,7 @@ def postprocess_libtool(cfg, pkg):
         for ent in filelist:
             if not ent.endswith(".la"):
                 continue
-            print("xbstrap: Removing libtool file {}".format(ent))
+            _util.log_info("Removed libtool file {}".format(ent))
             os.unlink(os.path.join(pkg.collect_dir, libdir, ent))
 
 
@@ -3000,7 +3001,10 @@ class Plan:
                 stack.append(item)
             elif item.plan_state == PlanState.EXPANDING:
                 for circ_item in stack:
-                    print(Action.strings[circ_item.action], circ_item.subject.subject_id)
+                    eprint(
+                        Action.strings[circ_item.action],
+                        circ_item.subject.subject_id,
+                    )
                 raise GenericError("Package has circular dependencies")
             else:
                 # Packages that are already ordered do not need to be considered again.
@@ -3140,31 +3144,37 @@ class Plan:
         for (action, subject) in scheduled:
             if isinstance(subject, HostStage):
                 if subject.stage_name:
-                    print(
+                    eprint(
                         "    {:14} {}, stage: {}".format(
                             Action.strings[action], subject.pkg.name, subject.stage_name
                         ),
                         end="",
                     )
                 else:
-                    print("    {:14} {}".format(Action.strings[action], subject.pkg.name), end="")
+                    eprint(
+                        "    {:14} {}".format(Action.strings[action], subject.pkg.name),
+                        end="",
+                    )
             else:
-                print("    {:14} {}".format(Action.strings[action], subject.name), end="")
+                eprint(
+                    "    {:14} {}".format(Action.strings[action], subject.name),
+                    end="",
+                )
             if self._items[(action, subject)].is_updatable:
-                print(
+                eprint(
                     " ({}{}updatable{})".format(
                         colorama.Style.BRIGHT, colorama.Fore.BLUE, colorama.Style.RESET_ALL
                     ),
                     end="",
                 )
             elif self._items[(action, subject)].outdated:
-                print(
+                eprint(
                     " ({}{}outdated{})".format(
                         colorama.Style.BRIGHT, colorama.Fore.BLUE, colorama.Style.RESET_ALL
                     ),
                     end="",
                 )
-            print()
+            eprint()
 
         if self.dry_run:
             return
@@ -3308,22 +3318,22 @@ class Plan:
 
                 if isinstance(subject, HostStage):
                     if subject.stage_name:
-                        print(
+                        eprint(
                             "    {:14} {}, stage: {}".format(
                                 Action.strings[action], subject.pkg.name, subject.stage_name
                             ),
                             end="",
                         )
                     else:
-                        print(
+                        eprint(
                             "    {:14} {}".format(Action.strings[action], subject.pkg.name), end=""
                         )
                 else:
-                    print("    {:14} {}".format(Action.strings[action], subject.name), end="")
+                    eprint("    {:14} {}".format(Action.strings[action], subject.name), end="")
                 if item.exec_status == ExecutionStatus.PREREQS_FAILED:
-                    print(" (prerequisites failed)", end="")
+                    eprint(" (prerequisites failed)", end="")
                 elif item.exec_status == ExecutionStatus.NOT_WANTED:
-                    print(" (not wanted)", end="")
-                print()
+                    eprint(" (not wanted)", end="")
+                eprint()
 
             raise PlanFailureError()
