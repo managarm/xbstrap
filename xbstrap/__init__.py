@@ -25,11 +25,15 @@ main_parser.add_argument("-v", dest="verbose", action="store_true", help="verbos
 main_parser.add_argument(
     "-S", type=str, dest="source_dir", help="source dir (in place of bootstrap.link)"
 )
+main_parser.add_argument(
+    "-C", type=str, dest="build_dir", help="build dir (in place of cwd)",
+    default=""
+)
 main_subparsers = main_parser.add_subparsers(dest="command")
 
 
 def config_for_args(args):
-    return xbstrap.base.config_for_dir(src_dir_override=args.source_dir)
+    return xbstrap.base.Config(args.build_dir, changed_source_root=args.source_dir)
 
 
 def do_runtool(args):

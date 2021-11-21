@@ -16,6 +16,10 @@ main_parser.add_argument("-v", dest="verbose", action="store_true", help="verbos
 main_parser.add_argument(
     "-S", type=str, dest="source_dir", help="source dir (in place of bootstrap.link)"
 )
+main_parser.add_argument(
+    "-C", type=str, dest="build_dir", help="build dir (in place of cwd)",
+    default=""
+)
 main_subparsers = main_parser.add_subparsers(dest="command")
 
 
@@ -105,7 +109,7 @@ class PipelineItem:
 
 
 def do_compute_graph(args):
-    cfg = xbstrap.base.config_for_dir(src_dir_override=args.source_dir)
+    cfg = xbstrap.base.Config(args.build_dir, src_dir_override=args.source_dir)
     pipe = pipeline_for_dir(cfg)
 
     if args.version_file:
@@ -314,7 +318,7 @@ do_compute_graph.parser.add_argument(
 
 
 def do_run_job(args):
-    cfg = xbstrap.base.config_for_dir(src_dir_override=args.source_dir)
+    cfg = xbstrap.base.Config(args.build_dir, src_dir_override=args.source_dir)
     pipe = pipeline_for_dir(cfg)
     job = pipe.get_job(args.job)
 

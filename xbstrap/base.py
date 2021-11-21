@@ -171,6 +171,7 @@ ArtifactFile = collections.namedtuple("ArtifactFile", ["name", "filepath", "arch
 
 class Config:
     def __init__(self, path, changed_source_root=None):
+        self._build_root_override = None if path == "" else path
         self._config_path = path
         self._root_yml = None
         self._site_yml = dict()
@@ -360,7 +361,7 @@ class Config:
 
     @property
     def build_root(self):
-        return os.getcwd()
+        return self._build_root_override or os.getcwd()
 
     @property
     def sysroot_subdir(self):

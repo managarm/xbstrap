@@ -9,12 +9,16 @@ main_parser = argparse.ArgumentParser()
 main_parser.add_argument(
     "-S", type=str, dest="source_dir", help="source dir (in place of bootstrap.link)"
 )
+main_parser.add_argument(
+    "-C", type=str, dest="build_dir", help="build dir (in place of cwd)",
+    default=""
+)
 main_subcmds = main_parser.add_subparsers(metavar="<command>")
 main_subcmds.required = True
 
 
 def do_update(args):
-    cfg = xbstrap.base.config_for_dir(src_dir_override=args.source_dir)
+    cfg = xbstrap.base.Config(args.build_dir, src_dir_override=args.source_dir)
     plan = xbstrap.base.Plan(cfg)
 
     if args.dry_run:
