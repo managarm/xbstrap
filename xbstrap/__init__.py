@@ -854,6 +854,54 @@ do_prereqs.parser.set_defaults(_impl=do_prereqs)
 # ----------------------------------------------------------------------------------------
 
 
+def do_lsp(args):
+    cfg = config_for_args(args)
+    pkg = cfg.get_target_pkg(args.package)
+
+    tool_pkgs = [cfg.get_tool_pkg(name) for name in pkg.tool_dependencies]
+
+    def resolve_host_paths(x):
+        return {
+            "HOST_SOURCE_ROOT": os.path.abspath(cfg.source_root),
+            "HOST_BUILD_ROOT": os.path.abspath(cfg.build_root),
+        }.get(x, "@{}@".format(x))
+
+    xbstrap.base.run_program(
+        cfg,
+        "pkg",
+        pkg,
+        [xbstrap.base.replace_at_vars(x, resolve_host_paths) for x in args.lsp_program],
+        tool_pkgs=tool_pkgs,
+        workdir="@THIS_SOURCE_DIR@",
+        for_package=True,
+    )
+
+
+do_lsp.parser = main_subparsers.add_parser(
+    "lsp",
+    formatter_class=argparse.RawDescriptionHelpFormatter,
+    description="""
+Invokes an LSP server inside the build environment for a given package.
+
+Example:
+    # generate a compile_commands.json
+    xbstrap -C ../../build lsp managarm-system -- \\
+        ln -s @THIS_BUILD_DIR@/compile_commands.json
+
+    # tell your editor to invoke this
+    xbstrap -C ../../build lsp managarm-system -- \\
+        clangd -background-index \\
+        --path-mappings \\
+        @HOST_BUILD_ROOT@=@BUILD_ROOT@,@HOST_SOURCE_ROOT@=@SOURCE_ROOT@
+""".strip(),
+)
+do_lsp.parser.add_argument("package", type=str, help="xbstrap package to run lsp for")
+do_lsp.parser.add_argument("lsp_program", type=str, help="LSP server and arguments", nargs="+")
+do_lsp.parser.set_defaults(_impl=do_lsp)
+
+# ----------------------------------------------------------------------------------------
+
+
 def do_execute_manifest(args):
     if args.c is not None:
         manifest = yaml.load(args.c, Loader=xbstrap.base.global_yaml_loader)
@@ -927,6 +975,8 @@ def main():
             do_list_srcs(args)
         elif args.command == "run":
             do_run_task(args)
+        elif args.command == "lsp":
+            do_lsp(args)
         else:
             assert not "Unexpected command"
     except (
