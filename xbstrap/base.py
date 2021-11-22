@@ -927,7 +927,13 @@ class Source(RequirementsMixin):
         return ItemState(timestamp=stat.st_mtime)
 
     def check_if_mirrord(self, settings):
-        s = _vcs_utils.check_repo(self, "mirror", check_remotes=settings.check_remotes)
+        vcs = _vcs_utils.vcs_name(self)
+
+        if vcs != "git":
+            # ignore non-gits for mirroring
+            return ItemState()
+
+        s = _vcs_utils.check_repo(self, f"mirror/{vcs}", check_remotes=settings.check_remotes)
         if s == _vcs_utils.RepoStatus.MISSING:
             return ItemState(missing=True)
         elif s == _vcs_utils.RepoStatus.OUTDATED:
