@@ -1387,10 +1387,17 @@ class TargetPackage(RequirementsMixin):
     def check_if_packed(self, settings):
         if self._cfg.use_xbps:
             environ = os.environ.copy()
+
+            arch = self.architecture
+            if self.architecture == "noarch":
+                # XXX(arsen): all architectures should be checked at all times
+                # when we come around to making multiarch
+                arch = list(self._cfg.site_architectures)[0]
+
             _util.build_environ_paths(
                 environ, "PATH", prepend=[os.path.join(_util.find_home(), "bin")]
             )
-            environ["XBPS_ARCH"] = self.architecture
+            environ["XBPS_ARCH"] = arch
 
             try:
                 subprocess.check_call(
