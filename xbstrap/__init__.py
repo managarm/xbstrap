@@ -14,7 +14,7 @@ import yaml
 import xbstrap.base
 import xbstrap.cli_utils
 import xbstrap.exceptions
-import xbstrap.util
+import xbstrap.util as _util
 from xbstrap.util import eprint
 
 # ---------------------------------------------------------------------------------------
@@ -84,7 +84,7 @@ def do_init(args):
     if not os.access(os.path.join(args.src_root, "bootstrap.yml"), os.F_OK):
         raise RuntimeError("Given src_root does not contain a bootstrap.yml")
     elif os.path.exists("bootstrap.link"):
-        xbstrap.util.log_warn("bootstrap.link already exists, skipping...")
+        _util.log_warn("bootstrap.link already exists, skipping...")
     else:
         os.symlink(os.path.join(args.src_root, "bootstrap.yml"), "bootstrap.link")
 
@@ -536,12 +536,12 @@ def do_download(args):
     if cfg.pkg_archives_url is None:
         raise RuntimeError("No repository URL in bootstrap.yml")
 
-    xbstrap.util.try_mkdir(cfg.package_out_dir)
+    _util.try_mkdir(cfg.package_out_dir)
 
     for pkg in sel:
         url = urllib.parse.urljoin(cfg.pkg_archives_url + "/", pkg.name + ".tar.gz")
-        xbstrap.util.log_info("Downloading package {} from {}".format(pkg.name, url))
-        xbstrap.util.interactive_download(url, pkg.archive_file)
+        _util.log_info("Downloading package {} from {}".format(pkg.name, url))
+        _util.interactive_download(url, pkg.archive_file)
 
         xbstrap.base.try_rmtree(pkg.staging_dir)
         os.mkdir(pkg.staging_dir)
@@ -558,24 +558,24 @@ def do_download_tool(args):
     sel = select_tools(cfg, args)
 
     if len(sel) == 0:
-        xbstrap.util.log_info("No tools to download")
+        _util.log_info("No tools to download")
         return
 
     if args.dry_run:
         for tool in sel:
             url = urllib.parse.urljoin(cfg.tool_archives_url + "/", tool.name + ".tar.gz")
-            xbstrap.util.log_info("Will download tool {} from {}".format(tool.name, url))
+            _util.log_info("Will download tool {} from {}".format(tool.name, url))
         return
 
     if cfg.tool_archives_url is None:
         raise RuntimeError("No repository URL in bootstrap.yml")
 
-    xbstrap.util.try_mkdir(cfg.tool_out_dir)
+    _util.try_mkdir(cfg.tool_out_dir)
 
     for tool in sel:
         url = urllib.parse.urljoin(cfg.tool_archives_url + "/", tool.name + ".tar.gz")
-        xbstrap.log_info("Downloading tool {} from {}".format(tool.name, url))
-        xbstrap.util.interactive_download(url, tool.archive_file)
+        _util.log_info("Downloading tool {} from {}".format(tool.name, url))
+        _util.interactive_download(url, tool.archive_file)
 
         xbstrap.base.try_rmtree(tool.prefix_dir)
         os.mkdir(tool.prefix_dir)
@@ -816,18 +816,18 @@ def do_prereqs(args):
     if not comps.issubset(valid_comps):
         raise RuntimeError(f"Unknown component given; choose from: {valid_comps}")
 
-    home = xbstrap.util.find_home()
+    home = _util.find_home()
     bin_dir = os.path.join(home, "bin")
-    xbstrap.util.try_mkdir(home)
-    xbstrap.util.try_mkdir(bin_dir)
+    _util.try_mkdir(home)
+    _util.try_mkdir(bin_dir)
 
     if "cbuildrt" in comps:
         url = "https://github.com/managarm/cbuildrt"
         url += "/releases/latest/download/cbuildrt-linux-x86_64-static.tar"
         tar_path = os.path.join(home, "cbuildrt.tar")
 
-        xbstrap.util.log_info(f"Downloading cbuildrt from {url}")
-        xbstrap.util.interactive_download(url, tar_path)
+        _util.log_info(f"Downloading cbuildrt from {url}")
+        _util.interactive_download(url, tar_path)
         with tarfile.open(tar_path, "r") as tar:
             for info in tar:
                 if info.name == "cbuildrt":
@@ -838,8 +838,8 @@ def do_prereqs(args):
         url += "/xbps-static-static-0.59_5.x86_64-musl.tar.xz"
         tar_path = os.path.join(home, "xbps.tar.xz")
 
-        xbstrap.util.log_info(f"Downloading xbps from {url}")
-        xbstrap.util.interactive_download(url, tar_path)
+        _util.log_info(f"Downloading xbps from {url}")
+        _util.interactive_download(url, tar_path)
         with tarfile.open(tar_path, "r:xz") as tar:
             for info in tar:
                 if os.path.dirname(info.name) == "./usr/bin":
@@ -984,7 +984,7 @@ def main():
         xbstrap.base.PlanFailureError,
         xbstrap.exceptions.GenericError,
     ) as e:
-        xbstrap.util.log_err(e)
+        _util.log_err(e)
         sys.exit(1)
     except KeyboardInterrupt:
         sys.exit(1)
