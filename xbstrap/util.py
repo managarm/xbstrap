@@ -12,25 +12,28 @@ import urllib.request
 import colorama
 
 
+def eprint(*args, **kwargs):
+    return print(*args, **kwargs, file=sys.stderr)
+
+
 def log_info(msg):
-    print("{}xbstrap{}: {}".format(colorama.Style.BRIGHT, colorama.Style.RESET_ALL, msg))
+    eprint("{}xbstrap{}: {}".format(colorama.Style.BRIGHT, colorama.Style.RESET_ALL, msg))
 
 
 def log_warn(msg):
-    print(
+    eprint(
         "{}xbstrap{}: {}{}{}".format(
             colorama.Style.BRIGHT,
             colorama.Style.NORMAL,
             colorama.Fore.YELLOW,
             msg,
             colorama.Style.RESET_ALL,
-        ),
-        file=sys.stderr,
+        )
     )
 
 
 def log_err(msg):
-    print(
+    eprint(
         "{}xbstrap{}: {}{}{}".format(
             colorama.Style.BRIGHT,
             colorama.Style.NORMAL,
@@ -38,7 +41,6 @@ def log_err(msg):
             msg,
             colorama.Style.RESET_ALL,
         ),
-        file=sys.stderr,
     )
 
 
@@ -73,7 +75,7 @@ def interactive_download(url, path):
 
     istty = os.isatty(1)  # This is stdout.
     if istty:
-        print("...", end="")  # This will become the status line.
+        eprint("...", end="")  # This will become the status line.
 
     def show_progress(num_blocks, block_size, file_size):
         progress = min(num_blocks * block_size, file_size)
@@ -90,7 +92,7 @@ def interactive_download(url, path):
                 return
             newline = "\n"
         frac = progress / file_size
-        print(
+        eprint(
             "{}[{}{}]\x1b[K{:8.0f} KiB / {:8.0f} KiB, {:7.2f}%".format(
                 rewind,
                 "#" * int(20 * frac),
@@ -106,7 +108,7 @@ def interactive_download(url, path):
     urllib.request.urlretrieve(url, temp_path, show_progress)
     os.rename(temp_path, path)
     if istty:
-        print()
+        eprint()
 
 
 @contextlib.contextmanager
