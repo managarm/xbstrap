@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: MIT
 
+import hashlib
 import os
 import re
 import shutil
@@ -15,6 +16,14 @@ class RepoStatus(Enum):
     GOOD = 0
     MISSING = 1
     OUTDATED = 2
+
+
+CHECKSUM_BLOCK_SIZE = 1048576
+HASHLIB_MAP = {
+    "sha256": hashlib.sha256,
+    "sha512": hashlib.sha512,
+    "blake2b": hashlib.blake2b,
+}
 
 
 def vcs_name(src):
@@ -36,6 +45,26 @@ def determine_git_version(git):
     if matches is None:
         raise RuntimeError(f"Could not parse git version string: '{output}'")
     return tuple(int(matches.group(i)) for i in range(1, 4))
+
+
+def checksum_calculate(csum_type, file):
+    if csum_type in HASHLIB_MAP:
+        csum = HASHLIB_MAP.get(csum_type)()
+    else:
+        raise GenericError(f"Checksum type '{csum_type}' is unsupported")
+    for block in iter(lambda: file.read(CHECKSUM_BLOCK_SIZE), b""):
+        csum.update(block)
+    return csum.hexdigest()
+
+
+def checksum_validate(source, source_archive_file):
+    if "checksum" in source:
+        with open(source_archive_file, "rb") as f:
+            csum_type, _, csum_value = source["checksum"].partition(":")
+            if not checksum_calculate(csum_type, f) == csum_value:
+                raise GenericError("Checksum for source {} did not match".format(source["name"]))
+    else:
+        raise GenericError("No checksum value provided for {}".format(source["name"]))
 
 
 def check_repo(src, subdir, *, check_remotes=0):
@@ -256,6 +285,7 @@ def fetch_repo(cfg, src, subdir, *, ignore_mirror=False, bare_repo=False):
         with urllib.request.urlopen(source["url"]) as req:
             with open(source_archive_file, "wb") as f:
                 shutil.copyfileobj(req, f)
+        checksum_validate(source, source_archive_file)
     else:
         # VCS-less source.
         source_dir = os.path.join(subdir, src.name)
