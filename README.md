@@ -54,3 +54,10 @@ RUN pip3 install -e /local-xbstrap
 ```
 1. Copy or symlink your local `xbstrap` into the same folder that contains the `Dockerfile`, so that it can be accessed by the previous step.
 1. Rebuild the docker container as usual.
+
+### Enabling the pre-commit hook for linting (optional)
+
+To avoid running into the CI complaining about formatting, linting can be done in a pre-commit hook. To enable this, run:
+```
+git config core.hooksPath .githooks
+```
