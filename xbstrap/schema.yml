@@ -78,6 +78,8 @@ definitions:
                 type: string
             'patch-path-strip':
                 type: integer
+            'checksum':
+                type: string
             # VCS sources.
             'git':
                 type: string
@@ -227,6 +229,8 @@ properties:
                     type: string
                 'patch-path-strip':
                     type: integer
+                'checksum':
+                    type: string
                 # VCS sources.
                 'git':
                     type: string
