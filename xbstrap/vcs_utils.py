@@ -26,6 +26,8 @@ HASHLIB_MAP = {
     "blake2b": hashlib.blake2b,
 }
 
+assert DEFAULT_CHECKSUM_TYPE in HASHLIB_MAP
+
 
 def vcs_name(src):
     if "git" in src._this_yml:
