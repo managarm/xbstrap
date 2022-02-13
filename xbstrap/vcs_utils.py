@@ -57,14 +57,17 @@ def checksum_calculate(csum_type, file):
     return csum.hexdigest()
 
 
-def checksum_validate(source, source_archive_file):
-    if "checksum" in source:
-        with open(source_archive_file, "rb") as f:
-            csum_type, _, csum_value = source["checksum"].partition(":")
-            if not checksum_calculate(csum_type, f) == csum_value:
-                raise GenericError("Checksum for source {} did not match".format(source["name"]))
-    else:
-        raise GenericError("No checksum value provided for {}".format(source["name"]))
+def checksum_validate(source, source_archive_file, source_name):
+    if "checksum" not in source:
+        _util.log_warn(f"No checksum provided for source '{source_name}'")
+        _util.log_warn("Missing checksums will become hard errors in the future")
+        return
+    with open(source_archive_file, "rb") as f:
+        csum_type, _, csum_value = source["checksum"].partition(":")
+        if not csum_value:
+            raise GenericError(f"No checksum provided for source '{source_name}'")
+        if not checksum_calculate(csum_type, f) == csum_value:
+            raise GenericError(f"Checksum for source '{source_name}' did not match")
 
 
 def check_repo(src, subdir, *, check_remotes=0):
@@ -285,7 +288,7 @@ def fetch_repo(cfg, src, subdir, *, ignore_mirror=False, bare_repo=False):
         with urllib.request.urlopen(source["url"]) as req:
             with open(source_archive_file, "wb") as f:
                 shutil.copyfileobj(req, f)
-        checksum_validate(source, source_archive_file)
+        checksum_validate(source, source_archive_file, src.name)
     else:
         # VCS-less source.
         source_dir = os.path.join(subdir, src.name)
