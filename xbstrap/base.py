@@ -327,6 +327,12 @@ class Config:
         return self._root_yml["general"].get("everything_by_default", True)
 
     @property
+    def mandate_hashes(self):
+        if "general" not in self._root_yml:
+            return False
+        return self._root_yml["general"].get("mandate_hashes", False)
+
+    @property
     def xbstrap_mirror(self):
         return self._commit_yml.get("general", dict()).get("xbstrap_mirror", None)
 

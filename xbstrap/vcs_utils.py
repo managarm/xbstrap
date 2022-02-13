@@ -19,6 +19,7 @@ class RepoStatus(Enum):
 
 
 CHECKSUM_BLOCK_SIZE = 1048576
+DEFAULT_CHECKSUM_TYPE = "blake2b"
 HASHLIB_MAP = {
     "sha256": hashlib.sha256,
     "sha512": hashlib.sha512,
@@ -57,16 +58,25 @@ def checksum_calculate(csum_type, file):
     return csum.hexdigest()
 
 
-def checksum_validate(source, source_archive_file, source_name):
+def checksum_validate(source, source_archive_file, source_name, mandate_hashes):
     if "checksum" not in source:
-        _util.log_warn(f"No checksum provided for source '{source_name}'")
-        _util.log_warn("Missing checksums will become hard errors in the future")
+        if mandate_hashes:
+            with open(source_archive_file, "rb") as f:
+                csum = checksum_calculate(DEFAULT_CHECKSUM_TYPE, f)
+            _util.log_warn(f"Missing checksum for '{source_archive_file}':")
+            _util.log_warn(f"{csum} ({DEFAULT_CHECKSUM_TYPE})")
+            _util.log_err("mandate_hashes is enabled, but some checksums are missing")
+            raise GenericError(f"No checksum provided for source '{source_name}'")
         return
     with open(source_archive_file, "rb") as f:
         csum_type, _, csum_value = source["checksum"].partition(":")
         if not csum_value:
             raise GenericError(f"No checksum provided for source '{source_name}'")
-        if not checksum_calculate(csum_type, f) == csum_value:
+        csum = checksum_calculate(csum_type, f)
+        if not csum == csum_value:
+            _util.log_warn(f"Mismatch for '{source_archive_file}'")
+            _util.log_warn(f"Expected {csum_value} ({csum_type})")
+            _util.log_warn(f"Got {csum} ({csum_type})")
             raise GenericError(f"Checksum for source '{source_name}' did not match")
 
 
@@ -288,7 +298,7 @@ def fetch_repo(cfg, src, subdir, *, ignore_mirror=False, bare_repo=False):
         with urllib.request.urlopen(source["url"]) as req:
             with open(source_archive_file, "wb") as f:
                 shutil.copyfileobj(req, f)
-        checksum_validate(source, source_archive_file, src.name)
+        checksum_validate(source, source_archive_file, src.name, cfg.mandate_hashes)
     else:
         # VCS-less source.
         source_dir = os.path.join(subdir, src.name)
