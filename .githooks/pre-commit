@@ -1,0 +1,5 @@
+#!/bin/sh
+set -e
+black --check --diff xbstrap/ setup.py
+flake8 xbstrap/ setup.py
+isort xbstrap/ setup.py -c --diff
