@@ -161,7 +161,7 @@ properties:
                 type: string
             'everything_by_default':
                 type: boolean
-            'mandate_hashes':
+            'mandate_hashes_for_archives':
                 type: boolean
             'cargo':
                 type: object

@@ -67,7 +67,7 @@ def checksum_validate(source, source_archive_file, source_name, mandate_hashes):
                 csum = checksum_calculate(DEFAULT_CHECKSUM_TYPE, f)
             _util.log_warn(f"Missing checksum for '{source_archive_file}':")
             _util.log_warn(f"{csum} ({DEFAULT_CHECKSUM_TYPE})")
-            _util.log_err("mandate_hashes is enabled, but some checksums are missing")
+            _util.log_err("Hashes are mandated, but some checksums are missing")
             raise GenericError(f"No checksum provided for source '{source_name}'")
         return
     with open(source_archive_file, "rb") as f:
@@ -300,7 +300,7 @@ def fetch_repo(cfg, src, subdir, *, ignore_mirror=False, bare_repo=False):
         with urllib.request.urlopen(source["url"]) as req:
             with open(source_archive_file, "wb") as f:
                 shutil.copyfileobj(req, f)
-        checksum_validate(source, source_archive_file, src.name, cfg.mandate_hashes)
+        checksum_validate(source, source_archive_file, src.name, cfg.mandate_hashes_for_archives)
     else:
         # VCS-less source.
         source_dir = os.path.join(subdir, src.name)
