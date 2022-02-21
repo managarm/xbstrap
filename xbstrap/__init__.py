@@ -863,8 +863,8 @@ def do_lsp(args):
     cfg = config_for_args(args)
     pkg = cfg.get_target_pkg(args.package)
 
-    tool_pkgs = [cfg.get_tool_pkg(name) for name in pkg.tool_dependencies]
-    tool_pkgs.extend(cfg.get_tool_pkg(name) for name in args.extra_tools)
+    tool_pkgs = {cfg.get_tool_pkg(name) for name in pkg.tool_dependencies}
+    tool_pkgs.update(cfg.get_tool_pkg(name) for name in args.extra_tools)
 
     def resolve_host_paths(x):
         return {
