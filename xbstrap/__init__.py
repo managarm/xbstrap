@@ -864,6 +864,7 @@ def do_lsp(args):
     pkg = cfg.get_target_pkg(args.package)
 
     tool_pkgs = [cfg.get_tool_pkg(name) for name in pkg.tool_dependencies]
+    tool_pkgs.extend(cfg.get_tool_pkg(name) for name in args.extra_tools)
 
     def resolve_host_paths(x):
         return {
@@ -899,6 +900,13 @@ Example:
         --path-mappings \\
         @HOST_BUILD_ROOT@=@BUILD_ROOT@,@HOST_SOURCE_ROOT@=@SOURCE_ROOT@
 """.strip(),
+)
+do_lsp.parser.add_argument(
+    "--extra-tools",
+    type=str,
+    nargs="+",
+    default=[],
+    help="extra tools to add to the lsp environment",
 )
 do_lsp.parser.add_argument("package", type=str, help="xbstrap package to run lsp for")
 do_lsp.parser.add_argument("lsp_program", type=str, help="LSP server and arguments", nargs="+")
