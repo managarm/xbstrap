@@ -17,7 +17,7 @@ main_subcmds.required = True
 
 
 def do_update(args):
-    cfg = xbstrap.base.Config(args.build_dir, src_dir_override=args.source_dir)
+    cfg = xbstrap.base.Config(args.build_dir, changed_source_root=args.source_dir)
     plan = xbstrap.base.Plan(cfg)
 
     if args.dry_run:

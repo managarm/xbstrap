@@ -108,7 +108,7 @@ class PipelineItem:
 
 
 def do_compute_graph(args):
-    cfg = xbstrap.base.Config(args.build_dir, src_dir_override=args.source_dir)
+    cfg = xbstrap.base.Config(args.build_dir, changed_source_root=args.source_dir)
     pipe = pipeline_for_dir(cfg)
 
     if args.version_file:
@@ -317,7 +317,7 @@ do_compute_graph.parser.add_argument(
 
 
 def do_run_job(args):
-    cfg = xbstrap.base.Config(args.build_dir, src_dir_override=args.source_dir)
+    cfg = xbstrap.base.Config(args.build_dir, changed_source_root=args.source_dir)
     pipe = pipeline_for_dir(cfg)
     job = pipe.get_job(args.job)
 
