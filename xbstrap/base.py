@@ -1545,10 +1545,6 @@ class RunTask(RequirementsMixin):
             yield ArtifactFile(e["name"], os.path.join(path, e["name"]), architecture)
 
 
-def config_for_dir(*, src_dir_override=None):
-    return Config("", changed_source_root=src_dir_override)
-
-
 def execute_manifest(manifest):
     source_root = manifest["source_root"]
     build_root = manifest["build_root"]
