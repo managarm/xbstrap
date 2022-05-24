@@ -100,6 +100,8 @@ definitions:
             'regenerate': { $ref: '#/definitions/build_steps' }
             'sources_required': { $ref: '#/definitions/source_deps' }
             'tools_required': { $ref: '#/definitions/tool_deps' }
+            'isolated':
+                type: boolean
 
     'nested_task':
         type: object
@@ -121,6 +123,8 @@ definitions:
             'tools_required': { $ref: '#/definitions/tool_deps' }
             'pkgs_required': { $ref: '#/definitions/pkg_deps' }
             'tasks_required': { $ref: '#/definitions/task_deps' }
+            'isolated':
+                type: boolean
 
     'build_steps':
         type: array
@@ -253,6 +257,9 @@ properties:
                 'regenerate': { $ref: '#/definitions/build_steps' }
                 'sources_required': { $ref: '#/definitions/source_deps' }
                 'tools_required': { $ref: '#/definitions/tool_deps' }
+                'isolated':
+                    type: boolean
+
     'tools':
         type: array
         items:
@@ -295,8 +302,12 @@ properties:
                             'install': { $ref: '#/definitions/build_steps' }
                             'tools_required': { $ref: '#/definitions/tool_deps' }
                             'pkgs_required': { $ref: '#/definitions/pkg_deps' }
+                            'isolated':
+                                type: boolean
                 'sources_required': { $ref: '#/definitions/source_deps' }
                 'tools_required': { $ref: '#/definitions/tool_deps' }
+                'isolated':
+                    type: boolean
                 'tasks':
                     type: array
                     items: { $ref: '#/definitions/nested_task' }
@@ -334,6 +345,8 @@ properties:
                 'stability_level':
                     type: string
                     enum: ['stable', 'unstable', 'broken']
+                'isolated':
+                    type: boolean
                 'implict_package':
                     type: boolean
                 'source': { $ref: '#/definitions/nested_source' }
@@ -346,6 +359,8 @@ properties:
                 'sources_required': { $ref: '#/definitions/source_deps' }
                 'tools_required': { $ref: '#/definitions/tool_deps' }
                 'pkgs_required': { $ref: '#/definitions/pkg_deps' }
+                'isolated':
+                    type: boolean
                 'tasks':
                     type: array
                     items: { $ref: '#/definitions/nested_task' }
@@ -397,3 +412,5 @@ properties:
                 'tools_required': { $ref: '#/definitions/tool_deps' }
                 'pkgs_required': { $ref: '#/definitions/pkg_deps' }
                 'tasks_required': { $ref: '#/definitions/task_deps' }
+                'isolated':
+                    type: boolean

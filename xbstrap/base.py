@@ -686,6 +686,13 @@ class RequirementsMixin:
             yield from self._this_yml["pkgs_required"]
 
     @property
+    def isolated(self):
+        if "isolated" not in self._this_yml:
+            return False
+        else:
+            return self._this_yml["isolated"]
+
+    @property
     def task_dependencies(self):
         if "tasks_required" in self._this_yml:
             for yml in self._this_yml["tasks_required"]:
@@ -1647,10 +1654,13 @@ def execute_manifest(manifest):
 
     # Build the environment
     environ = os.environ.copy()
+    if manifest["isolated"]:
+        environ = {}
 
     path_dirs = [vb.name]
     ldso_dirs = []
     aclocal_dirs = []
+
     for yml in manifest["tools"]:
         prefix_dir = os.path.join(build_root, yml["prefix_subdir"])
         path_dirs.append(os.path.join(prefix_dir, "bin"))
@@ -1753,6 +1763,7 @@ def run_program(
         "for_package": for_package,
         "virtual_tools": list(virtual_tools),
         "tools": [],
+        "isolated": subject.isolated,
         "sysroot_subdir": cfg.sysroot_subdir,
         "option_values": {name: cfg.get_option_value(name) for name in cfg.all_options},
     }
