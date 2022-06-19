@@ -1,0 +1,44 @@
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+    build:
+        name: Build source package
+        runs-on: ubuntu-20.04
+        steps:
+          - name: Checkout
+            uses: actions/checkout@v2
+          - name: Building using setuptools
+            run: |
+                ./setup.py sdist
+          - name: Upload artifact
+            uses: actions/upload-artifact@v2
+            with:
+                name: packages
+                path: dist/xbstrap-*.tar.gz
+
+    deploy:
+        name: Publish release
+        runs-on: ubuntu-20.04
+        if: "startsWith(github.ref, 'refs/tags/v')"
+        needs: build
+        steps:
+          - name: Fetch artifact
+            uses: actions/download-artifact@v2
+            with:
+                name: packages
+                path: artifact
+          - name: Prepare dist/ directory
+            run: |
+                mkdir dist/
+                # Get exactly the version that we want to publish.
+                version="$(grep -Po '(?<=^refs/tags/v).+$' <<< "$ref")"
+                mv "artifact/xbstrap-$version.tar.gz" dist/
+            env:
+                ref: ${{ github.ref }}
+          - name: Publish to PyPI
+            uses: pypa/gh-action-pypi-publish@release/v1
+            with:
+                user: __token__
+                password: ${{ secrets.PYPI_API_TOKEN }}
