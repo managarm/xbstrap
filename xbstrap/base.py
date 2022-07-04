@@ -2488,7 +2488,9 @@ def install_pkg(cfg, pkg):
         _util.build_environ_paths(
             environ, "PATH", prepend=[os.path.join(_util.find_home(), "bin")]
         )
-        environ["XBPS_ARCH"] = effective_arch
+        environ["XBPS_TARGET_ARCH"] = effective_arch
+        uname = os.uname()
+        environ["XBPS_ARCH"] = f"{uname.machine}-{uname.sysname}.HOST"
 
         # Work around xbps: https://github.com/void-linux/xbps/issues/408
         args = ["xbps-remove", "-Fy", "-r", cfg.sysroot_dir, pkg.name]
