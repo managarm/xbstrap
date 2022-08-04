@@ -937,7 +937,7 @@ def main():
         xbstrap.base.verbosity = True
 
     if not xbstrap.base.native_yaml_available:
-        xbstrap.log_warn(
+        _util.log_warn(
             "Using pure Python YAML parser\n       : Install libyaml for improved performance"
         )
 
