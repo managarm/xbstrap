@@ -323,6 +323,9 @@ properties:
                         'categories':
                             type: array
                             items: { type: string }
+                        'replaces':
+                            type: array
+                            items: { type: string }
                 'revision':
                     type: integer
                 'labels':

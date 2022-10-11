@@ -2429,6 +2429,8 @@ def pack_pkg(cfg, pkg, reproduce=False):
                 args += ["--maintainer", metadata["maintainer"]]
             if "categories" in metadata:
                 args += ["--tags", " ".join(metadata["categories"])]
+            if "replaces" in metadata:
+                args += ["--replaces", " ".join(metadata["replaces"])]
 
             args += [pack_dir]
 
