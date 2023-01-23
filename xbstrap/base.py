@@ -14,6 +14,7 @@ import tarfile
 import tempfile
 import urllib.request
 import zipfile
+from contextlib import suppress
 from enum import Enum
 
 import colorama
@@ -2614,6 +2615,33 @@ def run_tool_task(cfg, task):
     )
 
 
+def discard_src(cfg, src):
+    with suppress(Exception):
+        shutil.rmtree(os.path.join(cfg.source_root, src.source_subdir))
+
+
+def discard_pkg(cfg, pkg):
+    with suppress(Exception):
+        shutil.rmtree(os.path.join(cfg.build_root, pkg.build_subdir))
+        shutil.rmtree(os.path.join(cfg.build_root, pkg.collect_subdir))
+
+    if cfg.use_xbps:
+        output = subprocess.DEVNULL
+        if verbosity:
+            output = None
+        effective_arch = pkg.architecture
+        environ = os.environ.copy()
+        _util.build_environ_paths(
+            environ, "PATH", prepend=[os.path.join(_util.find_home(), "bin")]
+        )
+        environ["XBPS_ARCH"] = effective_arch
+        args = ["xbps-remove", "-Fy", "-r", cfg.sysroot_dir, pkg.name]
+        _util.log_info("Running {}".format(args))
+        subprocess.call(args, env=environ, stdout=output)
+    else:
+        raise GenericError("Package management configuration does not support discard")
+
+
 # ---------------------------------------------------------------------------------------
 # Build planning.
 # ---------------------------------------------------------------------------------------
@@ -2666,6 +2694,8 @@ class Action(Enum):
     WANT_PKG = 21
     # xbstrap-mirror functionality.
     MIRROR_SRC = 22
+    DISCARD_SRC = 23
+    DISCARD_PKG = 24
 
 
 Action.strings = {
@@ -2691,6 +2721,8 @@ Action.strings = {
     Action.WANT_TOOL: "want-tool",
     Action.WANT_PKG: "want-pkg",
     Action.MIRROR_SRC: "mirror",
+    Action.DISCARD_SRC: "discard-source",
+    Action.DISCARD_PKG: "discard-package",
 }
 
 
@@ -2770,6 +2802,8 @@ class PlanItem:
             Action.WANT_TOOL: lambda s, c: s.check_if_fully_installed(c),
             Action.WANT_PKG: lambda s, c: s.check_staging(c),
             Action.MIRROR_SRC: lambda s, c: s.check_if_mirrord(c),
+            Action.DISCARD_SRC: lambda s, c: ItemState(missing=True),
+            Action.DISCARD_PKG: lambda s, c: ItemState(missing=True),
         }
         self._state = visitors[self.action](self.subject, self.settings)
 
@@ -2968,6 +3002,12 @@ class Plan:
             add_tool_dependencies(subject)
             add_pkg_dependencies(subject)
             add_task_dependencies(subject)
+
+        elif action == Action.DISCARD_SRC:
+            pass
+
+        elif action == Action.DISCARD_PKG:
+            pass
 
         return item
 
@@ -3312,6 +3352,10 @@ class Plan:
                     raise ExecutionFailureError(action, subject)
                 elif action == Action.MIRROR_SRC:
                     mirror_src(self._cfg, subject)
+                elif action == Action.DISCARD_SRC:
+                    discard_src(self._cfg, subject)
+                elif action == Action.DISCARD_PKG:
+                    discard_pkg(self._cfg, subject)
                 else:
                     raise AssertionError("Unexpected action")
                 item.exec_status = ExecutionStatus.SUCCESS
