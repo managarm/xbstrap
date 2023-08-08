@@ -69,6 +69,8 @@ def do_runtool(args):
         for name in tools:
             tool_pkgs.append(cfg.get_tool_pkg(name))
 
+    has_containerless = any(x.containerless for x in tool_pkgs)
+
     xbstrap.base.run_program(
         cfg,
         context,
@@ -77,6 +79,7 @@ def do_runtool(args):
         tool_pkgs=tool_pkgs,
         workdir=workdir,
         for_package=for_package,
+        containerless=has_containerless,
     )
 
 

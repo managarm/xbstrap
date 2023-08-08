@@ -553,8 +553,9 @@ class Config:
 
 
 class ScriptStep:
-    def __init__(self, step_yml):
+    def __init__(self, step_yml, containerless=False):
         self._step_yml = step_yml
+        self._containerless = containerless
 
     @property
     def args(self):
@@ -574,7 +575,7 @@ class ScriptStep:
 
     @property
     def containerless(self):
-        return self._step_yml.get("containerless", False)
+        return self._step_yml.get("containerless", False) or self._containerless
 
     @property
     def quiet(self):
@@ -999,10 +1000,10 @@ class HostStage(RequirementsMixin):
 
         if "compile" in self._this_yml:
             for step_yml in self._this_yml["compile"]:
-                self._compile_steps.append(ScriptStep(step_yml))
+                self._compile_steps.append(ScriptStep(step_yml, pkg.containerless))
         if "install" in self._this_yml:
             for step_yml in self._this_yml["install"]:
-                self._install_steps.append(ScriptStep(step_yml))
+                self._install_steps.append(ScriptStep(step_yml, pkg.containerless))
 
     @property
     def pkg(self):
@@ -1021,6 +1022,12 @@ class HostStage(RequirementsMixin):
     @property
     def subject_type(self):
         return "tool stage"
+
+    @property
+    def containerless(self):
+        if "containerless" not in self._this_yml:
+            return False
+        return self._this_yml["containerless"]
 
     @property
     def compile_steps(self):
@@ -1091,7 +1098,7 @@ class HostPackage(RequirementsMixin):
 
         if "configure" in self._this_yml:
             for step_yml in self._this_yml["configure"]:
-                self._configure_steps.append(ScriptStep(step_yml))
+                self._configure_steps.append(ScriptStep(step_yml, self.containerless))
 
         if "tasks" in self._this_yml:
             for task_yml in self._this_yml["tasks"]:
@@ -1114,6 +1121,12 @@ class HostPackage(RequirementsMixin):
         if "exports_aclocal" not in self._this_yml:
             return False
         return self._this_yml["exports_aclocal"]
+
+    @property
+    def containerless(self):
+        if "containerless" not in self._this_yml:
+            return False
+        return self._this_yml["containerless"]
 
     @property
     def source(self):
@@ -1726,6 +1739,16 @@ def run_program(
 ):
     pkg_queue = []
     pkg_visited = set()
+    tools_all_containerless = (
+        all(x.containerless for x in tool_pkgs) if tool_pkgs else containerless
+    )
+
+    tools_some_containerless = (
+        any(x.containerless for x in tool_pkgs) if tool_pkgs else containerless
+    )
+
+    if tools_some_containerless is not tools_all_containerless:
+        raise GenericError("mixing containerless with non-containerless tools is not supported")
 
     for pkg in tool_pkgs:
         assert pkg.name not in pkg_visited
@@ -1816,6 +1839,12 @@ def run_program(
             use_container = False
     if runtime is None:
         use_container = False
+
+    if tools_all_containerless and use_container:
+        raise GenericError("running containerless is not allowed by your configuration")
+
+    if containerless is not tools_all_containerless:
+        raise GenericError("containerless steps can only use containerless tools")
 
     if use_container:
         if runtime == "dummy":

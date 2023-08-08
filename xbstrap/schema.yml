@@ -278,6 +278,8 @@ properties:
                     type: boolean
                 'exports_shared_libs':
                     type: boolean
+                'containerless':
+                    type: boolean
                 'architecture': { type: string }
                 'configure': { $ref: '#/definitions/build_steps' }
                 'compile': { $ref: '#/definitions/build_steps' }
