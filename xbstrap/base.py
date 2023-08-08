@@ -2836,7 +2836,7 @@ class Plan:
                 item.require_edges.add((action.PATCH_SRC, dep_source))
 
         def add_tool_dependencies(s):
-            for (tool_name, stage_name) in s.tool_stage_dependencies:
+            for tool_name, stage_name in s.tool_stage_dependencies:
                 dep_tool = self._cfg.get_tool_pkg(tool_name)
                 if self.build_scope is not None and dep_tool not in self.build_scope:
                     item.require_edges.add((action.WANT_TOOL, dep_tool))
@@ -3073,14 +3073,14 @@ class Plan:
                 visit(item.require_edges)
 
         # Activate wanted items.
-        for (action, subject) in self.wanted:
+        for action, subject in self.wanted:
             item = self._items[(action, subject)]
             item.build_span = True
             if not self.check or item.is_missing:
                 activate(action, subject)
 
         # Discover all items reachable by build edges.
-        for (action, subject) in reversed(self._order):
+        for action, subject in reversed(self._order):
             item = self._items[(action, subject)]
             if not item.build_span:
                 continue
@@ -3098,7 +3098,7 @@ class Plan:
                     return False
                 return dep_ts > ts
 
-            for (action, subject) in self._order:
+            for action, subject in self._order:
                 item = self._items[(action, subject)]
                 # Unless we're doing a recursive update, we only follow check items
                 # that are reachable by build edges.
@@ -3160,7 +3160,7 @@ class Plan:
             _util.log_info("Running the following plan:")
         else:
             _util.log_info("Nothing to do")
-        for (action, subject) in scheduled:
+        for action, subject in scheduled:
             if isinstance(subject, HostStage):
                 if subject.stage_name:
                     eprint(
@@ -3199,7 +3199,7 @@ class Plan:
             return
 
         any_failed_items = False
-        for (n, (action, subject)) in enumerate(scheduled):
+        for n, (action, subject) in enumerate(scheduled):
             item = self._items[(action, subject)]
 
             # Check if any prerequisites failed; this can generally only happen with --keep-going.
@@ -3329,7 +3329,7 @@ class Plan:
 
         if any_failed_items:
             _util.log_info("The following steps failed:")
-            for (action, subject) in scheduled:
+            for action, subject in scheduled:
                 item = self._items[(action, subject)]
                 assert item.exec_status != ExecutionStatus.NULL
                 if item.exec_status == ExecutionStatus.SUCCESS:

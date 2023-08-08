@@ -182,7 +182,7 @@ def do_compute_graph(args):
                             "architecture": af.architecture,
                         }
                     )
-            for (action, subject) in plan.materialized_steps():
+            for action, subject in plan.materialized_steps():
                 if action == xbstrap.base.Action.WANT_TOOL:
                     if subject in job.tools:
                         continue
@@ -237,7 +237,7 @@ def do_compute_graph(args):
                 plan.wanted.update([(xbstrap.base.Action.RUN, task)])
             plan.compute_plan(no_ordering=True)
 
-            for (action, subject) in plan.materialized_steps():
+            for action, subject in plan.materialized_steps():
                 if action == xbstrap.base.Action.WANT_TOOL:
                     if subject in item.job.tools:
                         continue
