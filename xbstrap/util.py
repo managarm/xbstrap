@@ -72,7 +72,6 @@ def build_environ_paths(environ, varname, prepend):
 
 
 def interactive_download(url, path):
-
     istty = os.isatty(1)  # This is stdout.
     if istty:
         eprint("...", end="")  # This will become the status line.
