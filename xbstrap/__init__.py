@@ -33,7 +33,9 @@ main_subparsers = main_parser.add_subparsers(dest="command")
 
 
 def config_for_args(args):
-    return xbstrap.base.Config(args.build_dir, changed_source_root=args.source_dir)
+    return xbstrap.base.Config(
+        args.build_dir, changed_source_root=args.source_dir, prefer_pull=args.pull
+    )
 
 
 def do_runtool(args):
@@ -152,6 +154,9 @@ def handle_plan_args(cfg, plan, args):
     if args.progress_file is not None:
         plan.progress_file = xbstrap.cli_utils.open_file_from_cli(args.progress_file, "wt")
 
+    if args.command == "update":
+        plan.update = True
+
 
 handle_plan_args.parser = argparse.ArgumentParser(add_help=False)
 handle_plan_args.parser.add_argument(
@@ -165,6 +170,9 @@ handle_plan_args.parser.add_argument(
 )
 handle_plan_args.parser.add_argument(
     "-u", "--update", action="store_true", help="check for package updates"
+)
+handle_plan_args.parser.add_argument(
+    "-p", "--pull", action="store_true", help="pull packages instead of building from source"
 )
 handle_plan_args.parser.add_argument(
     "--recursive", action="store_true", help="when updating: also update requirements"
@@ -408,12 +416,22 @@ do_install_tool.parser = main_subparsers.add_parser(
 
 def select_pkgs(cfg, args):
     if args.all:
-        return [pkg for pkg in cfg.all_pkgs() if pkg.is_default]
+        if args.installed:
+            return [pkg for pkg in cfg.all_pkgs() if not pkg.check_if_installed(cfg).missing]
+        else:
+            return [pkg for pkg in cfg.all_pkgs()]
     else:
         if args.command == "run":
             return [cfg.get_target_pkg(name) for name in args.pkg]
         else:
-            sel = [cfg.get_target_pkg(name) for name in args.packages]
+            if args.installed:
+                sel = [
+                    cfg.get_target_pkg(name)
+                    for name in args.packages
+                    if not cfg.get_target_pkg(name).check_if_installed(cfg).missing
+                ]
+            else:
+                sel = [cfg.get_target_pkg(name) for name in args.packages]
 
             if args.deps_of is not None:
                 for pkg_name in args.deps_of:
@@ -429,6 +447,12 @@ def select_pkgs(cfg, args):
 select_pkgs.parser = argparse.ArgumentParser(add_help=False)
 select_pkgs.parser.add_argument("--all", action="store_true")
 select_pkgs.parser.add_argument("--deps-of", type=str, action="append")
+select_pkgs.parser.add_argument(
+    "-i",
+    "--installed",
+    action="store_true",
+    help="only select packages that are already installed",
+)
 select_pkgs.parser.add_argument("packages", nargs="*", type=str)
 
 
@@ -918,6 +942,64 @@ do_lsp.parser.set_defaults(_impl=do_lsp)
 # ----------------------------------------------------------------------------------------
 
 
+def do_update(args):
+    # special behavior for this command:
+    # if --all is supplied, we ignore packages that are not installed
+    if args.all:
+        args.installed = True
+
+    cfg = config_for_args(args)
+    pkgs = select_pkgs(cfg, args)
+    plan = xbstrap.base.Plan(cfg)
+    handle_plan_args(cfg, plan, args)
+    to_update = []
+
+    if args.verbose:
+        _util.log_info("Checking packages for updates:")
+    for pkg in pkgs:
+        if pkg.version == pkg.installed_version:
+            if args.verbose:
+                print(f"\t{pkg.name}: {pkg.version} installed (up-to-date)")
+        else:
+            if not pkg.installed_version:
+                if args.verbose:
+                    print(f"\t{pkg.name}: {pkg.version} available, not installed")
+            else:
+                if args.verbose:
+                    print(
+                        f"\t{pkg.name}: {pkg.version} available, {pkg.installed_version} installed"
+                    )
+            to_update.append(pkg)
+
+    _util.log_info(f"{len(to_update)} of {len(pkgs)} checked packages need updating:")
+    for pkg in to_update:
+        if pkg.installed_version:
+            print(f"\t{pkg.name} ({pkg.installed_version} -> {pkg.version})")
+        else:
+            print(f"\t{pkg.name} (new install of {pkg.version})")
+
+    for pkg in to_update:
+        plan.wanted.add((xbstrap.base.Action.INSTALL_PKG, pkg))
+
+    if not args.dry_run:
+        plan.run_plan()
+
+
+do_update.parser = main_subparsers.add_parser(
+    "update",
+    description=(
+        "Update packages to their newest version. " "When --all is used, --installed is implied."
+    ),
+    parents=[handle_plan_args.parser, select_pkgs.parser],
+)
+do_update.parser.add_argument(
+    "-v", "--verbose", action="store_true", help="print every version check performed"
+)
+do_update.parser.set_defaults(_impl=do_update)
+
+# ----------------------------------------------------------------------------------------
+
+
 def do_execute_manifest(args):
     if args.c is not None:
         manifest = yaml.load(args.c, Loader=xbstrap.base.global_yaml_loader)
@@ -993,6 +1075,8 @@ def main():
             do_run_task(args)
         elif args.command == "lsp":
             do_lsp(args)
+        elif args.command == "update":
+            do_update(args)
         else:
             assert not "Unexpected command"
     except (
