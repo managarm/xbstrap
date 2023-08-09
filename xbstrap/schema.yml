@@ -101,6 +101,50 @@ definitions:
             'sources_required': { $ref: '#/definitions/source_deps' }
             'tools_required': { $ref: '#/definitions/tool_deps' }
 
+        # keep this in sync with the `sources` definition, as this apparently can't be $ref'ed
+        dependencies:
+          # when `git` is used, disallow `svn`, `hg` and `url`
+          git:
+            not:
+              anyOf:
+                - required:
+                  - hg
+                - required:
+                  - svn
+                - required:
+                  - url
+
+          # when `tag` is used, disallow `branch` and `commit`
+          tag:
+            not:
+              anyOf:
+                - required:
+                  - branch
+                - required:
+                  - commit
+
+          branch:
+            # require any of `commit` or `rolling_version` to be present
+            anyOf:
+              - required:
+                - commit
+              - required:
+                - rolling_version
+            # when branch is used, disallow `tag`
+            not:
+              required:
+                - tag
+
+          # when commit is used, branch is required
+          commit:
+            required:
+              - branch
+
+          # when rolling_version is used, branch is required
+          rolling_version:
+            required:
+              - branch
+
     'nested_task':
         type: object
         additionalProperties: false
@@ -253,6 +297,50 @@ properties:
                 'regenerate': { $ref: '#/definitions/build_steps' }
                 'sources_required': { $ref: '#/definitions/source_deps' }
                 'tools_required': { $ref: '#/definitions/tool_deps' }
+
+            # keep this in sync with the `nested_sources` definition, as this apparently can't be $ref'ed
+            dependencies:
+              # when `git` is used, disallow `svn`, `hg` and `url`
+              git:
+                not:
+                  anyOf:
+                    - required:
+                      - hg
+                    - required:
+                      - svn
+                    - required:
+                      - url
+
+              # when `tag` is used, disallow `branch` and `commit`
+              tag:
+                not:
+                  anyOf:
+                    - required:
+                      - branch
+                    - required:
+                      - commit
+
+              branch:
+                # require any of `commit` or `rolling_version` to be present
+                anyOf:
+                  - required:
+                    - commit
+                  - required:
+                    - rolling_version
+                # when branch is used, disallow `tag`
+                not:
+                  required:
+                    - tag
+
+              # when commit is used, branch is required
+              commit:
+                required:
+                  - branch
+
+              # when rolling_version is used, branch is required
+              rolling_version:
+                required:
+                  - branch
     'tools':
         type: array
         items:
