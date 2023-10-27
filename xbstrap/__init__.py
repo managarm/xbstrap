@@ -839,7 +839,7 @@ def do_prereqs(args):
                     tar.extract(info, bin_dir)
         os.chmod(os.path.join(bin_dir, "cbuildrt"), 0o755)
     if "xbps" in comps:
-        url = "https://alpha.de.repo.voidlinux.org/static"
+        url = "https://repo-default.voidlinux.org/static"
         url += "/xbps-static-static-0.59_5.x86_64-musl.tar.xz"
         tar_path = os.path.join(home, "xbps.tar.xz")
 
