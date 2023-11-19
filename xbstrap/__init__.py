@@ -15,6 +15,7 @@ import xbstrap.base
 import xbstrap.cli_utils
 import xbstrap.exceptions
 import xbstrap.util as _util
+import xbstrap.vcs_utils as _vcs_utils
 from xbstrap.util import eprint
 
 # ---------------------------------------------------------------------------------------
@@ -926,6 +927,31 @@ def do_execute_manifest(args):
 execute_manifest_parser = main_subparsers.add_parser("execute-manifest")
 execute_manifest_parser.add_argument("-c", type=str)
 execute_manifest_parser.set_defaults(_impl=do_execute_manifest)
+
+# ----------------------------------------------------------------------------------------
+
+
+def do_get_pkg_source(args):
+    cfg = config_for_args(args)
+    pkg = cfg.get_target_pkg(args.package)
+
+    if not pkg:
+        sys.exit(1)
+
+    src = cfg.get_source(pkg.source)
+    src_type = _vcs_utils.vcs_name(src)
+
+    if src_type is None:
+        sys.exit(2)
+
+    print(src._this_yml[src_type])
+
+
+get_pkg_source_parser = main_subparsers.add_parser("get-pkg-source")
+get_pkg_source_parser.add_argument(
+    "package", type=str, help="xbstrap package to get the source URL for, if available"
+)
+get_pkg_source_parser.set_defaults(_impl=do_get_pkg_source)
 
 
 def main():
