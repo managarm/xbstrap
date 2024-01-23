@@ -1600,11 +1600,14 @@ def execute_manifest(manifest):
 
     # /bin directory for virtual tools.
     explicit_pkgconfig = False
-    vb = tempfile.TemporaryDirectory()
+    virtual_bin = "/tmp/xbstrap/virtual/bin"
+
+    try_rmtree(virtual_bin)
+    os.makedirs(virtual_bin)
 
     for yml in manifest["virtual_tools"]:
         if yml["virtual"] == "pkgconfig-for-host":
-            vscript = os.path.join(vb.name, yml["program_name"])
+            vscript = os.path.join(virtual_bin, yml["program_name"])
             paths = []
             for tool_yml in manifest["tools"]:
                 paths.append(os.path.join(build_root, tool_yml["prefix_subdir"], "lib/pkgconfig"))
@@ -1635,7 +1638,7 @@ def execute_manifest(manifest):
             explicit_pkgconfig = True
         elif yml["virtual"] == "pkgconfig-for-target":
             vscript = os.path.join(
-                vb.name, "{}-pkg-config".format(replace_at_vars(yml["triple"], substitute))
+                virtual_bin, "{}-pkg-config".format(replace_at_vars(yml["triple"], substitute))
             )
             with open(vscript, "wt") as f:
                 f.write(
@@ -1661,7 +1664,7 @@ def execute_manifest(manifest):
     # Build the environment
     environ = os.environ.copy()
 
-    path_dirs = [vb.name]
+    path_dirs = [virtual_bin]
     ldso_dirs = []
     aclocal_dirs = []
     for yml in manifest["tools"]:
