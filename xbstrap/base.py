@@ -143,6 +143,16 @@ def installtree(src_root, dest_root):
             shutil.copy2(src_path, dest_path)
 
 
+def touchtree(root):
+    for name in os.listdir(root):
+        path = os.path.join(root, name)
+
+        os.utime(path, (0, 0))
+
+        if not os.path.islink(path) and os.path.isdir(path):
+            touchtree(path)
+
+
 class ResetMode(Enum):
     NONE = 0
     RESET = 1
@@ -2429,6 +2439,8 @@ def pack_pkg(cfg, pkg, reproduce=False):
             if install_sh:
                 with open(os.path.join(pack_dir, "INSTALL"), "wt") as f:
                     f.write(install_sh)
+
+            touchtree(pack_dir)
 
             # The directory is now prepared, call xbps-create.
             environ = os.environ.copy()
