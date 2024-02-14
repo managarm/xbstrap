@@ -343,6 +343,12 @@ class Config:
         return self._root_yml["general"].get("mandate_hashes_for_archives", False)
 
     @property
+    def enable_network_isolation(self):
+        if "general" not in self._root_yml:
+            return False
+        return self._root_yml["general"].get("enable_network_isolation", False)
+
+    @property
     def xbstrap_mirror(self):
         return self._commit_yml.get("general", dict()).get("xbstrap_mirror", None)
 
@@ -586,6 +592,10 @@ class ScriptStep:
     @property
     def containerless(self):
         return self._step_yml.get("containerless", False) or self._containerless
+
+    @property
+    def isolate_network(self):
+        return self._step_yml.get("isolate_network")
 
     @property
     def quiet(self):
@@ -1747,6 +1757,7 @@ def run_program(
     extra_environ=dict(),
     for_package=False,
     containerless=False,
+    isolate_network=False,
     quiet=False,
     cargo_home=True,
 ):
@@ -2009,6 +2020,7 @@ def run_program(
                 "user": {"uid": container_yml["uid"], "gid": container_yml["gid"]},
                 "process": {"args": ["xbstrap", "execute-manifest", "-c", yaml.dump(manifest)]},
                 "rootfs": container_yml["rootfs"],
+                "isolateNetwork": isolate_network,
                 "bindMounts": [
                     {"destination": container_yml["src_mount"], "source": cfg.source_root},
                     {"destination": container_yml["build_mount"], "source": cfg.build_root},
@@ -2041,6 +2053,9 @@ def run_program(
 
 
 def run_step(cfg, context, subject, step, tool_pkgs, virtual_tools, for_package=False):
+    isolate_network = step.isolate_network
+    if isolate_network is None:
+        isolate_network = cfg.enable_network_isolation
     run_program(
         cfg,
         context,
@@ -2052,6 +2067,7 @@ def run_step(cfg, context, subject, step, tool_pkgs, virtual_tools, for_package=
         extra_environ=step.environ,
         for_package=for_package,
         containerless=step.containerless,
+        isolate_network=isolate_network,
         quiet=step.quiet and not verbosity,
         cargo_home=step.cargo_home,
     )

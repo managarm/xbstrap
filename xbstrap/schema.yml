@@ -136,6 +136,7 @@ definitions:
                     additionalProperties:
                         type: string
                 'containerless': { type: boolean }
+                'isolate_network': { type: boolean }
                 'quiet':
                     type: boolean
                 'cargo_home':
@@ -160,6 +161,8 @@ properties:
             'patch_email':
                 type: string
             'everything_by_default':
+                type: boolean
+            'enable_network_isolation':
                 type: boolean
             'mandate_hashes_for_archives':
                 type: boolean
