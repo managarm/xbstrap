@@ -778,6 +778,10 @@ class Source(RequirementsMixin):
         return "source"
 
     @property
+    def source_date_epoch(self):
+        return _vcs_utils.determine_source_date_epoch(self)
+
+    @property
     def has_variable_checkout_commit(self):
         if "git" in self._this_yml:
             return "branch" in self._this_yml and "commit" not in self._this_yml
@@ -1684,6 +1688,10 @@ def execute_manifest(manifest):
     # Build the environment
     environ = os.environ.copy()
 
+    sde = manifest.get("source_date_epoch")
+    if sde is not None:
+        environ["SOURCE_DATE_EPOCH"] = str(sde)
+
     path_dirs = [virtual_bin]
     ldso_dirs = []
     aclocal_dirs = []
@@ -1806,6 +1814,7 @@ def run_program(
 
     if context == "source":
         manifest["subject"] = {"source_subdir": subject.source_subdir}
+        manifest["source_date_epoch"] = subject.source_date_epoch
     elif context == "tool":
         src = cfg.get_source(subject.source)
         manifest["subject"] = {
@@ -1813,6 +1822,7 @@ def run_program(
             "build_subdir": subject.build_subdir,
             "prefix_subdir": subject.prefix_subdir,
         }
+        manifest["source_date_epoch"] = src.source_date_epoch
     elif context == "tool-stage":
         tool = subject.pkg
         src = cfg.get_source(tool.source)
@@ -1821,6 +1831,7 @@ def run_program(
             "build_subdir": tool.build_subdir,
             "prefix_subdir": tool.prefix_subdir,
         }
+        manifest["source_date_epoch"] = src.source_date_epoch
     elif context == "pkg":
         src = cfg.get_source(subject.source)
         manifest["subject"] = {
@@ -1828,6 +1839,7 @@ def run_program(
             "build_subdir": subject.build_subdir,
             "collect_subdir": subject.collect_subdir,
         }
+        manifest["source_date_epoch"] = src.source_date_epoch
     elif context == "tool-task":
         tool = subject.pkg
         src = cfg.get_source(tool.source)
@@ -1836,6 +1848,7 @@ def run_program(
             "build_subdir": tool.build_subdir,
             "prefix_subdir": tool.prefix_subdir,
         }
+        manifest["source_date_epoch"] = src.source_date_epoch
     elif context == "pkg-task":
         pkg = subject.pkg
         src = cfg.get_source(pkg.source)
@@ -1844,6 +1857,7 @@ def run_program(
             "build_subdir": pkg.build_subdir,
             "collect_subdir": pkg.collect_subdir,
         }
+        manifest["source_date_epoch"] = src.source_date_epoch
 
     for tool in pkg_queue:
         manifest["tools"].append(

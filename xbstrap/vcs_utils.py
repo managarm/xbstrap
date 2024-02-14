@@ -305,3 +305,19 @@ def fetch_repo(cfg, src, subdir, *, ignore_mirror=False, bare_repo=False):
         # VCS-less source.
         source_dir = os.path.join(subdir, src.name)
         _util.try_mkdir(source_dir)
+
+
+def determine_source_date_epoch(src):
+    yml = src._this_yml
+
+    if "git" in yml:
+        # HEAD is usually what we want if the repository is fully patched.
+        # TODO: Ensure that the current work tree matches the fully patched version.
+        output = subprocess.check_output(
+            ["git", "show", "-s", "--format=%ct", "HEAD"], encoding="ascii", cwd=src.source_dir
+        )
+        return int(output)
+    else:
+        # If we do not know how to find the last modification time,
+        # it is preferrable to simply return 0 (= Jan 1, 1970) over not setting SOURCE_DATE_EPOCH.
+        return 0
