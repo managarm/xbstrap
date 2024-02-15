@@ -994,7 +994,9 @@ def main():
         elif args.command == "lsp":
             do_lsp(args)
         else:
-            assert not "Unexpected command"
+            # invalid command are already handled by argparse;
+            # this only gets tripped with no command provided
+            main_parser.print_help()
     except (
         xbstrap.base.ExecutionFailureError,
         xbstrap.base.PlanFailureError,
