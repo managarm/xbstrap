@@ -10,14 +10,17 @@ import shlex
 import shutil
 import stat
 import subprocess
+import sys
 import tarfile
 import tempfile
 import urllib.request
 import zipfile
+from distutils.version import StrictVersion
 from enum import Enum
 
 import colorama
 import jsonschema
+import pkg_resources
 import yaml
 
 import xbstrap.util as _util
@@ -218,6 +221,13 @@ class Config:
 
         self._parse_yml(root_path, self._root_yml)
 
+        if self.installed_version < self.min_version:
+            _util.log_err(
+                f"Installed xbstrap version {self.installed_version} does not satisfy "
+                f"the minimum required version {self.min_version}"
+            )
+            sys.exit(1)
+
         # Collect all architectures that this build uses.
         for tool in self._tool_pkgs.values():
             arch = tool.architecture
@@ -315,6 +325,17 @@ class Config:
                 if not (filter_tasks is None) and (task.name not in filter_tasks):
                     continue
                 self._tasks[task.name] = task
+
+    @property
+    def min_version(self):
+        default = "0.0"
+        if "general" not in self._root_yml:
+            return StrictVersion(default)
+        return StrictVersion(self._root_yml["general"].get("min_version", default))
+
+    @property
+    def installed_version(self):
+        return StrictVersion(pkg_resources.get_distribution("xbstrap").version)
 
     @property
     def patch_author(self):
