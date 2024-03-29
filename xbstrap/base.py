@@ -2158,10 +2158,15 @@ def checkout_src(cfg, src, settings):
                 if fixed_commit is not None:
                     commit = fixed_commit
             if init or settings.reset != ResetMode.NONE:
-                subprocess.check_call(
-                    ["git", "checkout", "--no-track", "-B", source["branch"], commit],
-                    cwd=src.source_dir,
-                )
+                try:
+                    subprocess.check_call(
+                        ["git", "checkout", "--no-track", "-B", source["branch"], commit],
+                        cwd=src.source_dir,
+                    )
+                except subprocess.CalledProcessError:
+                    raise GenericError(
+                        "git checkout of '{}' failed for source '{}'".format(commit, src.name)
+                    )
                 subprocess.call(
                     ["git", "branch", "-u", "refs/remotes/origin/" + source["branch"]],
                     cwd=src.source_dir,
