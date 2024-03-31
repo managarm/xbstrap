@@ -97,6 +97,8 @@ definitions:
                 type: string
             'disable_shallow_fetch':
                 type: boolean
+            'submodules':
+                type: boolean
             'regenerate': { $ref: '#/definitions/build_steps' }
             'sources_required': { $ref: '#/definitions/source_deps' }
             'tools_required': { $ref: '#/definitions/tool_deps' }
