@@ -212,50 +212,10 @@ properties:
     'sources':
         type: array
         items:
-            type: object
-            additionalProperties: false
-            required: ['name']
-            properties:
-                'name':
-                    type: string
-                'version':
-                    type: string
-                'subdir':
-                    type: string
-                'rolling_version':
-                    type: boolean
-                # URL sources.
-                'url':
-                    type: string
-                'filename': { type: string }
-                'format':
-                    type: string
-                'extract_path':
-                    type: string
-                'patch-path-strip':
-                    type: integer
-                'checksum':
-                    type: string
-                # VCS sources.
-                'git':
-                    type: string
-                'hg':
-                    type: string
-                'svn':
-                    type: string
-                'tag':
-                    type: string
-                'branch':
-                    type: string
-                'commit':
-                    type: string
-                'rev':
-                    type: string
-                'disable_shallow_fetch':
-                    type: boolean
-                'regenerate': { $ref: '#/definitions/build_steps' }
-                'sources_required': { $ref: '#/definitions/source_deps' }
-                'tools_required': { $ref: '#/definitions/tool_deps' }
+            allOf:
+              - type: object
+                required: ['name']
+              - { $ref: '#/definitions/nested_source' }
     'tools':
         type: array
         items:
