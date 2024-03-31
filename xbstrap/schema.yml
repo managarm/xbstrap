@@ -139,6 +139,8 @@ definitions:
                 'isolate_network': { type: boolean }
                 'quiet':
                     type: boolean
+                'bootstrap_cargo_home':
+                    type: boolean
                 'cargo_home':
                     type: boolean
 
@@ -170,6 +172,8 @@ properties:
                 type: object
                 additionalProperties: false
                 properties:
+                    'bootstrap_config_toml':
+                        type: string
                     'config_toml':
                         type: string
     'repositories':

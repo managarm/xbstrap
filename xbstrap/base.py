@@ -484,6 +484,14 @@ class Config:
             return os.path.join(self.build_root, self._root_yml["directories"]["packages"])
 
     @property
+    def bootstrap_cargo_config_toml(self):
+        yml = self._root_yml.get("general", dict())
+        if "cargo" in yml:
+            return yml["cargo"]["bootstrap_config_toml"]
+        else:
+            return None
+
+    @property
     def cargo_config_toml(self):
         yml = self._root_yml.get("general", dict())
         if "cargo" in yml:
@@ -602,6 +610,12 @@ class ScriptStep:
         if "quiet" not in self._step_yml:
             return False
         return self._step_yml["quiet"]
+
+    @property
+    def bootstrap_cargo_home(self):
+        if "bootstrap_cargo_home" not in self._step_yml:
+            return False
+        return self._step_yml["bootstrap_cargo_home"]
 
     @property
     def cargo_home(self):
@@ -1727,7 +1741,9 @@ def execute_manifest(manifest):
     if manifest["quiet"]:
         output = subprocess.DEVNULL
 
-    if manifest["cargo_home"]:
+    if manifest["bootstrap_cargo_home"]:
+        environ["CARGO_HOME"] = os.path.join(build_root, "bootstrap-cargo-home")
+    elif manifest["cargo_home"]:
         environ["CARGO_HOME"] = os.path.join(build_root, "cargo-home")
 
     # Determine the working directory.
@@ -1767,6 +1783,7 @@ def run_program(
     containerless=False,
     isolate_network=False,
     quiet=False,
+    bootstrap_cargo_home=False,
     cargo_home=True,
 ):
     pkg_queue = []
@@ -1804,6 +1821,8 @@ def run_program(
         "workdir": workdir,
         "extra_environ": extra_environ,
         "quiet": quiet,
+        "bootstrap_cargo_home": cfg.bootstrap_cargo_config_toml is not None
+        and bootstrap_cargo_home,
         "cargo_home": cfg.cargo_config_toml is not None and cargo_home,
         "for_package": for_package,
         "virtual_tools": list(virtual_tools),
@@ -2083,6 +2102,7 @@ def run_step(cfg, context, subject, step, tool_pkgs, virtual_tools, for_package=
         containerless=step.containerless,
         isolate_network=isolate_network,
         quiet=step.quiet and not verbosity,
+        bootstrap_cargo_home=step.bootstrap_cargo_home,
         cargo_home=step.cargo_home,
     )
 

@@ -89,6 +89,36 @@ do_runtool.parser.add_argument("opts", nargs=argparse.REMAINDER)
 
 
 def do_init(args):
+    def setup_cargo_home(cargo_config_toml, prefix, args, container):
+        if cargo_config_toml is not None:
+            eprint(f"Creating {prefix}cargo-home/config.toml")
+            os.makedirs(f"{prefix}cargo-home", exist_ok=True)
+            shutil.copy(
+                os.path.join(args.src_root, cargo_config_toml),
+                f"{prefix}cargo-home/config.toml",
+            )
+
+            if "build_mount" in container:
+                build_root = container["build_mount"]
+                source_root = container["src_mount"]
+            else:
+                eprint("Using non-Docker build")
+                build_root = os.getcwd()
+                source_root = os.path.abspath(args.src_root)
+
+            with open(f"{prefix}cargo-home/config.toml", "r") as f:
+
+                def substitute(varname):
+                    if varname == "SOURCE_ROOT":
+                        return source_root
+                    elif varname == "BUILD_ROOT":
+                        return build_root
+
+                content = xbstrap.base.replace_at_vars(f.read(), substitute)
+
+            with open(f"{prefix}cargo-home/config.toml", "w") as f:
+                f.write(content)
+
     if not os.access(os.path.join(args.src_root, "bootstrap.yml"), os.F_OK):
         raise RuntimeError("Given src_root does not contain a bootstrap.yml")
     elif os.path.exists("bootstrap.link"):
@@ -97,32 +127,10 @@ def do_init(args):
         os.symlink(os.path.join(args.src_root, "bootstrap.yml"), "bootstrap.link")
 
     cfg = config_for_args(args)
-    if cfg.cargo_config_toml is not None:
-        eprint("Creating cargo-home/config.toml")
-        os.makedirs("cargo-home", exist_ok=True)
-        shutil.copy(os.path.join(args.src_root, cfg.cargo_config_toml), "cargo-home/config.toml")
-
-        container = cfg._site_yml.get("container", dict())
-        if "build_mount" in container:
-            build_root = container["build_mount"]
-            source_root = container["src_mount"]
-        else:
-            eprint("Using non-Docker build")
-            build_root = os.getcwd()
-            source_root = os.path.abspath(args.src_root)
-
-        with open("cargo-home/config.toml", "r") as f:
-
-            def substitute(varname):
-                if varname == "SOURCE_ROOT":
-                    return source_root
-                elif varname == "BUILD_ROOT":
-                    return build_root
-
-            content = xbstrap.base.replace_at_vars(f.read(), substitute)
-
-        with open("cargo-home/config.toml", "w") as f:
-            f.write(content)
+    setup_cargo_home(
+        cfg.bootstrap_cargo_config_toml, "bootstrap-", args, cfg._site_yml.get("container", dict())
+    )
+    setup_cargo_home(cfg.cargo_config_toml, "", args, cfg._site_yml.get("container", dict()))
 
 
 do_init.parser = main_subparsers.add_parser("init")
