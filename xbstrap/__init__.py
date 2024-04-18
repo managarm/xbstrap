@@ -80,6 +80,7 @@ def do_runtool(args):
         workdir=workdir,
         for_package=for_package,
         containerless=has_containerless,
+        virtual_tools=subject.virtual_tools if subject else [],
     )
 
 
