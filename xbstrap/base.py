@@ -181,9 +181,10 @@ ArtifactFile = collections.namedtuple("ArtifactFile", ["name", "filepath", "arch
 
 
 class Config:
-    def __init__(self, path, changed_source_root=None):
+    def __init__(self, path, changed_source_root=None, prefer_pull=False):
         self._build_root_override = None if path == "" else path
         self._config_path = path
+        self._prefer_pull = prefer_pull
         self._root_yml = None
         self._site_yml = dict()
         self._commit_yml = dict()
@@ -363,6 +364,10 @@ class Config:
         if "repositories" not in self._root_yml:
             return None
         return self._root_yml["repositories"].get("tool_archives", None)
+
+    @property
+    def prefer_pull(self):
+        return self._prefer_pull
 
     @property
     def use_xbps(self):
@@ -824,7 +829,7 @@ class Source(RequirementsMixin):
         commit_yml = self._cfg._commit_yml.get("commits", dict()).get(self._name, dict())
         rolling_id = commit_yml.get("rolling_id")
         if rolling_id is None:
-            raise RollingIdUnavailableError(self._name)
+            return self.determine_rolling_id()
         return rolling_id
 
     def determine_rolling_id(self):
@@ -1356,12 +1361,6 @@ class TargetPackage(RequirementsMixin):
         return "package"
 
     @property
-    def is_default(self):
-        if "default" not in self._this_yml:
-            return self._cfg.everything_by_default
-        return self._this_yml["default"]
-
-    @property
     def stability_level(self):
         return self._this_yml.get("stability_level", "stable")
 
@@ -1403,6 +1402,45 @@ class TargetPackage(RequirementsMixin):
     @property
     def version(self):
         return self.compute_version()
+
+    @property
+    def installed_version(self):
+        if self._cfg.use_xbps:
+            environ = os.environ.copy()
+            _util.build_environ_paths(
+                environ, "PATH", prepend=[os.path.join(_util.find_home(), "bin")]
+            )
+            environ["XBPS_ARCH"] = self.architecture
+
+            try:
+                out = (
+                    subprocess.check_output(
+                        [
+                            "xbps-query",
+                            "-r",
+                            self._cfg.sysroot_dir,
+                            self.name,
+                            "--property",
+                            "pkgver",
+                        ],
+                        env=environ,
+                    )
+                    .decode()
+                    .strip()
+                )
+                if out.startswith(self.name):
+                    return out[len(self.name) + 1 :]
+            except subprocess.CalledProcessError:
+                pass
+
+        path = os.path.join(self._cfg.sysroot_dir, "etc", "xbstrap", self.name + ".installed")
+        if not os.path.isfile(path):
+            return None
+        with open(path, "r") as f:
+            data = yaml.load(f, Loader=yaml.SafeLoader)
+            if data and "version" in data:
+                return data["version"]
+        return None
 
     def get_task(self, task):
         if task in self._tasks:
@@ -1489,7 +1527,11 @@ class TargetPackage(RequirementsMixin):
         _util.try_mkdir(os.path.join(self._cfg.sysroot_dir, "etc"))
         _util.try_mkdir(os.path.join(self._cfg.sysroot_dir, "etc", "xbstrap"))
         path = os.path.join(self._cfg.sysroot_dir, "etc", "xbstrap", self.name + ".installed")
-        touch(path)
+        with open(path, "w") as f:
+            data = {
+                "version": self.version,
+            }
+            yaml.safe_dump(data, f, sort_keys=False, default_flow_style=False)
 
 
 class PackageRunTask(RequirementsMixin):
@@ -2587,6 +2629,7 @@ def install_pkg(cfg, pkg):
         ]
         _util.log_info("Running {}".format(args))
         subprocess.check_call(args, env=environ, stdout=output)
+        pkg.mark_as_installed()
     else:
         installtree(pkg.staging_dir, cfg.sysroot_dir)
         pkg.mark_as_installed()
@@ -3004,6 +3047,8 @@ class Plan:
         elif action == Action.INSTALL_PKG:
             if self.build_scope is not None and subject not in self.build_scope:
                 item.build_edges.add((action.WANT_PKG, subject))
+            elif self._cfg.prefer_pull:
+                item.build_edges.add((action.PULL_PKG_PACK, subject))
             elif self._cfg.use_xbps:
                 item.build_edges.add((action.PACK_PKG, subject))
             else:
