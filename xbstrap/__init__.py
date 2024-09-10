@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tarfile
 import urllib.parse
@@ -821,7 +822,7 @@ do_rolling_determine.parser.set_defaults(_impl=do_rolling_determine)
 
 def do_prereqs(args):
     comps = set(args.components)
-    valid_comps = ["cbuildrt", "xbps"]
+    valid_comps = ["cbuildrt", "xbps", "xmu"]
     if not comps.issubset(valid_comps):
         raise RuntimeError(f"Unknown component given; choose from: {valid_comps}")
 
@@ -854,6 +855,36 @@ def do_prereqs(args):
                 if os.path.dirname(info.name) == "./usr/bin":
                     info.name = os.path.basename(info.name)
                     tar.extract(info, bin_dir)
+    if "xmu" in comps:
+        info_url = (
+            "https://api.github.com/repos/managarm/xbstrap-maintainer-utilities/releases/latest"
+        )
+        releases = json.load(urllib.request.urlopen(info_url))
+        url = releases["tarball_url"]
+        tar_path = os.path.join(home, f"xmu-{releases['name']}.tar.gz")
+
+        _util.log_info(f"Downloading xmu {releases['name']} from {url} to {tar_path}")
+        _util.interactive_download(url, tar_path)
+        with tarfile.open(tar_path, "r") as tar:
+            for info in tar:
+                if "/" not in info.name:
+                    commit = info.name[-7:]
+                tar.extract(info, bin_dir)
+
+        extract_dir = os.path.join(bin_dir, f"managarm-xbstrap-maintainer-utilities-{commit}")
+        dest_dir = os.path.join(bin_dir, "xmu")
+
+        xbstrap.base.try_rmtree(dest_dir)
+        shutil.move(extract_dir, dest_dir)
+        if shutil.which("npm") is None:
+            _util.log_err("npm not found")
+            return
+        _util.log_info("Installing xmu with npm")
+        proc = subprocess.Popen(["npm", "install"], cwd=dest_dir)
+        proc.wait()
+        if proc.returncode != 0:
+            _util.log_err(f"Installation of xmu failed with status code {proc.returncode}")
+        xbstrap.base.try_unlink(tar_path)
 
 
 do_prereqs.parser = main_subparsers.add_parser("prereqs")
@@ -915,6 +946,28 @@ do_lsp.parser.add_argument(
 do_lsp.parser.add_argument("package", type=str, help="xbstrap package to run lsp for")
 do_lsp.parser.add_argument("lsp_program", type=str, help="LSP server and arguments", nargs="+")
 do_lsp.parser.set_defaults(_impl=do_lsp)
+
+# ----------------------------------------------------------------------------------------
+
+
+def do_maintainer(args):
+    cfg = config_for_args(args)
+    xmu_dir = os.path.join(_util.find_home(), "bin", "xmu")
+    if not os.access(os.path.join(xmu_dir, "xmu.js"), os.F_OK):
+        _util.log_err("The maintainer utilities are not installed.")
+        _util.log_info("Try running `xbstrap prereqs xmu` to install them.")
+        return
+    proc = subprocess.Popen(
+        [os.path.join(xmu_dir, "xmu.js")] + args.args, cwd=os.path.abspath(cfg.source_root)
+    )
+    proc.wait()
+    if proc.returncode != 0:
+        _util.log_err(f"xmu returned with status {proc.returncode}")
+
+
+do_maintainer.parser = main_subparsers.add_parser("maintainer")
+do_maintainer.parser.add_argument("args", type=str, nargs="*")
+do_maintainer.parser.set_defaults(_impl=do_maintainer)
 
 # ----------------------------------------------------------------------------------------
 
@@ -994,6 +1047,8 @@ def main():
             do_run_task(args)
         elif args.command == "lsp":
             do_lsp(args)
+        elif args.command == "maintainer":
+            do_maintainer(args)
         else:
             assert not "Unexpected command"
     except (
