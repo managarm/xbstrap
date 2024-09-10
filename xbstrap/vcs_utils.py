@@ -195,10 +195,16 @@ def fetch_repo(cfg, src, subdir, *, ignore_mirror=False, bare_repo=False):
             xbstrap_mirror = None
         else:
             xbstrap_mirror = src.cfg.xbstrap_mirror
+
         if xbstrap_mirror is None:
-            git_url = src._this_yml["git"]
+            if isinstance(source["git"], list):
+                if len(source["git"]) == 0:
+                    raise GenericError("at least one URL is required for git sources")
+                git_sources = source["git"]
+            else:
+                git_sources = [source["git"]]
         else:
-            git_url = urllib.parse.urljoin(xbstrap_mirror + "/git/", src.name)
+            git_sources = [urllib.parse.urljoin(xbstrap_mirror + "/git/", src.name)]
 
         git = shutil.which("git")
         if git is None:
@@ -223,7 +229,12 @@ def fetch_repo(cfg, src, subdir, *, ignore_mirror=False, bare_repo=False):
             else:
                 subprocess.check_call([git, "init"] + b_args, cwd=source_dir)
             # We always set the remote to the true remote, not a mirror.
-            subprocess.check_call([git, "remote", "add", "origin", source["git"]], cwd=source_dir)
+            subprocess.check_call([git, "remote", "add", "origin", git_sources[0]], cwd=source_dir)
+
+            for num, fallback in enumerate(git_sources[1:]):
+                subprocess.check_call(
+                    [git, "remote", "add", f"fallback-{num}", fallback], cwd=source_dir
+                )
 
         shallow = not source.get("disable_shallow_fetch", False)
         # We have to disable shallow fetches to get rolling versions right.
@@ -234,46 +245,67 @@ def fetch_repo(cfg, src, subdir, *, ignore_mirror=False, bare_repo=False):
         if bare_repo:
             shallow = False
 
-        args = [git, "fetch"]
-        if "tag" in source:
-            if shallow:
-                args.append("--depth=1")
-            args.extend([git_url, "tag", source["tag"]])
-        else:
-            # If a commit is specified, we need the branch's full history.
-            # TODO: it's unclear whether this is the best strategy:
-            #       - for simplicity, it might be easier to always pull the full history
-            #       - some remotes support fetching individual SHA1s.
-            if "commit" in source or fixed_commit is not None:
-                shallow = False
+        fetch_succeeded = False
+        fetch_failed_before = False
 
-            # When initializing the repository, we fetch only one commit.
-            # For updates, we fetch all *new* commits (= default behavior of 'git fetch').
-            # We do not unshallow the repository.
-            if init and shallow:
-                args.append("--depth=1")
-
-            # For bare repos, we mirror the original repo
-            # (in particular, we do not distinguish local and remote branches).
-            if bare_repo:
-                args.extend(
-                    [
-                        git_url,
-                        "refs/heads/" + source["branch"] + ":" + "refs/heads/" + source["branch"],
-                    ]
-                )
+        for git_url in git_sources:
+            args = [git, "fetch"]
+            if "tag" in source:
+                if shallow:
+                    args.append("--depth=1")
+                args.extend([git_url, "tag", source["tag"]])
             else:
-                args.extend(
-                    [
-                        git_url,
-                        "refs/heads/"
-                        + source["branch"]
-                        + ":"
-                        + "refs/remotes/origin/"
-                        + source["branch"],
-                    ]
-                )
-        subprocess.check_call(args, cwd=source_dir)
+                # If a commit is specified, we need the branch's full history.
+                # TODO: it's unclear whether this is the best strategy:
+                #       - for simplicity, it might be easier to always pull the full history
+                #       - some remotes support fetching individual SHA1s.
+                if "commit" in source or fixed_commit is not None:
+                    shallow = False
+
+                # When initializing the repository, we fetch only one commit.
+                # For updates, we fetch all *new* commits (= default behavior of 'git fetch').
+                # We do not unshallow the repository.
+                if init and shallow:
+                    args.append("--depth=1")
+
+                # For bare repos, we mirror the original repo
+                # (in particular, we do not distinguish local and remote branches).
+                if bare_repo:
+                    args.extend(
+                        [
+                            git_url,
+                            "refs/heads/"
+                            + source["branch"]
+                            + ":"
+                            + "refs/heads/"
+                            + source["branch"],
+                        ]
+                    )
+                else:
+                    args.extend(
+                        [
+                            git_url,
+                            "refs/heads/"
+                            + source["branch"]
+                            + ":"
+                            + "refs/remotes/origin/"
+                            + source["branch"],
+                        ]
+                    )
+
+            try:
+                subprocess.check_call(args, cwd=source_dir)
+            except subprocess.SubprocessError:
+                _util.log_warn(f'Fetching from git remote "{git_url}" failed')
+                fetch_failed_before = True
+            else:
+                if fetch_failed_before:
+                    _util.log_warn(f'Fetching from fallback git remote "{git_url}" succeeded')
+                fetch_succeeded = True
+                break
+
+        if not fetch_succeeded:
+            raise GenericError("Fetching {} failed".format(src.name))
     elif "hg" in source:
         source_dir = os.path.join(subdir, src.name)
 

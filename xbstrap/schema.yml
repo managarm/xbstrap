@@ -82,7 +82,12 @@ definitions:
                 type: string
             # VCS sources.
             'git':
-                type: string
+                oneOf:
+                  - type: array
+                    items:
+                        type: string
+                    minItems: 1
+                  - type: string
             'hg':
                 type: string
             'svn':
