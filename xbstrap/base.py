@@ -39,16 +39,13 @@ except AttributeError:
     pass
 
 
-def load_bootstrap_yaml(path):
+def validate_bootstrap_yaml(yml, path):
     global global_bootstrap_validator
     if not global_bootstrap_validator:
         schema_path = os.path.join(os.path.dirname(__file__), "schema.yml")
         with open(schema_path, "r") as f:
             schema_yml = yaml.load(f, Loader=global_yaml_loader)
         global_bootstrap_validator = jsonschema.Draft7Validator(schema_yml)
-
-    with open(path, "r") as f:
-        yml = yaml.load(f, Loader=global_yaml_loader)
 
     any_errors = False
     n = 0
@@ -68,8 +65,6 @@ def load_bootstrap_yaml(path):
 
     if any_errors:
         _util.log_warn("Validation issues will become hard errors in the future")
-
-    return yml
 
 
 def touch(path):
@@ -201,7 +196,7 @@ class Config:
         self.source_root = os.path.abspath(self._bootstrap_path)
 
         root_path = os.path.join(self._bootstrap_path, "bootstrap.yml")
-        self._root_yml = load_bootstrap_yaml(root_path)
+        self._root_yml = self._read_yml(root_path, is_root=True)
 
         try:
             with open(os.path.join(path, "bootstrap-site.yml"), "r") as f:
@@ -228,6 +223,41 @@ class Config:
             if arch != "noarch":
                 self._site_archs.add(arch)
 
+    def _read_yml(self, path, *, is_root):
+        if path.endswith(".y4.yml"):
+            assert not is_root
+
+            y4_args = ["y4"]
+
+            # Make options available through !std::opt.
+            # Note that all_options and get_option_value() are available since is_root is false.
+            for name in self.all_options:
+                y4_args.extend(["--opt", name, self.get_option_value(name)])
+
+            # Allow custom modules to be loaded from y4.d.
+            y4d = os.path.join(self.source_root, "y4.d")
+            if os.path.exists(y4d):
+                y4_args.extend(["-p", y4d])
+
+            y4_args.append(path)  # Final argument: path to yaml file.
+
+            y4_result = subprocess.run(
+                y4_args,
+                stdout=subprocess.PIPE,
+                encoding="utf-8",
+            )
+            if y4_result.returncode != 0:
+                raise GenericError(f"y4 invocation failed: {y4_args}")
+
+            yml = yaml.load(y4_result.stdout, Loader=global_yaml_loader)
+        else:
+            # Handle plain old YAML files.
+            with open(path, "r") as f:
+                yml = yaml.load(f, Loader=global_yaml_loader)
+
+        validate_bootstrap_yaml(yml, path)
+        return yml
+
     def _parse_yml(
         self,
         current_path,
@@ -251,7 +281,7 @@ class Config:
                         os.path.dirname(current_path), str(import_def["from"])
                     )
                     filter = dict()
-                    import_yml = load_bootstrap_yaml(import_path)
+                    import_yml = self._read_yml(import_path, is_root=False)
                     for f in ["sources", "tools", "packages", "tasks"]:
                         if "all_" + f in import_def:
                             filter[f] = None
@@ -271,7 +301,7 @@ class Config:
                     import_path = os.path.join(
                         os.path.dirname(current_path), str(import_def["file"])
                     )
-                    import_yml = load_bootstrap_yaml(import_path)
+                    import_yml = self._read_yml(import_path, is_root=False)
                     self._parse_yml(import_path, import_yml)
 
         if "sources" in current_yml and isinstance(current_yml["sources"], list):
