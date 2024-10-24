@@ -176,7 +176,9 @@ ArtifactFile = collections.namedtuple("ArtifactFile", ["name", "filepath", "arch
 
 
 class Config:
-    def __init__(self, path, changed_source_root=None):
+    def __init__(self, path, changed_source_root=None, *, debug_cfg_files=False):
+        self.debug_cfg_files = debug_cfg_files
+
         self._build_root_override = None if path == "" else path
         self._config_path = path
         self._root_yml = None
@@ -225,6 +227,7 @@ class Config:
 
     def _read_yml(self, path, *, is_root):
         if path.endswith(".y4.yml"):
+            noext_path = path.removesuffix(".y4.yml")
             assert not is_root
 
             y4_args = ["y4"]
@@ -249,7 +252,11 @@ class Config:
             if y4_result.returncode != 0:
                 raise GenericError(f"y4 invocation failed: {y4_args}")
 
-            yml = yaml.load(y4_result.stdout, Loader=global_yaml_loader)
+            y4_out = y4_result.stdout
+            if self.debug_cfg_files:
+                with open(noext_path + ".out.yml", "w") as f:
+                    f.write(y4_out)
+            yml = yaml.load(y4_out, Loader=global_yaml_loader)
         else:
             # Handle plain old YAML files.
             with open(path, "r") as f:

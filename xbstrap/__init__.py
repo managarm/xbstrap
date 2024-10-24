@@ -25,6 +25,12 @@ from xbstrap.util import eprint
 main_parser = argparse.ArgumentParser()
 main_parser.add_argument("-v", dest="verbose", action="store_true", help="verbose")
 main_parser.add_argument(
+    "--debug-cfg-files",
+    action="store_true",
+    default=False,
+    help="write .out.yml files (to debug YAML file processing)",
+)
+main_parser.add_argument(
     "-S", type=str, dest="source_dir", help="source dir (in place of bootstrap.link)"
 )
 main_parser.add_argument(
@@ -34,7 +40,9 @@ main_subparsers = main_parser.add_subparsers(dest="command")
 
 
 def config_for_args(args):
-    return xbstrap.base.Config(args.build_dir, changed_source_root=args.source_dir)
+    return xbstrap.base.Config(
+        args.build_dir, changed_source_root=args.source_dir, debug_cfg_files=args.debug_cfg_files
+    )
 
 
 def do_runtool(args):
