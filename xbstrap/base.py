@@ -1149,6 +1149,9 @@ class HostPackage(RequirementsMixin):
         self._stages = dict()
         self._tasks = dict()
 
+        if "architecture" not in self._this_yml:
+            _util.log_warn(f"Tool {self.name} does not specify architecture")
+
         if "stages" in self._this_yml:
             for stage_yml in self._this_yml["stages"]:
                 stage = HostStage(self._cfg, self, False, stage_yml)
@@ -1329,6 +1332,9 @@ class TargetPackage(RequirementsMixin):
         self._configure_steps = []
         self._build_steps = []
         self._tasks = dict()
+
+        if "architecture" not in self._this_yml:
+            _util.log_warn(f"Package {self.name} does not specify architecture")
 
         if "configure" in self._this_yml:
             for step_yml in self._this_yml["configure"]:
