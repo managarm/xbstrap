@@ -55,7 +55,7 @@ class CompletionInstall(install):
 
 setup(
     name="xbstrap",
-    version="0.29",
+    version="0.30",
     packages=find_packages(),
     package_data={"xbstrap": ["schema.yml"]},
     install_requires=[
