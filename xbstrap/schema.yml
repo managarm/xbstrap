@@ -188,7 +188,11 @@ properties:
             'tool_archives':
                 type: string
             'xbps':
-                type: string
+                oneOf:
+                  - type: string
+                  - type: object
+                    additionalProperties:
+                        type: string
     'directories':
         type: object
         additionalProperties: false

@@ -2667,14 +2667,20 @@ def archive_pkg(cfg, pkg):
 def pull_pkg_pack(cfg, pkg):
     from . import xbps_utils as _xbps_utils
 
-    repo_url = cfg._root_yml["repositories"]["xbps"]
-
     _util.try_mkdir(cfg.xbps_repository_dir)
 
     # noarch pkgs use the first "true" architecture.
     effective_arch = pkg.architecture
     if pkg.architecture == "noarch":
         effective_arch = list(cfg.site_architectures)[0]
+
+    xbps_yml = cfg._root_yml["repositories"]["xbps"]
+    if isinstance(xbps_yml, str):
+        repo_url = xbps_yml
+    elif isinstance(xbps_yml, dict):
+        repo_url = xbps_yml[effective_arch]
+    else:
+        raise RuntimeError("xbps repo specification must be dict or string")
 
     # Download the repodata file.
     rd_path = os.path.join(cfg.xbps_repository_dir, "remote-{}-repodata".format(effective_arch))
