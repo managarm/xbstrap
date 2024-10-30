@@ -2832,26 +2832,45 @@ class ExecutionStatus(Enum):
     NOT_WANTED = 4
 
 
+PlanKey = collections.namedtuple(
+    "PlanKey",
+    [
+        "action",
+        "subject",
+        "dummy",  # To ensure that this is distinct from the tuple (action, subject).
+    ],
+    defaults=[None],
+)
+
+
 class PlanItem:
-    def __init__(self, action, subject, settings):
-        self.action = action
-        self.subject = subject
+    def __init__(self, key, settings):
+        self.key = key
         self.settings = settings
 
         self._state = None
         self.active = False
+        # The following edge sets store PlanKeys.
         self.build_edges = set()
         self.require_edges = set()
         self.order_before_edges = set()
         self.order_after_edges = set()
 
         self.plan_state = PlanState.NULL
-        self.edge_list = []
+        self.edge_list = []  # Stores PlanKeys.
         self.resolved_n = 0  # Number of resolved edges.
         self.build_span = False
         self.outdated = False
 
         self.exec_status = ExecutionStatus.NULL
+
+    @property
+    def action(self):
+        return self.key.action
+
+    @property
+    def subject(self):
+        return self.key.subject
 
     @property
     def is_missing(self):
@@ -2922,11 +2941,11 @@ class PlanFailureError(Exception):
 class Plan:
     def __init__(self, cfg):
         self._cfg = cfg
-        self._order = []
+        self._order = []  # Stores PlanItems.
         self._visited_for_materialization = set()
         self._visited_for_activation = set()
-        self._items = dict()
-        self._stack = []
+        self._items = dict()  # Maps PlanKey -> PlanItem.
+        self._stack = []  # Stores PlanKeys.
         self._settings = None
         self.build_scope = None
         self.dry_run = False
@@ -2945,61 +2964,63 @@ class Plan:
     def cfg(self):
         return self._cfg
 
-    def _materialize_item(self, action, subject):
-        item = PlanItem(action, subject, self._settings)
+    def _materialize_item(self, key):
+        action = key.action
+        subject = key.subject
+        item = PlanItem(key, self._settings)
 
         def add_implicit_pkgs():
             if not subject.is_implicit:
                 for implicit in self._cfg.all_pkgs():
                     if implicit.is_implicit:
-                        item.require_edges.add((action.INSTALL_PKG, implicit))
+                        item.require_edges.add(PlanKey(Action.INSTALL_PKG, implicit))
 
         def add_source_dependencies(s):
             for src_name in s.source_dependencies:
                 dep_source = self._cfg.get_source(src_name)
-                item.require_edges.add((action.PATCH_SRC, dep_source))
+                item.require_edges.add(PlanKey(Action.PATCH_SRC, dep_source))
 
         def add_tool_dependencies(s):
             for tool_name, stage_name in s.tool_stage_dependencies:
                 dep_tool = self._cfg.get_tool_pkg(tool_name)
                 if self.build_scope is not None and dep_tool not in self.build_scope:
-                    item.require_edges.add((action.WANT_TOOL, dep_tool))
+                    item.require_edges.add(PlanKey(Action.WANT_TOOL, dep_tool))
                 else:
                     tool_stage = dep_tool.get_stage(stage_name)
-                    item.require_edges.add((action.INSTALL_TOOL_STAGE, tool_stage))
+                    item.require_edges.add(PlanKey(Action.INSTALL_TOOL_STAGE, tool_stage))
 
         def add_pkg_dependencies(s):
             for pkg_name in s.pkg_dependencies:
                 dep_pkg = self._cfg.get_target_pkg(pkg_name)
-                item.require_edges.add((action.INSTALL_PKG, dep_pkg))
+                item.require_edges.add(PlanKey(Action.INSTALL_PKG, dep_pkg))
 
         def add_task_dependencies(s):
             for task_name in s.task_dependencies:
                 dep_task = self._cfg.get_task(task_name)
-                item.require_edges.add((action.RUN, dep_task))
+                item.require_edges.add(PlanKey(Action.RUN, dep_task))
             for task_name in s.tasks_ordered_before:
                 dep_task = self._cfg.get_task(task_name)
-                item.order_before_edges.add((action.RUN, dep_task))
+                item.order_before_edges.add(PlanKey(Action.RUN, dep_task))
 
         if action == Action.FETCH_SRC:
             # FETCH_SRC has no dependencies.
             pass
 
         elif action == Action.CHECKOUT_SRC:
-            item.build_edges.add((action.FETCH_SRC, subject))
+            item.build_edges.add(PlanKey(Action.FETCH_SRC, subject))
 
         elif action == Action.PATCH_SRC:
-            item.build_edges.add((action.CHECKOUT_SRC, subject))
+            item.build_edges.add(PlanKey(Action.CHECKOUT_SRC, subject))
 
         elif action == Action.REGENERATE_SRC:
-            item.build_edges.add((action.PATCH_SRC, subject))
+            item.build_edges.add(PlanKey(Action.PATCH_SRC, subject))
 
             add_source_dependencies(subject)
             add_tool_dependencies(subject)
 
         elif action == Action.CONFIGURE_TOOL:
             src = self._cfg.get_source(subject.source)
-            item.build_edges.add((action.REGENERATE_SRC, src))
+            item.build_edges.add(PlanKey(Action.REGENERATE_SRC, src))
 
             add_source_dependencies(subject)
             add_tool_dependencies(subject)
@@ -3007,7 +3028,7 @@ class Plan:
             add_task_dependencies(subject)
 
         elif action == Action.COMPILE_TOOL_STAGE:
-            item.build_edges.add((action.CONFIGURE_TOOL, subject.pkg))
+            item.build_edges.add(PlanKey(Action.CONFIGURE_TOOL, subject.pkg))
 
             add_source_dependencies(subject)
             add_tool_dependencies(subject.pkg)
@@ -3016,7 +3037,7 @@ class Plan:
             add_task_dependencies(subject)
 
         elif action == Action.INSTALL_TOOL_STAGE:
-            item.build_edges.add((action.COMPILE_TOOL_STAGE, subject))
+            item.build_edges.add(PlanKey(Action.COMPILE_TOOL_STAGE, subject))
 
             add_tool_dependencies(subject.pkg)
             add_tool_dependencies(subject)
@@ -3025,7 +3046,7 @@ class Plan:
 
         elif action == Action.CONFIGURE_PKG:
             src = self._cfg.get_source(subject.source)
-            item.build_edges.add((action.REGENERATE_SRC, src))
+            item.build_edges.add(PlanKey(Action.REGENERATE_SRC, src))
 
             # Configuration requires all dependencies to be present.
             add_source_dependencies(subject)
@@ -3035,7 +3056,7 @@ class Plan:
             add_task_dependencies(subject)
 
         elif action == Action.BUILD_PKG or action == Action.REPRODUCE_BUILD_PKG:
-            item.build_edges.add((action.CONFIGURE_PKG, subject))
+            item.build_edges.add(PlanKey(Action.CONFIGURE_PKG, subject))
 
             # Usually dependencies will already be installed during the configuration phase.
             # However, if the sysroot is removed, we might need to install again.
@@ -3046,15 +3067,15 @@ class Plan:
             add_task_dependencies(subject)
 
         elif action == Action.PACK_PKG or action == Action.REPRODUCE_PACK_PKG:
-            item.build_edges.add((action.BUILD_PKG, subject))
+            item.build_edges.add(PlanKey(Action.BUILD_PKG, subject))
 
         elif action == Action.INSTALL_PKG:
             if self.build_scope is not None and subject not in self.build_scope:
-                item.build_edges.add((action.WANT_PKG, subject))
+                item.build_edges.add(PlanKey(Action.WANT_PKG, subject))
             elif self._cfg.use_xbps:
-                item.build_edges.add((action.PACK_PKG, subject))
+                item.build_edges.add(PlanKey(Action.PACK_PKG, subject))
             else:
-                item.build_edges.add((action.BUILD_PKG, subject))
+                item.build_edges.add(PlanKey(Action.BUILD_PKG, subject))
 
             # See Action.BUILD_PKG for rationale.
             add_implicit_pkgs()
@@ -3062,10 +3083,10 @@ class Plan:
 
         elif action == Action.ARCHIVE_TOOL:
             for stage in subject.all_stages():
-                item.build_edges.add((action.INSTALL_TOOL_STAGE, stage))
+                item.build_edges.add(PlanKey(Action.INSTALL_TOOL_STAGE, stage))
 
         elif action == Action.ARCHIVE_PKG:
-            item.build_edges.add((action.BUILD_PKG, subject))
+            item.build_edges.add(PlanKey(Action.BUILD_PKG, subject))
 
         elif action == Action.PULL_PKG_PACK:
             pass
@@ -3078,7 +3099,7 @@ class Plan:
             add_task_dependencies(subject)
 
         elif action == Action.RUN_PKG:
-            item.build_edges.add((action.BUILD_PKG, subject.pkg))
+            item.build_edges.add(PlanKey(Action.BUILD_PKG, subject.pkg))
             add_implicit_pkgs()
             add_pkg_dependencies(subject)
             add_tool_dependencies(subject)
@@ -3086,7 +3107,7 @@ class Plan:
 
         elif action == Action.RUN_TOOL:
             for stage in subject.pkg.all_stages():
-                item.build_edges.add((Action.COMPILE_TOOL_STAGE, stage))
+                item.build_edges.add(PlanKey(Action.COMPILE_TOOL_STAGE, stage))
 
             add_tool_dependencies(subject.pkg)
             add_tool_dependencies(subject)
@@ -3096,30 +3117,33 @@ class Plan:
         return item
 
     def _do_materialization_visit(self, edges):
-        for edge_pair in edges:
-            if edge_pair in self._visited_for_materialization:
+        for edge in edges:
+            assert isinstance(edge, PlanKey)
+            if edge in self._visited_for_materialization:
                 continue
-            self._visited_for_materialization.add(edge_pair)
-            self._stack.append(edge_pair)
+            self._visited_for_materialization.add(edge)
+            self._stack.append(edge)
 
     def _do_order_before(self, item, edges):
-        for pair in edges:
-            if pair not in self._items:
+        for edge in edges:
+            assert isinstance(edge, PlanKey)
+            if edge not in self._items:
                 continue
-            item.edge_list.append(pair)
+            item.edge_list.append(edge)
 
     def _do_materialization(self):
         # First, call _materialize_item() on all (action, subject) pairs.
         assert not self._stack
-        self._visited_for_materialization.update(self.wanted)
-        self._stack.extend(self._visited_for_materialization)
+        initial = set(PlanKey(w[0], w[1]) for w in self.wanted)
+        self._visited_for_materialization.update(initial)
+        self._stack.extend(initial)
 
         while self._stack:
-            (action, subject) = self._stack.pop()
+            key = self._stack.pop()
 
             # TODO: Store the subject.subject_id instead of the subject object (= the package)?
-            item = self._materialize_item(action, subject)
-            self._items[(action, subject)] = item
+            item = self._materialize_item(key)
+            self._items[key] = item
 
             self._do_materialization_visit(item.build_edges)
             self._do_materialization_visit(item.require_edges)
@@ -3131,8 +3155,9 @@ class Plan:
             self._do_order_before(item, item.require_edges)
             self._do_order_before(item, item.order_before_edges)
 
-            for pair in item.order_after_edges:
-                target_item = self._items[pair]
+            for edge in item.order_after_edges:
+                assert isinstance(edge, PlanKey)
+                target_item = self._items[edge]
                 target_item.edge_list.append((item.action, item.subject))
 
         # The following code does a topologic sort of the desired items.
@@ -3158,12 +3183,11 @@ class Plan:
 
             while stack:
                 item = stack[-1]
-                (action, subject) = (item.action, item.subject)
                 if item.resolved_n == len(item.edge_list):
                     assert item.plan_state == PlanState.EXPANDING
                     item.plan_state = PlanState.ORDERED
                     stack.pop()
-                    self._order.append((action, subject))
+                    self._order.append(item)
                 else:
                     edge_item = self._items[item.edge_list[item.resolved_n]]
                     item.resolved_n += 1
@@ -3172,23 +3196,24 @@ class Plan:
     def _do_activation(self):
         # Determine the items that will be enabled.
         def visit(edges):
-            for pair in edges:
-                if pair in self._visited_for_activation:
+            for edge in edges:
+                assert isinstance(edge, PlanKey)
+                if edge in self._visited_for_activation:
                     continue
-                action, subject = pair
-                item = self._items[pair]
-                self._visited_for_activation.add(pair)
+                item = self._items[edge]
+                self._visited_for_activation.add(edge)
                 if item.is_missing:
-                    self._stack.append(pair)
+                    self._stack.append(edge)
 
-        def activate(root_action, root_subject):
+        def activate(root_key):
             assert not self._stack
-            self._visited_for_activation.add((root_action, root_subject))
-            self._stack.append((root_action, root_subject))
+            assert isinstance(root_key, PlanKey)
+            self._visited_for_activation.add(root_key)
+            self._stack.append(root_key)
 
             while self._stack:
-                pair = self._stack.pop()
-                item = self._items[pair]
+                key = self._stack.pop()
+                item = self._items[key]
                 if item.active:
                     continue
                 item.active = True
@@ -3198,14 +3223,14 @@ class Plan:
 
         # Activate wanted items.
         for action, subject in self.wanted:
-            item = self._items[(action, subject)]
+            key = PlanKey(action, subject)
+            item = self._items[key]
             item.build_span = True
             if not self.check or item.is_missing:
-                activate(action, subject)
+                activate(key)
 
         # Discover all items reachable by build edges.
-        for action, subject in reversed(self._order):
-            item = self._items[(action, subject)]
+        for item in reversed(self._order):
             if not item.build_span:
                 continue
             for dep_pair in item.build_edges:
@@ -3222,31 +3247,30 @@ class Plan:
                     return False
                 return dep_ts > ts
 
-            for action, subject in self._order:
-                item = self._items[(action, subject)]
+            for item in self._order:
                 # Unless we're doing a recursive update, we only follow check items
                 # that are reachable by build edges.
                 if not self.recursive and not item.build_span:
                     continue
                 if item.is_missing or item.is_updatable:
-                    activate(action, subject)
+                    activate(item.key)
 
                 # Activate items if their dependencies were activated.
                 for dep_pair in item.build_edges:
                     dep_item = self._items[dep_pair]
                     if dep_item.active:
-                        activate(action, subject)
+                        activate(item.key)
                     elif is_outdated(item, dep_item):
                         item.outdated = True
-                        activate(action, subject)
+                        activate(item.key)
                 if self.recursive:
                     for dep_pair in item.require_edges:
                         dep_item = self._items[dep_pair]
                         if dep_item.active:
-                            activate(action, subject)
+                            activate(item.key)
                         elif is_outdated(item, dep_item):
                             item.outdated = True
-                            activate(action, subject)
+                            activate(item.key)
 
     def compute_plan(self, no_ordering=False, no_activation=False):
         self._do_materialization()
@@ -3274,17 +3298,14 @@ class Plan:
         self._do_activation()
 
         # Run the plan.
-        scheduled = [
-            (action, subject)
-            for (action, subject) in self._order
-            if self._items[(action, subject)].active
-        ]
+        scheduled = [item for item in self._order if item.active]
 
         if scheduled:
             _util.log_info("Running the following plan:")
         else:
             _util.log_info("Nothing to do")
-        for action, subject in scheduled:
+        for item in scheduled:
+            (action, subject) = (item.action, item.subject)
             if isinstance(subject, HostStage):
                 if subject.stage_name:
                     eprint(
@@ -3303,14 +3324,14 @@ class Plan:
                     "    {:14} {}".format(Action.strings[action], subject.name),
                     end="",
                 )
-            if self._items[(action, subject)].is_updatable:
+            if item.is_updatable:
                 eprint(
                     " ({}{}updatable{})".format(
                         colorama.Style.BRIGHT, colorama.Fore.BLUE, colorama.Style.RESET_ALL
                     ),
                     end="",
                 )
-            elif self._items[(action, subject)].outdated:
+            elif item.outdated:
                 eprint(
                     " ({}{}outdated{})".format(
                         colorama.Style.BRIGHT, colorama.Fore.BLUE, colorama.Style.RESET_ALL
@@ -3323,8 +3344,8 @@ class Plan:
             return
 
         any_failed_items = False
-        for n, (action, subject) in enumerate(scheduled):
-            item = self._items[(action, subject)]
+        for n, item in enumerate(scheduled):
+            (action, subject) = (item.action, item.subject)
 
             # Check if any prerequisites failed; this can generally only happen with --keep-going.
             any_failed_edges = False
@@ -3453,8 +3474,8 @@ class Plan:
 
         if any_failed_items:
             _util.log_info("The following steps failed:")
-            for action, subject in scheduled:
-                item = self._items[(action, subject)]
+            for item in scheduled:
+                (action, subject) = (item.action, item.subject)
                 assert item.exec_status != ExecutionStatus.NULL
                 if item.exec_status == ExecutionStatus.SUCCESS:
                     continue
