@@ -1500,7 +1500,7 @@ class TargetPackage(RequirementsMixin):
         else:
             raise GenericError("Package management configuration does not support pack")
 
-    def check_if_installed(self, settings):
+    def check_if_installed(self, settings, *, sysroot):
         if self._cfg.use_xbps:
             environ = os.environ.copy()
             _util.build_environ_paths(
@@ -1510,7 +1510,7 @@ class TargetPackage(RequirementsMixin):
 
             try:
                 out = subprocess.check_output(
-                    ["xbps-query", "-r", self._cfg.sysroot_dir, self.name],
+                    ["xbps-query", "-r", sysroot, self.name],
                     env=environ,
                     stderr=subprocess.DEVNULL,
                 )
@@ -1527,15 +1527,15 @@ class TargetPackage(RequirementsMixin):
             except subprocess.CalledProcessError:
                 return ItemState(missing=True)
         else:
-            path = os.path.join(self._cfg.sysroot_dir, "etc", "xbstrap", self.name + ".installed")
+            path = os.path.join(sysroot, "etc", "xbstrap", self.name + ".installed")
             if not os.access(path, os.F_OK):
                 return ItemState(missing=True)
             return ItemState()
 
-    def mark_as_installed(self):
-        _util.try_mkdir(os.path.join(self._cfg.sysroot_dir, "etc"))
-        _util.try_mkdir(os.path.join(self._cfg.sysroot_dir, "etc", "xbstrap"))
-        path = os.path.join(self._cfg.sysroot_dir, "etc", "xbstrap", self.name + ".installed")
+    def mark_as_installed(self, *, sysroot):
+        _util.try_mkdir(os.path.join(sysroot, "etc"))
+        _util.try_mkdir(os.path.join(sysroot, "etc", "xbstrap"))
+        path = os.path.join(sysroot, "etc", "xbstrap", self.name + ".installed")
         touch(path)
 
 
@@ -1808,7 +1808,9 @@ def run_program(
     args,
     tool_pkgs=[],
     virtual_tools=[],
+    *,
     workdir=None,
+    sysroot=None,
     extra_environ=dict(),
     for_package=False,
     containerless=False,
@@ -2077,6 +2079,9 @@ def run_program(
             if debug_manifests:
                 eprint(yaml.dump(manifest))
 
+            # We bind mount over sysroot_dir, hence it needs to exist.
+            _util.try_mkdir(cfg.sysroot_dir)
+
             cbuild_json = {
                 "user": {"uid": container_yml["uid"], "gid": container_yml["gid"]},
                 "process": {"args": ["xbstrap", "execute-manifest", "-c", yaml.dump(manifest)]},
@@ -2087,6 +2092,15 @@ def run_program(
                     {"destination": container_yml["build_mount"], "source": cfg.build_root},
                 ],
             }
+            if sysroot is not None:
+                cbuild_json["bindMounts"].append(
+                    {
+                        "destination": os.path.join(
+                            container_yml["build_mount"], cfg.sysroot_subdir
+                        ),
+                        "source": sysroot,
+                    },
+                )
 
             with tempfile.NamedTemporaryFile("w+") as f:
                 json.dump(cbuild_json, f)
@@ -2113,7 +2127,9 @@ def run_program(
         execute_manifest(manifest)
 
 
-def run_step(cfg, context, subject, step, tool_pkgs, virtual_tools, for_package=False):
+def run_step(
+    cfg, context, subject, step, tool_pkgs, virtual_tools, *, sysroot=None, for_package=False
+):
     isolate_network = step.isolate_network
     if isolate_network is None:
         isolate_network = cfg.enable_network_isolation
@@ -2125,6 +2141,7 @@ def run_step(cfg, context, subject, step, tool_pkgs, virtual_tools, for_package=
         tool_pkgs=tool_pkgs,
         virtual_tools=virtual_tools,
         workdir=step.workdir,
+        sysroot=sysroot,
         extra_environ=step.environ,
         for_package=for_package,
         containerless=step.containerless,
@@ -2400,7 +2417,7 @@ def archive_tool(cfg, tool):
 # ---------------------------------------------------------------------------------------
 
 
-def configure_pkg(cfg, pkg):
+def configure_pkg(cfg, pkg, *, sysroot):
     try_rmtree(pkg.build_dir)
     _util.try_mkdir(pkg.build_dir, True)
 
@@ -2409,12 +2426,14 @@ def configure_pkg(cfg, pkg):
         for dep_name in pkg.tool_dependencies:
             tool_pkgs.append(cfg.get_tool_pkg(dep_name))
 
-        run_step(cfg, "pkg", pkg, step, tool_pkgs, pkg.virtual_tools, for_package=True)
+        run_step(
+            cfg, "pkg", pkg, step, tool_pkgs, pkg.virtual_tools, sysroot=sysroot, for_package=True
+        )
 
     pkg.mark_as_configured()
 
 
-def build_pkg(cfg, pkg, reproduce=False):
+def build_pkg(cfg, pkg, *, sysroot, reproduce=False):
     _util.try_mkdir(cfg.package_out_dir)
     try_rmtree(pkg.collect_dir)
     os.mkdir(pkg.collect_dir)
@@ -2595,9 +2614,9 @@ def pack_pkg(cfg, pkg, reproduce=False):
         raise GenericError("Package management configuration does not support pack")
 
 
-def install_pkg(cfg, pkg):
+def install_pkg(cfg, pkg, *, sysroot):
     # constraint: the sysroot directory must be located in the build root
-    _util.try_mkdir(cfg.sysroot_dir)
+    _util.try_mkdir(sysroot)
 
     if cfg.use_xbps:
         output = subprocess.DEVNULL
@@ -2619,7 +2638,7 @@ def install_pkg(cfg, pkg):
         environ["XBPS_ARCH"] = f"{uname.machine}-{uname.sysname}.HOST"
 
         # Work around xbps: https://github.com/void-linux/xbps/issues/408
-        args = ["xbps-remove", "-Fy", "-r", cfg.sysroot_dir, pkg.name]
+        args = ["xbps-remove", "-Fy", "-r", sysroot, pkg.name]
         _util.log_info("Running {}".format(args))
         subprocess.call(args, env=environ, stdout=output)
 
@@ -2627,7 +2646,7 @@ def install_pkg(cfg, pkg):
             "xbps-install",
             "-fyU",
             "-r",
-            cfg.sysroot_dir,
+            sysroot,
             "--repository",
             cfg.xbps_repository_dir,
             pkg.name,
@@ -2635,8 +2654,8 @@ def install_pkg(cfg, pkg):
         _util.log_info("Running {}".format(args))
         subprocess.check_call(args, env=environ, stdout=output)
     else:
-        installtree(pkg.staging_dir, cfg.sysroot_dir)
-        pkg.mark_as_installed()
+        installtree(pkg.staging_dir, sysroot)
+        pkg.mark_as_installed(sysroot=sysroot)
 
 
 def archive_pkg(cfg, pkg):
@@ -2837,16 +2856,35 @@ PlanKey = collections.namedtuple(
     [
         "action",
         "subject",
-        "dummy",  # To ensure that this is distinct from the tuple (action, subject).
+        "target_sysroot_id",
     ],
     defaults=[None],
 )
 
 
+def determine_sysroot_id(action, subject):
+    pkgs = set()
+
+    if action in {Action.BUILD_PKG, Action.REPRODUCE_BUILD_PKG, Action.CONFIGURE_PKG}:
+        pkgs.update(subject.pkg_dependencies)
+    else:
+        return None
+
+    return tuple(sorted(pkgs))
+
+
 class PlanItem:
-    def __init__(self, key, settings):
+    def __init__(self, plan, key, settings):
+        self.plan = plan
         self.key = key
         self.settings = settings
+        self.effective_sysroot_id = None
+        if plan.isolate_sysroots:
+            if self.action == Action.INSTALL_PKG:
+                self.sysroot_id = key.target_sysroot_id
+            else:
+                assert key.target_sysroot_id is None
+                self.sysroot_id = determine_sysroot_id(self.action, self.subject)
 
         self._state = None
         self.active = False
@@ -2887,6 +2925,9 @@ class PlanItem:
         self._determine_state()
         return self._state.timestamp
 
+    def get_sysroot(self):
+        return self.plan.get_sysroot(self.sysroot_id)
+
     def _determine_state(self):
         if self._state is not None:
             return
@@ -2903,7 +2944,7 @@ class PlanItem:
             Action.REPRODUCE_BUILD_PKG: lambda s, c: ItemState(missing=True),
             Action.PACK_PKG: lambda s, c: s.check_if_packed(c),
             Action.REPRODUCE_PACK_PKG: lambda s, c: ItemState(missing=True),
-            Action.INSTALL_PKG: lambda s, c: s.check_if_installed(c),
+            Action.INSTALL_PKG: lambda s, c: s.check_if_installed(c, sysroot=self.get_sysroot()),
             Action.ARCHIVE_TOOL: lambda s, c: s.check_if_archived(c),
             Action.ARCHIVE_PKG: lambda s, c: ItemState(missing=True),
             Action.PULL_PKG_PACK: lambda s, c: ItemState(missing=True),
@@ -2947,6 +2988,7 @@ class Plan:
         self._items = dict()  # Maps PlanKey -> PlanItem.
         self._stack = []  # Stores PlanKeys.
         self._settings = None
+        self._sysroots = dict()  # Maps sysroot IDs to TemporaryDirectories
         self.build_scope = None
         self.dry_run = False
         self.check = False
@@ -2958,22 +3000,41 @@ class Plan:
         self.hard = False
         self.only_wanted = False
         self.keep_going = False
+        self.isolate_sysroots = False
         self.progress_file = None
+
+        if cfg.container_runtime == "cbuildrt":
+            self.isolate_sysroots = True
 
     @property
     def cfg(self):
         return self._cfg
 
+    def get_sysroot(self, sysroot_id):
+        if sysroot_id is None:
+            return self.cfg.sysroot_dir
+        return self._sysroots[sysroot_id].name
+
     def _materialize_item(self, key):
         action = key.action
         subject = key.subject
-        item = PlanItem(key, self._settings)
+        item = PlanItem(self, key, self._settings)
+
+        # Create a temporary sysroot if necessary.
+        sysroot_id = item.sysroot_id
+        if sysroot_id not in self._sysroots:
+            # Note that Python removes temporary dirs when the interpreter exits,
+            # even if they are not used within a "with" block.
+            d = tempfile.TemporaryDirectory(prefix="sysroot.")
+            self._sysroots[sysroot_id] = d
 
         def add_implicit_pkgs():
             if not subject.is_implicit:
                 for implicit in self._cfg.all_pkgs():
                     if implicit.is_implicit:
-                        item.require_edges.add(PlanKey(Action.INSTALL_PKG, implicit))
+                        item.require_edges.add(
+                            PlanKey(Action.INSTALL_PKG, implicit, target_sysroot_id=sysroot_id)
+                        )
 
         def add_source_dependencies(s):
             for src_name in s.source_dependencies:
@@ -2992,7 +3053,9 @@ class Plan:
         def add_pkg_dependencies(s):
             for pkg_name in s.pkg_dependencies:
                 dep_pkg = self._cfg.get_target_pkg(pkg_name)
-                item.require_edges.add(PlanKey(Action.INSTALL_PKG, dep_pkg))
+                item.require_edges.add(
+                    PlanKey(Action.INSTALL_PKG, dep_pkg, target_sysroot_id=sysroot_id)
+                )
 
         def add_task_dependencies(s):
             for task_name in s.task_dependencies:
@@ -3338,6 +3401,12 @@ class Plan:
                     ),
                     end="",
                 )
+            if item.sysroot_id is not None:
+                sysroot_name = os.path.basename(self.get_sysroot(item.sysroot_id))
+                eprint(
+                    f" ({colorama.Fore.MAGENTA}inside {sysroot_name}{colorama.Style.RESET_ALL})",
+                    end="",
+                )
             eprint()
 
         if self.dry_run:
@@ -3424,17 +3493,17 @@ class Plan:
                 elif action == Action.INSTALL_TOOL_STAGE:
                     install_tool_stage(self._cfg, subject)
                 elif action == Action.CONFIGURE_PKG:
-                    configure_pkg(self._cfg, subject)
+                    configure_pkg(self._cfg, subject, sysroot=item.get_sysroot())
                 elif action == Action.BUILD_PKG:
-                    build_pkg(self._cfg, subject)
+                    build_pkg(self._cfg, subject, sysroot=item.get_sysroot())
                 elif action == Action.REPRODUCE_BUILD_PKG:
-                    build_pkg(self._cfg, subject, reproduce=True)
+                    build_pkg(self._cfg, subject, sysroot=item.get_sysroot(), reproduce=True)
                 elif action == Action.PACK_PKG:
                     pack_pkg(self._cfg, subject)
                 elif action == Action.REPRODUCE_PACK_PKG:
                     pack_pkg(self._cfg, subject, reproduce=True)
                 elif action == Action.INSTALL_PKG:
-                    install_pkg(self._cfg, subject)
+                    install_pkg(self._cfg, subject, sysroot=item.get_sysroot())
                 elif action == Action.ARCHIVE_TOOL:
                     archive_tool(self._cfg, subject)
                 elif action == Action.ARCHIVE_PKG:
