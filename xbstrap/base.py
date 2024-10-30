@@ -1491,6 +1491,8 @@ class TargetPackage(RequirementsMixin):
                 subprocess.check_call(
                     ["xbps-query", "--repository=" + self._cfg.xbps_repository_dir, self.name],
                     env=environ,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
                 )
                 return ItemState()
             except subprocess.CalledProcessError:
@@ -1508,7 +1510,9 @@ class TargetPackage(RequirementsMixin):
 
             try:
                 out = subprocess.check_output(
-                    ["xbps-query", "-r", self._cfg.sysroot_dir, self.name], env=environ
+                    ["xbps-query", "-r", self._cfg.sysroot_dir, self.name],
+                    env=environ,
+                    stderr=subprocess.DEVNULL,
                 )
                 valid_state = False
                 for line in out.splitlines():
