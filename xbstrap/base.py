@@ -1476,30 +1476,45 @@ class TargetPackage(RequirementsMixin):
             return ItemState(missing=True)
         return ItemState()
 
+    def _have_xbps_package(self):
+        environ = os.environ.copy()
+
+        arch = self.architecture
+        if self.architecture == "noarch":
+            # XXX(arsen): all architectures should be checked at all times
+            # when we come around to making multiarch
+            arch = list(self._cfg.site_architectures)[0]
+
+        _util.build_environ_paths(
+            environ, "PATH", prepend=[os.path.join(_util.find_home(), "bin")]
+        )
+        environ["XBPS_ARCH"] = arch
+
+        try:
+            subprocess.check_call(
+                ["xbps-query", "--repository=" + self._cfg.xbps_repository_dir, self.name],
+                env=environ,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            return True
+        except subprocess.CalledProcessError:
+            return False
+
     def check_if_packed(self, settings):
         if self._cfg.use_xbps:
-            environ = os.environ.copy()
-
-            arch = self.architecture
-            if self.architecture == "noarch":
-                # XXX(arsen): all architectures should be checked at all times
-                # when we come around to making multiarch
-                arch = list(self._cfg.site_architectures)[0]
-
-            _util.build_environ_paths(
-                environ, "PATH", prepend=[os.path.join(_util.find_home(), "bin")]
-            )
-            environ["XBPS_ARCH"] = arch
-
-            try:
-                subprocess.check_call(
-                    ["xbps-query", "--repository=" + self._cfg.xbps_repository_dir, self.name],
-                    env=environ,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
+            if self._have_xbps_package():
                 return ItemState()
-            except subprocess.CalledProcessError:
+            else:
+                return ItemState(missing=True)
+        else:
+            raise GenericError("Package management configuration does not support pack")
+
+    def check_if_pull_needed(self, settings):
+        if self._cfg.use_xbps:
+            if self._have_xbps_package():
+                return ItemState()
+            else:
                 return ItemState(missing=True)
         else:
             raise GenericError("Package management configuration does not support pack")
@@ -2957,7 +2972,7 @@ class PlanItem:
             Action.INSTALL_PKG: lambda s, c: s.check_if_installed(c, sysroot=self.get_sysroot()),
             Action.ARCHIVE_TOOL: lambda s, c: s.check_if_archived(c),
             Action.ARCHIVE_PKG: lambda s, c: ItemState(missing=True),
-            Action.PULL_PKG_PACK: lambda s, c: ItemState(missing=True),
+            Action.PULL_PKG_PACK: lambda s, c: s.check_if_pull_needed(c),
             Action.RUN: lambda s, c: ItemState(missing=True),
             Action.RUN_PKG: lambda s, c: ItemState(missing=True),
             Action.RUN_TOOL: lambda s, c: ItemState(missing=True),
