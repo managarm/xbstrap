@@ -142,6 +142,8 @@ do_init.parser.add_argument("src_root", type=str)
 def handle_plan_args(cfg, plan, args):
     if args.dry_run:
         plan.dry_run = True
+    if args.explain:
+        plan.explain = True
     if args.check:
         plan.check = True
     if args.update:
@@ -166,6 +168,9 @@ def handle_plan_args(cfg, plan, args):
 handle_plan_args.parser = argparse.ArgumentParser(add_help=False)
 handle_plan_args.parser.add_argument(
     "-n", "--dry-run", action="store_true", help="compute a plan but do not execute it"
+)
+handle_plan_args.parser.add_argument(
+    "--explain", action="store_true", help="explain the plan in more detail"
 )
 handle_plan_args.parser.add_argument(
     "-c",

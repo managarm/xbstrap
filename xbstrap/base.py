@@ -2920,7 +2920,8 @@ class PlanItem:
         self.order_after_edges = set()
 
         self.plan_state = PlanState.NULL
-        self.edge_list = []  # Stores PlanKeys.
+        self.edge_list = []  # Stores PlanItems.
+        self.reverse_edge_list = []  # Stores PlanItems.
         self.resolved_n = 0  # Number of resolved edges.
         self.build_span = False
         self.outdated = False
@@ -3018,6 +3019,7 @@ class Plan:
         self.use_auto_scope = False
         self.pull_out_of_scope = False
         self.dry_run = False
+        self.explain = False
         self.check = False
         self.update = False
         self.recursive = False
@@ -3228,7 +3230,9 @@ class Plan:
             assert isinstance(edge, PlanKey)
             if edge not in self._items:
                 continue
-            item.edge_list.append(edge)
+            target = self._items[edge]
+            item.edge_list.append(target)
+            target.reverse_edge_list.append(item)
 
     def _do_materialization(self):
         # First, call _materialize_item() on all (action, subject) pairs.
@@ -3257,7 +3261,8 @@ class Plan:
             for edge in item.order_after_edges:
                 assert isinstance(edge, PlanKey)
                 target_item = self._items[edge]
-                target_item.edge_list.append((item.action, item.subject))
+                target_item.edge_list.append(item)
+                item.reverse_edge_list.append(target_item)
 
         # The following code does a topologic sort of the desired items.
         stack = []
@@ -3288,7 +3293,7 @@ class Plan:
                     stack.pop()
                     self._order.append(item)
                 else:
-                    edge_item = self._items[item.edge_list[item.resolved_n]]
+                    edge_item = item.edge_list[item.resolved_n]
                     item.resolved_n += 1
                     visit(edge_item)
 
@@ -3442,28 +3447,43 @@ class Plan:
         # Run the plan.
         scheduled = [item for item in self._order if item.active]
 
-        if scheduled:
+        if self.explain:
+            printed = self._order
+        else:
+            printed = scheduled
+        numbering = {item: i for i, item in enumerate(printed)}
+
+        if printed:
             _util.log_info("Running the following plan:")
         else:
             _util.log_info("Nothing to do")
-        for item in scheduled:
+        for item in printed:
             (action, subject) = (item.action, item.subject)
+            if self.explain:
+                symbol = f"#{numbering[item]}"
+                eprint(f"{symbol:>5} ", end="")
+                if item.active:
+                    eprint(f"{colorama.Style.BRIGHT}*{colorama.Style.RESET_ALL} ", end="")
+                else:
+                    eprint("  ", end="")
+            else:
+                eprint("    ", end="")
             if isinstance(subject, HostStage):
                 if subject.stage_name:
                     eprint(
-                        "    {:14} {}, stage: {}".format(
+                        "{:14} {}, stage: {}".format(
                             Action.strings[action], subject.pkg.name, subject.stage_name
                         ),
                         end="",
                     )
                 else:
                     eprint(
-                        "    {:14} {}".format(Action.strings[action], subject.pkg.name),
+                        "{:14} {}".format(Action.strings[action], subject.pkg.name),
                         end="",
                     )
             else:
                 eprint(
-                    "    {:14} {}".format(Action.strings[action], subject.name),
+                    "{:14} {}".format(Action.strings[action], subject.name),
                     end="",
                 )
             if item.is_updatable:
@@ -3486,7 +3506,21 @@ class Plan:
                     f" ({colorama.Fore.MAGENTA}inside {sysroot_name}{colorama.Style.RESET_ALL})",
                     end="",
                 )
+            if self.explain:
+                required_by = sorted(item.reverse_edge_list, key=lambda it: numbering[it])
+                if required_by:
+                    eprint(
+                        f" ({colorama.Fore.CYAN}required by: "
+                        + ", ".join(f"#{numbering[it]}" for it in required_by)
+                        + f"{colorama.Style.RESET_ALL})",
+                        end="",
+                    )
             eprint()
+        if self.explain:
+            eprint(
+                "xbstrap will only run steps that are marked by"
+                f" {colorama.Style.BRIGHT}*{colorama.Style.RESET_ALL}."
+            )
 
         if self.dry_run:
             return
@@ -3497,8 +3531,7 @@ class Plan:
 
             # Check if any prerequisites failed; this can generally only happen with --keep-going.
             any_failed_edges = False
-            for edge_pair in item.edge_list:
-                edge_item = self._items[edge_pair]
+            for edge_item in item.edge_list:
                 if not edge_item.active:
                     continue
                 assert edge_item.exec_status != ExecutionStatus.NULL
