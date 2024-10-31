@@ -402,6 +402,10 @@ class Config:
         return self._root_yml["repositories"].get("tool_archives", None)
 
     @property
+    def auto_pull(self):
+        return self._site_yml.get("auto_pull", False)
+
+    @property
     def use_xbps(self):
         if "pkg_management" not in self._site_yml:
             return False
@@ -2996,6 +3000,8 @@ class Plan:
         self._settings = None
         self._sysroots = dict()  # Maps sysroot IDs to TemporaryDirectories
         self.build_scope = None
+        self.use_auto_scope = False
+        self.pull_out_of_scope = False
         self.dry_run = False
         self.check = False
         self.update = False
@@ -3008,6 +3014,10 @@ class Plan:
         self.keep_going = False
         self.isolate_sysroots = False
         self.progress_file = None
+
+        if self.cfg.auto_pull:
+            self.use_auto_scope = True
+            self.pull_out_of_scope = True
 
         if cfg.container_runtime == "cbuildrt":
             self.isolate_sysroots = True
@@ -3140,7 +3150,12 @@ class Plan:
 
         elif action == Action.INSTALL_PKG:
             if self.build_scope is not None and subject not in self.build_scope:
-                item.build_edges.add(PlanKey(Action.WANT_PKG, subject))
+                if self.pull_out_of_scope:
+                    if not self._cfg.use_xbps:
+                        raise RuntimeError("Need xbps to pull packages that are out of scope")
+                    item.build_edges.add(PlanKey(Action.PULL_PKG_PACK, subject))
+                else:
+                    item.build_edges.add(PlanKey(Action.WANT_PKG, subject))
             elif self._cfg.use_xbps:
                 item.build_edges.add(PlanKey(Action.PACK_PKG, subject))
             else:
@@ -3341,7 +3356,60 @@ class Plan:
                             item.outdated = True
                             activate(item.key)
 
+    # Automatically restricts the build scope to local packages,
+    # i.e., packages that are explicitly requested and packages that have existing build dirs.
+    def _compute_auto_scope(self):
+        if self.build_scope is not None:
+            return
+
+        scope = set()
+
+        # Add all tools/packages that we explicitly want to configure/build.
+        for action, subject in self.wanted:
+            if action in {
+                Action.CONFIGURE_TOOL,
+                Action.COMPILE_TOOL_STAGE,
+                Action.CONFIGURE_PKG,
+                Action.BUILD_PKG,
+                Action.REPRODUCE_BUILD_PKG,
+            }:
+                scope.add(subject)
+
+        # Add all tools that have a build directory.
+        try:
+            tool_dirs = os.listdir(self.cfg.tool_build_dir)
+        except FileNotFoundError:
+            tool_dirs = []
+        tool_dict = {tool.name: tool for tool in self.cfg.all_tools()}
+        for name in tool_dirs:
+            tool = tool_dict.get(name)
+            if tool is not None:
+                scope.add(tool)
+
+        # Add all packages that have a build directory.
+        try:
+            pkg_dirs = os.listdir(self.cfg.pkg_build_dir)
+        except FileNotFoundError:
+            pkg_dirs = []
+        pkg_dict = {pkg.name: pkg for pkg in self.cfg.all_pkgs()}
+        for name in pkg_dirs:
+            pkg = pkg_dict.get(name)
+            if pkg is not None:
+                scope.add(pkg)
+
+        self.build_scope = scope
+
     def compute_plan(self, no_ordering=False, no_activation=False):
+        self._settings = ItemSettings()
+        if self.update:
+            self._settings.check_remotes = 1
+        if self.update and self.paranoid:
+            self._settings.check_remotes = 2
+        self._settings.reset = self.reset
+
+        if self.use_auto_scope:
+            self._compute_auto_scope()
+
         self._do_materialization()
         if no_ordering:
             return
@@ -3354,17 +3422,7 @@ class Plan:
         return self._items.keys()
 
     def run_plan(self):
-        self._settings = ItemSettings()
-        if self.update:
-            self._settings.check_remotes = 1
-        if self.update and self.paranoid:
-            self._settings.check_remotes = 2
-        self._settings.reset = self.reset
-
-        # Compute the plan.
-        self._do_materialization()
-        self._do_ordering()
-        self._do_activation()
+        self.compute_plan()
 
         # Run the plan.
         scheduled = [item for item in self._order if item.active]
