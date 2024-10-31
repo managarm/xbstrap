@@ -39,6 +39,8 @@ except AttributeError:
     pass
 
 
+# Returns true if the file validates without any warnings.
+# Throws an exception on hard validation errors.
 def validate_bootstrap_yaml(yml, path):
     global global_bootstrap_validator
     if not global_bootstrap_validator:
@@ -65,6 +67,7 @@ def validate_bootstrap_yaml(yml, path):
 
     if any_errors:
         _util.log_warn("Validation issues will become hard errors in the future")
+    return not any_errors
 
 
 def touch(path):
@@ -86,6 +89,15 @@ def try_rmtree(path):
     except OSError as e:
         if e.errno != errno.ENOENT:
             raise
+
+
+def stat_mtime(path):
+    try:
+        with open(path) as f:
+            stat = os.stat(path)
+            return stat.st_mtime
+    except FileNotFoundError:
+        return None
 
 
 def num_allocated_cpus():
@@ -176,8 +188,11 @@ ArtifactFile = collections.namedtuple("ArtifactFile", ["name", "filepath", "arch
 
 
 class Config:
-    def __init__(self, path, changed_source_root=None, *, debug_cfg_files=False):
+    def __init__(
+        self, path, changed_source_root=None, *, debug_cfg_files=False, ignore_cfg_cache=False
+    ):
         self.debug_cfg_files = debug_cfg_files
+        self.ignore_cfg_cache = ignore_cfg_cache
 
         self._build_root_override = None if path == "" else path
         self._config_path = path
@@ -203,6 +218,7 @@ class Config:
         try:
             with open(os.path.join(path, "bootstrap-site.yml"), "r") as f:
                 self._site_yml = yaml.load(f, Loader=global_yaml_loader)
+
         except FileNotFoundError:
             pass
 
@@ -226,16 +242,38 @@ class Config:
                 self._site_archs.add(arch)
 
     def _read_yml(self, path, *, is_root):
-        if path.endswith(".y4.yml"):
-            noext_path = path.removesuffix(".y4.yml")
+        # Determine the extension of the config file.
+        ext = None
+        for candidate in [".y4.yml", ".yml"]:
+            if path.endswith(candidate):
+                ext = candidate
+                break
+        if ext is None:
+            raise GenericError(f"Config file {path} has no recognized extension")
+        noext_path = path.removesuffix(ext)
+
+        if is_root:
+            options = {}
+        else:
+            # Note that all_options and get_option_value() are available here.
+            options = {name: self.get_option_value(name) for name in self.all_options}
+
+        # Try to read the cached file.
+        cache_path = os.path.join(
+            os.path.dirname(noext_path), "." + os.path.basename(noext_path) + ".cache.xbstrap"
+        )
+        cached_yml = self._read_cfg_cache(cache_path, path, options=options)
+        if cached_yml is not None:
+            return cached_yml
+
+        if ext == ".y4.yml":
             assert not is_root
 
             y4_args = ["y4"]
 
             # Make options available through !std::opt.
-            # Note that all_options and get_option_value() are available since is_root is false.
-            for name in self.all_options:
-                y4_args.extend(["--opt", name, self.get_option_value(name)])
+            for k, v in options.items():
+                y4_args.extend(["--opt", k, v])
 
             # Allow custom modules to be loaded from y4.d.
             y4d = os.path.join(self.source_root, "y4.d")
@@ -262,8 +300,45 @@ class Config:
             with open(path, "r") as f:
                 yml = yaml.load(f, Loader=global_yaml_loader)
 
-        validate_bootstrap_yaml(yml, path)
+        yml_valid = validate_bootstrap_yaml(yml, path)
+
+        # Write the cache only if there are no warnings during validation.
+        if yml_valid:
+            cache_dict = {
+                "yml": yml,
+                "options": options,
+            }
+            temp_cache_path = noext_path + ".temp-cache.xbstrap"
+            with open(temp_cache_path, "w") as f:
+                json.dump(cache_dict, f)
+            os.rename(temp_cache_path, cache_path)
+
         return yml
+
+    def _read_cfg_cache(self, cache_path, source_path, *, options):
+        if self.ignore_cfg_cache:
+            return None
+
+        try:
+            with open(cache_path) as f:
+                stat = os.fstat(f.fileno())
+                if stat_mtime(source_path) > stat.st_mtime:
+                    _util.log_info(f"Cache for {source_path} is out of date")
+                    return None
+                cache = json.load(f)
+        except FileNotFoundError:
+            if verbosity:
+                _util.log_info(f"No cache for {source_path}")
+            return None
+
+        if cache["options"] != options:
+            if verbosity:
+                _util.log_info(f"Cache for {source_path} was built with different options")
+            return None
+
+        if verbosity:
+            _util.log_info(f"Found valid cache for {source_path}")
+        return cache["yml"]
 
     def _parse_yml(
         self,

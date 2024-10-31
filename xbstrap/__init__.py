@@ -31,6 +31,12 @@ main_parser.add_argument(
     help="write .out.yml files (to debug YAML file processing)",
 )
 main_parser.add_argument(
+    "--ignore-cfg-cache",
+    action="store_true",
+    default=False,
+    help="do not read cache YAML configuration",
+)
+main_parser.add_argument(
     "-S", type=str, dest="source_dir", help="source dir (in place of bootstrap.link)"
 )
 main_parser.add_argument(
@@ -41,7 +47,10 @@ main_subparsers = main_parser.add_subparsers(dest="command")
 
 def config_for_args(args):
     return xbstrap.base.Config(
-        args.build_dir, changed_source_root=args.source_dir, debug_cfg_files=args.debug_cfg_files
+        args.build_dir,
+        changed_source_root=args.source_dir,
+        debug_cfg_files=args.debug_cfg_files,
+        ignore_cfg_cache=args.ignore_cfg_cache,
     )
 
 
