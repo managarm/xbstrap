@@ -323,7 +323,8 @@ class Config:
             with open(cache_path) as f:
                 stat = os.fstat(f.fileno())
                 if stat_mtime(source_path) > stat.st_mtime:
-                    _util.log_info(f"Cache for {source_path} is out of date")
+                    if verbosity:
+                        _util.log_info(f"Cache for {source_path} is out of date")
                     return None
                 cache = json.load(f)
         except FileNotFoundError:
