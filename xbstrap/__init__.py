@@ -606,42 +606,18 @@ do_download.parser = main_subparsers.add_parser("download-archive", parents=[sel
 def do_download_tool(args):
     cfg = config_for_args(args)
     sel = select_tools(cfg, args)
-
-    if len(sel) == 0:
-        _util.log_info("No tools to download")
-        return
-
-    if args.dry_run:
-        for tool in sel:
-            url = urllib.parse.urljoin(cfg.tool_archives_url + "/", tool.name + ".tar.gz")
-            _util.log_info("Will download tool {} from {}".format(tool.name, url))
-        return
-
-    if cfg.tool_archives_url is None:
-        raise RuntimeError("No repository URL in bootstrap.yml")
-
-    _util.try_mkdir(cfg.tool_out_dir)
-
-    for tool in sel:
-        url = urllib.parse.urljoin(cfg.tool_archives_url + "/", tool.name + ".tar.gz")
-        _util.log_info("Downloading tool {} from {}".format(tool.name, url))
-        _util.interactive_download(url, tool.archive_file)
-
-        xbstrap.base.try_rmtree(tool.prefix_dir)
-        os.mkdir(tool.prefix_dir)
-        with tarfile.open(tool.archive_file, "r:gz") as tar:
-            for info in tar:
-                tar.extract(info, tool.prefix_dir)
+    plan = xbstrap.base.Plan(cfg)
+    handle_plan_args(cfg, plan, args)
+    plan.wanted.update([(xbstrap.base.Action.PULL_ARCHIVE, tool) for tool in sel])
+    plan.run_plan()
 
 
 do_download_tool.parser = main_subparsers.add_parser(
-    "download-tool-archive", parents=[select_tools.parser]
-)
-do_download_tool.parser.add_argument(
-    "-n",
-    "--dry-run",
-    action="store_true",
-    help="show which tools will be installed but don't download anything",
+    "download-tool-archive",
+    parents=[
+        handle_plan_args.parser,
+        select_tools.parser,
+    ],
 )
 do_download_tool.parser.set_defaults(_impl=do_download_tool)
 

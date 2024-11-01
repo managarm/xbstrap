@@ -1395,6 +1395,9 @@ class HostPackage(RequirementsMixin):
                 return ItemState(missing=True)
         return ItemState()
 
+    def check_pull_archive(self, settings):
+        return self.check_if_fully_installed(settings)
+
     def check_if_archived(self, settings):
         try:
             stat = os.stat(self.archive_file)
@@ -2815,6 +2818,24 @@ def pull_pkg_pack(cfg, pkg):
         subprocess.call(args, env=environ, stdout=output)
 
 
+def pull_archive(cfg, subject):
+    if isinstance(subject, HostPackage):
+        _util.try_mkdir(cfg.tool_out_dir)
+
+        url = urllib.parse.urljoin(cfg.tool_archives_url + "/", subject.name + ".tar.gz")
+        _util.log_info("Downloading tool {} from {}".format(subject.name, url))
+        _util.interactive_download(url, subject.archive_file)
+
+        try_rmtree(subject.prefix_dir)
+        os.mkdir(subject.prefix_dir)
+        with tarfile.open(subject.archive_file, "r:gz") as tar:
+            for info in tar:
+                tar.extract(info, subject.prefix_dir)
+    else:
+        # TODO: Also support packages here.
+        raise GenericError("Unexpected subject for pull-archive")
+
+
 def run_task(cfg, task):
     tools_required = []
     for dep_name in task.tool_dependencies:
@@ -2902,13 +2923,14 @@ class Action(Enum):
     ARCHIVE_TOOL = 14
     ARCHIVE_PKG = 15
     PULL_PKG_PACK = 16
-    RUN = 17
-    RUN_PKG = 18
-    RUN_TOOL = 19
-    WANT_TOOL = 20
-    WANT_PKG = 21
+    PULL_ARCHIVE = 17
+    RUN = 18
+    RUN_PKG = 19
+    RUN_TOOL = 20
+    WANT_TOOL = 21
+    WANT_PKG = 22
     # xbstrap-mirror functionality.
-    MIRROR_SRC = 22
+    MIRROR_SRC = 23
 
 
 Action.strings = {
@@ -2928,6 +2950,7 @@ Action.strings = {
     Action.ARCHIVE_TOOL: "archive-tool",
     Action.ARCHIVE_PKG: "archive",
     Action.PULL_PKG_PACK: "pull-pack",
+    Action.PULL_ARCHIVE: "pull-archive",
     Action.RUN: "run",
     Action.RUN_PKG: "run",
     Action.RUN_TOOL: "run",
@@ -3076,6 +3099,7 @@ class PlanItem:
             Action.ARCHIVE_TOOL: lambda s, c: s.check_if_archived(c),
             Action.ARCHIVE_PKG: lambda s, c: ItemState(missing=True),
             Action.PULL_PKG_PACK: lambda s, c: s.check_if_pull_needed(c),
+            Action.PULL_ARCHIVE: lambda s, c: s.check_pull_archive(c),
             Action.RUN: lambda s, c: ItemState(missing=True),
             Action.RUN_PKG: lambda s, c: ItemState(missing=True),
             Action.RUN_TOOL: lambda s, c: ItemState(missing=True),
@@ -3181,7 +3205,10 @@ class Plan:
             for tool_name, stage_name in s.tool_stage_dependencies:
                 dep_tool = self._cfg.get_tool_pkg(tool_name)
                 if self.build_scope is not None and dep_tool not in self.build_scope:
-                    item.require_edges.add(PlanKey(Action.WANT_TOOL, dep_tool))
+                    if self.pull_out_of_scope:
+                        item.require_edges.add(PlanKey(Action.PULL_ARCHIVE, dep_tool))
+                    else:
+                        item.require_edges.add(PlanKey(Action.WANT_TOOL, dep_tool))
                 else:
                     tool_stage = dep_tool.get_stage(stage_name)
                     item.require_edges.add(PlanKey(Action.INSTALL_TOOL_STAGE, tool_stage))
@@ -3292,7 +3319,10 @@ class Plan:
         elif action == Action.ARCHIVE_PKG:
             item.build_edges.add(PlanKey(Action.BUILD_PKG, subject))
 
-        elif action == Action.PULL_PKG_PACK:
+        elif action in [
+            Action.PULL_PKG_PACK,
+            Action.PULL_ARCHIVE,
+        ]:
             pass
 
         elif action == Action.RUN:
@@ -3738,6 +3768,8 @@ class Plan:
                     archive_pkg(self._cfg, subject)
                 elif action == Action.PULL_PKG_PACK:
                     pull_pkg_pack(self._cfg, subject)
+                elif action == Action.PULL_ARCHIVE:
+                    pull_archive(self._cfg, subject)
                 elif action == Action.RUN:
                     run_task(self._cfg, subject)
                 elif action == Action.RUN_PKG:
