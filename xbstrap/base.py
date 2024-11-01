@@ -3558,6 +3558,8 @@ class Plan:
             tool = tool_dict.get(name)
             if tool is not None:
                 scope.add(tool)
+                for stage in tool.all_stages():
+                    scope.add(stage)
 
         # Add all packages that have a build directory.
         try:
