@@ -186,7 +186,11 @@ properties:
             'pkg_archives':
                 type: string
             'tool_archives':
-                type: string
+                oneOf:
+                  - type: string
+                  - type: object
+                    additionalProperties:
+                        type: string
             'xbps':
                 oneOf:
                   - type: string

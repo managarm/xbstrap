@@ -470,11 +470,18 @@ class Config:
             return None
         return self._root_yml["repositories"].get("pkg_archives", None)
 
-    @property
-    def tool_archives_url(self):
+    def get_tool_archives_url(self, *, arch):
         if "repositories" not in self._root_yml:
             return None
-        return self._root_yml["repositories"].get("tool_archives", None)
+        archive_yml = self._root_yml["repositories"].get("tool_archives", None)
+        if archive_yml is None:
+            return None
+        if isinstance(archive_yml, str):
+            return archive_yml
+        elif isinstance(archive_yml, dict):
+            return archive_yml.get(arch)
+        else:
+            raise RuntimeError("xbps repo specification must be dict or string")
 
     @property
     def auto_pull(self):
@@ -2826,10 +2833,17 @@ def pull_pkg_pack(cfg, pkg):
 
 
 def pull_archive(cfg, subject):
+    # noarch pkgs use the first "true" architecture.
+    effective_arch = subject.architecture
+    if subject.architecture == "noarch":
+        effective_arch = list(cfg.site_architectures)[0]
+
     if isinstance(subject, HostPackage):
         _util.try_mkdir(cfg.tool_out_dir)
 
-        url = urllib.parse.urljoin(cfg.tool_archives_url + "/", subject.name + ".tar.gz")
+        url = urllib.parse.urljoin(
+            cfg.get_tool_archives_url(arch=effective_arch) + "/", subject.name + ".tar.gz"
+        )
         _util.log_info("Downloading tool {} from {}".format(subject.name, url))
         _util.interactive_download(url, subject.archive_file)
 
