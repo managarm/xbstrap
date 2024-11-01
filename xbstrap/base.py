@@ -2190,6 +2190,8 @@ def run_program(
                 ],
             }
             if sysroot is not None:
+                if verbosity:
+                    _util.log_info(f"Bind mounting {sysroot} as sysroot")
                 cbuild_json["bindMounts"].append(
                     {
                         "destination": os.path.join(
@@ -2198,6 +2200,9 @@ def run_program(
                         "source": sysroot,
                     },
                 )
+            else:
+                if verbosity:
+                    _util.log_info(f"Sysroot is not bind mounted")
 
             with tempfile.NamedTemporaryFile("w+") as f:
                 json.dump(cbuild_json, f)
@@ -2540,7 +2545,9 @@ def build_pkg(cfg, pkg, *, sysroot, reproduce=False):
         for dep_name in pkg.tool_dependencies:
             tool_pkgs.append(cfg.get_tool_pkg(dep_name))
 
-        run_step(cfg, "pkg", pkg, step, tool_pkgs, pkg.virtual_tools, for_package=True)
+        run_step(
+            cfg, "pkg", pkg, step, tool_pkgs, pkg.virtual_tools, sysroot=sysroot, for_package=True
+        )
 
     postprocess_libtool(cfg, pkg)
 
