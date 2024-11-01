@@ -887,7 +887,7 @@ class Source(RequirementsMixin):
 
     @property
     def subject_id(self):
-        return self._name
+        return (self._name,)
 
     @property
     def subject_type(self):
@@ -1317,7 +1317,7 @@ class HostPackage(RequirementsMixin):
 
     @property
     def subject_id(self):
-        return self.name
+        return (self.name,)
 
     @property
     def subject_type(self):
@@ -1471,7 +1471,7 @@ class TargetPackage(RequirementsMixin):
 
     @property
     def subject_id(self):
-        return self.name
+        return (self.name,)
 
     @property
     def subject_type(self):
@@ -1658,7 +1658,7 @@ class PackageRunTask(RequirementsMixin):
 
     @property
     def subject_id(self):
-        return self.name
+        return (self.name,)
 
     @property
     def is_implicit(self):
@@ -1694,7 +1694,7 @@ class RunTask(RequirementsMixin):
 
     @property
     def subject_id(self):
-        return self.name
+        return (self.name,)
 
     @property
     def is_implicit(self):
@@ -2974,6 +2974,33 @@ def determine_sysroot_id(action, subject):
 
 
 class PlanItem:
+    @staticmethod
+    def get_ordering_key(item):
+        # Pull packages as early as possible, install them as late as possible.
+        action_to_prio = {
+            Action.WANT_TOOL: -2,
+            Action.WANT_PKG: -1,
+            Action.PULL_PKG_PACK: -1,
+            Action.INSTALL_PKG: 2,
+        }
+
+        key = item.key
+        action_prio = action_to_prio.get(key.action, 0)
+
+        # Order the default sysroot after all other sysroots.
+        sysroot_tuple = (1,)
+        if key.target_sysroot_id is not None:
+            sysroot_tuple = (0,) + key.target_sysroot_id
+
+        # Note: key uniquely identifies the item. Hence, if we use all parts of the key
+        # within the ordering key, the ordering is guaranteed to be deterministic.
+        return (
+            action_prio,
+            key.subject.subject_id,
+            key.action.value,
+            sysroot_tuple,
+        )
+
     def __init__(self, plan, key, settings):
         self.plan = plan
         self.key = key
@@ -3090,6 +3117,7 @@ class Plan:
         self._stack = []  # Stores PlanKeys.
         self._settings = None
         self._sysroots = dict()  # Maps sysroot IDs to TemporaryDirectories
+        self.ordering_prng = None
         self.build_scope = None
         self.use_auto_scope = False
         self.pull_out_of_scope = False
@@ -3339,6 +3367,19 @@ class Plan:
                 target_item.edge_list.append(item)
                 item.reverse_edge_list.append(target_item)
 
+        # Sort all edge lists to make the order deterministic.
+        def sort_items(l):
+            l.sort(key=PlanItem.get_ordering_key)
+            # Alternatively, shuffle the edge lists to randomize the order.
+            # Note that sorting them first ensures that the order is deterministic.
+            if self.ordering_prng:
+                self.ordering_prng.shuffle(l)
+
+        root_list = list(self._items.values())
+        sort_items(root_list)
+        for item in root_list:
+            sort_items(item.edge_list)
+
         # The following code does a topologic sort of the desired items.
         stack = []
 
@@ -3357,7 +3398,7 @@ class Plan:
                 # Packages that are already ordered do not need to be considered again.
                 assert item.plan_state == PlanState.ORDERED
 
-        for root_item in self._items.values():
+        for root_item in root_list:
             visit(root_item)
 
             while stack:

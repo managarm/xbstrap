@@ -3,6 +3,7 @@
 import argparse
 import json
 import os
+import random
 import shutil
 import subprocess
 import sys
@@ -149,6 +150,15 @@ do_init.parser.add_argument("src_root", type=str)
 
 
 def handle_plan_args(cfg, plan, args):
+    if args.randomize_plan is not None:
+        if args.randomize_plan == 0:
+            seed = random.getrandbits(64)
+            _util.log_info(f"Using seed {seed} for plan randomization")
+            plan.ordering_prng = random.Random(seed)
+        else:
+            _util.log_info(f"Using seed {args.randomize_plan} for plan randomization")
+            plan.ordering_prng = random.Random(args.randomize_plan)
+
     if args.dry_run:
         plan.dry_run = True
     if args.explain:
@@ -175,6 +185,14 @@ def handle_plan_args(cfg, plan, args):
 
 
 handle_plan_args.parser = argparse.ArgumentParser(add_help=False)
+handle_plan_args.parser.add_argument(
+    "--randomize-plan",
+    nargs="?",
+    type=int,
+    const=0,
+    metavar="SEED",
+    help="randomize the order of steps",
+)
 handle_plan_args.parser.add_argument(
     "-n", "--dry-run", action="store_true", help="compute a plan but do not execute it"
 )
