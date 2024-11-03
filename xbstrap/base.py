@@ -3,6 +3,7 @@
 import collections
 import errno
 import filecmp
+import hashlib
 import json
 import os
 import re
@@ -264,9 +265,12 @@ class Config:
             options = {name: self.get_option_value(name) for name in self.all_options}
 
         # Try to read the cached file.
-        cache_path = os.path.join(
-            os.path.dirname(noext_path), "." + os.path.basename(noext_path) + ".cache.xbstrap"
-        )
+        h = hashlib.sha256()
+        h.update(os.path.realpath(path).encode("utf-8"))
+        cache_name = h.hexdigest()
+
+        cache_dir = os.path.join(self.source_root, ".xbstrap", "cfg_cache")
+        cache_path = os.path.join(cache_dir, cache_name)
         cached_yml = self._read_cfg_cache(cache_path, path, options=options)
         if cached_yml is not None:
             return cached_yml
@@ -313,10 +317,10 @@ class Config:
                 "yml": yml,
                 "options": options,
             }
-            temp_cache_path = noext_path + ".temp-cache.xbstrap"
-            with open(temp_cache_path, "w") as f:
-                json.dump(cache_dict, f)
-            os.rename(temp_cache_path, cache_path)
+            _util.try_mkdir(cache_dir, recursive=True)
+            with tempfile.NamedTemporaryFile("w+", dir=cache_dir, delete=False) as temp_f:
+                json.dump(cache_dict, temp_f)
+            os.rename(temp_f.name, cache_path)
 
         return yml
 
