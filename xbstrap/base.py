@@ -187,6 +187,11 @@ class ItemState:
 ArtifactFile = collections.namedtuple("ArtifactFile", ["name", "filepath", "architecture"])
 
 
+def name_from_subject_id(subject_id):
+    assert len(subject_id) == 1
+    return subject_id[0]
+
+
 class Config:
     def __init__(
         self, path, changed_source_root=None, *, debug_cfg_files=False, ignore_cfg_cache=False
@@ -734,6 +739,37 @@ class ScriptStep:
         return self._step_yml["cargo_home"]
 
 
+# Traverse a graph until all nodes have been seen.
+# Arguments:
+#     roots: Iterator over root nodes.
+#     visit: Function that is called at each node.
+#            Returns the nodes to traverse next (= neighbors).
+#     key: Optional function to map nodes to node IDs.
+def traverse_graph(*, roots, visit, key=None):
+    seen = set()
+    stack = []
+
+    if key is None:
+        key = lambda n: n
+
+    for n in roots:
+        k = key(n)
+        if k in seen:
+            continue
+        seen.add(k)
+        stack.append(n)
+
+    while stack:
+        c = stack.pop()
+
+        for n in visit(c):
+            k = key(n)
+            if k in seen:
+                continue
+            seen.add(k)
+            stack.append(n)
+
+
 class RequirementsMixin:
     @property
     def source_dependencies(self):
@@ -773,8 +809,7 @@ class RequirementsMixin:
 
     @property
     def tool_dependencies(self):
-        deps = set(tool_name for tool_name, stage_name in self.tool_stage_dependencies)
-        yield from deps
+        return {name_from_subject_id(subject_id) for subject_id in self.resolve_tool_deps()}
 
     @property
     def tool_stage_dependencies(self):
@@ -848,6 +883,36 @@ class RequirementsMixin:
                 if isinstance(yml, dict):
                     if "order_only" in yml and yml["order_only"]:
                         yield yml["task"]
+
+    def resolve_tool_deps(self, *, exposed_only=False):
+        deps = set()
+
+        def visit(subject):
+            assert isinstance(subject, RequirementsMixin)
+
+            for yml in subject._this_yml.get("tools_required", []):
+                if isinstance(yml, str):
+                    yml = {"tool": yml}
+                assert isinstance(yml, dict)
+
+                # This interface does not support virtual tools.
+                if yml.get("virtual", False):
+                    continue
+
+                # Filter out deps that should not be returned or descended into.
+                if exposed_only and not yml.get("expose", True):
+                    continue
+
+                tool = self._cfg.get_tool_pkg(yml["tool"])
+                deps.add(tool.subject_id)
+
+                # Do not descend into deps unless the recursive flag is set.
+                if not yml.get("recursive", False):
+                    continue
+                yield tool
+
+        traverse_graph(roots=[self], visit=visit)
+        return deps
 
     def discover_recursive_pkg_dependencies(self):
         s = set()
@@ -2438,7 +2503,7 @@ def patch_src(cfg, src):
 def regenerate_src(cfg, src):
     for step in src.regenerate_steps:
         tool_pkgs = []
-        for dep_name in src.tool_dependencies:
+        for dep_name in map(name_from_subject_id, src.resolve_tool_deps(exposed_only=True)):
             tool_pkgs.append(cfg.get_tool_pkg(dep_name))
 
         run_step(cfg, "source", src, step, tool_pkgs, src.virtual_tools)
@@ -2457,7 +2522,7 @@ def configure_tool(cfg, pkg):
 
     for step in pkg.configure_steps:
         tool_pkgs = []
-        for dep_name in pkg.tool_dependencies:
+        for dep_name in map(name_from_subject_id, pkg.resolve_tool_deps(exposed_only=True)):
             tool_pkgs.append(cfg.get_tool_pkg(dep_name))
 
         run_step(cfg, "tool", pkg, step, tool_pkgs, pkg.virtual_tools)
@@ -2470,7 +2535,7 @@ def compile_tool_stage(cfg, stage):
 
     for step in stage.compile_steps:
         tool_pkgs = []
-        for dep_name in pkg.tool_dependencies:
+        for dep_name in map(name_from_subject_id, pkg.resolve_tool_deps(exposed_only=True)):
             tool_pkgs.append(cfg.get_tool_pkg(dep_name))
 
         run_step(cfg, "tool-stage", stage, step, tool_pkgs, pkg.virtual_tools)
@@ -2508,7 +2573,7 @@ def install_tool_stage(cfg, stage):
 
     for step in stage.install_steps:
         tool_pkgs = []
-        for dep_name in tool.tool_dependencies:
+        for dep_name in map(name_from_subject_id, tool.resolve_tool_deps(exposed_only=True)):
             tool_pkgs.append(cfg.get_tool_pkg(dep_name))
 
         run_step(cfg, "tool-stage", stage, step, tool_pkgs, tool.virtual_tools)
@@ -2533,7 +2598,7 @@ def configure_pkg(cfg, pkg, *, sysroot):
 
     for step in pkg.configure_steps:
         tool_pkgs = []
-        for dep_name in pkg.tool_dependencies:
+        for dep_name in map(name_from_subject_id, pkg.resolve_tool_deps(exposed_only=True)):
             tool_pkgs.append(cfg.get_tool_pkg(dep_name))
 
         run_step(
@@ -2550,7 +2615,7 @@ def build_pkg(cfg, pkg, *, sysroot, reproduce=False):
 
     for step in pkg.build_steps:
         tool_pkgs = []
-        for dep_name in pkg.tool_dependencies:
+        for dep_name in map(name_from_subject_id, pkg.resolve_tool_deps(exposed_only=True)):
             tool_pkgs.append(cfg.get_tool_pkg(dep_name))
 
         run_step(
@@ -2860,7 +2925,7 @@ def pull_archive(cfg, subject):
 
 def run_task(cfg, task):
     tools_required = []
-    for dep_name in task.tool_dependencies:
+    for dep_name in map(name_from_subject_id, task.resolve_tool_deps(exposed_only=True)):
         tools_required.append(cfg.get_tool_pkg(dep_name))
 
     run_step(
@@ -2870,7 +2935,7 @@ def run_task(cfg, task):
 
 def run_pkg_task(cfg, task):
     tools_required = []
-    for dep_name in task.pkg.tool_dependencies:
+    for dep_name in map(name_from_subject_id, task.pkg.resolve_tool_deps(exposed_only=True)):
         tools_required.append(cfg.get_tool_pkg(dep_name))
 
     run_step(
@@ -2886,7 +2951,7 @@ def run_pkg_task(cfg, task):
 
 def run_tool_task(cfg, task):
     tools_required = []
-    for dep_name in task.pkg.tool_dependencies:
+    for dep_name in map(name_from_subject_id, task.pkg.resolve_tool_deps(exposed_only=True)):
         tools_required.append(cfg.get_tool_pkg(dep_name))
 
     run_step(

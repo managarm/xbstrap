@@ -28,6 +28,8 @@ definitions:
                         type: array
                         items:
                             type: string
+                    'expose':
+                        type: boolean
               - type: object
                 additionalProperties: false
                 properties:
