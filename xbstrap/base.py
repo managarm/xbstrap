@@ -265,13 +265,14 @@ class Config:
             options = {name: self.get_option_value(name) for name in self.all_options}
 
         # Try to read the cached file.
+        refpath = os.path.realpath(path)
         h = hashlib.sha256()
-        h.update(os.path.realpath(path).encode("utf-8"))
+        h.update(refpath.encode("utf-8"))
         cache_name = h.hexdigest()
 
         cache_dir = os.path.join(self.source_root, ".xbstrap", "cfg_cache")
         cache_path = os.path.join(cache_dir, cache_name)
-        cached_yml = self._read_cfg_cache(cache_path, path, options=options)
+        cached_yml = self._read_cfg_cache(cache_path, refpath, options=options)
         if cached_yml is not None:
             return cached_yml
 
@@ -314,6 +315,7 @@ class Config:
         # Write the cache only if there are no warnings during validation.
         if yml_valid:
             cache_dict = {
+                "refpath": refpath,
                 "yml": yml,
                 "options": options,
             }
@@ -324,30 +326,34 @@ class Config:
 
         return yml
 
-    def _read_cfg_cache(self, cache_path, source_path, *, options):
+    def _read_cfg_cache(self, cache_path, refpath, *, options):
         if self.ignore_cfg_cache:
             return None
 
         try:
             with open(cache_path) as f:
                 stat = os.fstat(f.fileno())
-                if stat_mtime(source_path) > stat.st_mtime:
+                if stat_mtime(refpath) > stat.st_mtime:
                     if verbosity:
-                        _util.log_info(f"Cache for {source_path} is out of date")
+                        _util.log_info(f"Cache for {refpath} is out of date")
                     return None
                 cache = json.load(f)
         except FileNotFoundError:
             if verbosity:
-                _util.log_info(f"No cache for {source_path}")
+                _util.log_info(f"No cache for {refpath}")
             return None
 
+        if cache["refpath"] != refpath:
+            if verbosity:
+                _util.log_info(f"Cache path mismatch for {refpath}")
+            return None
         if cache["options"] != options:
             if verbosity:
-                _util.log_info(f"Cache for {source_path} was built with different options")
+                _util.log_info(f"Cache for {refpath} was built with different options")
             return None
 
         if verbosity:
-            _util.log_info(f"Found valid cache for {source_path}")
+            _util.log_info(f"Found valid cache for {refpath}")
         return cache["yml"]
 
     def _parse_yml(
