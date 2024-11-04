@@ -183,6 +183,9 @@ def handle_plan_args(cfg, plan, args):
     if args.progress_file is not None:
         plan.progress_file = xbstrap.cli_utils.open_file_from_cli(args.progress_file, "wt")
 
+    if args.sysroot_isolation is not None:
+        plan.isolate_sysroots = args.sysroot_isolation
+
 
 handle_plan_args.parser = argparse.ArgumentParser(add_help=False)
 handle_plan_args.parser.add_argument(
@@ -240,6 +243,11 @@ handle_plan_args.parser.add_argument(
     "--progress-file",
     type=str,
     help="file that receives machine-ready progress notifications",
+)
+handle_plan_args.parser.add_argument(
+    "--sysroot-isolation",
+    action=argparse.BooleanOptionalAction,
+    help="force-enable or force-disable sysroot isolation",
 )
 
 
