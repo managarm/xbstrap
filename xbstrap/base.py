@@ -3125,7 +3125,7 @@ class PlanItem:
         self.plan = plan
         self.key = key
         self.settings = settings
-        self.effective_sysroot_id = None
+        self.sysroot_id = None
         if plan.isolate_sysroots:
             if self.action == Action.INSTALL_PKG:
                 self.sysroot_id = key.target_sysroot_id
