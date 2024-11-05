@@ -188,9 +188,66 @@ class ItemState:
 ArtifactFile = collections.namedtuple("ArtifactFile", ["name", "filepath", "architecture"])
 
 
+class SubjectType(Enum):
+    SRC = "src"
+    TOOL = "tool"
+    PKG = "pkg"
+    PKG_TASK = "pkg-task"
+    TASK = "task"
+
+
+SubjectId = collections.namedtuple(
+    "SubjectId",
+    [
+        "type",
+        "name",
+        "stage",
+        "parent",
+    ],
+    defaults=[
+        None,
+        None,
+    ],
+)
+
+
+# Turn a SubjectId into a tuple that can be sorted.
+# Note that we cannot sort SubjectIds as-is as they make contain None.
+def get_subject_id_ordering_key(subject_id):
+    parent = subject_id.parent
+    stage = subject_id.stage
+    if parent is None:
+        parent = ""
+    if stage is None:
+        stage = ""
+    return (
+        subject_id.type.value,
+        parent,
+        subject_id.name,
+        stage,
+    )
+
+
+def stringify_subject_id(subject_id, *, with_type=True):
+    type_spec = ""
+    if with_type:
+        type_spec = subject_id.type.value + ":"
+
+    parent_spec = ""
+    if subject_id.parent is not None:
+        parent_spec = subject_id.parent + "."
+
+    stage_spec = ""
+    if subject_id.stage is not None:
+        stage_spec = "@" + subject_id.stage
+
+    return type_spec + parent_spec + subject_id.name + stage_spec
+
+
 def name_from_subject_id(subject_id):
-    assert len(subject_id) == 1
-    return subject_id[0]
+    assert subject_id.type == SubjectType.TOOL
+    assert subject_id.stage is None
+    return subject_id.name
 
 
 class Config:
@@ -970,7 +1027,7 @@ class Source(RequirementsMixin):
 
     @property
     def subject_id(self):
-        return (self._name,)
+        return SubjectId(SubjectType.SRC, self._name)
 
     @property
     def subject_type(self):
@@ -1240,7 +1297,7 @@ class HostStage(RequirementsMixin):
 
     @property
     def subject_id(self):
-        return (self._pkg.name, self.stage_name)
+        return SubjectId(SubjectType.TOOL, self._pkg.name, stage=self.stage_name)
 
     @property
     def subject_type(self):
@@ -1400,7 +1457,7 @@ class HostPackage(RequirementsMixin):
 
     @property
     def subject_id(self):
-        return (self.name,)
+        return SubjectId(SubjectType.TOOL, self.name)
 
     @property
     def subject_type(self):
@@ -1557,7 +1614,7 @@ class TargetPackage(RequirementsMixin):
 
     @property
     def subject_id(self):
-        return (self.name,)
+        return SubjectId(SubjectType.PKG, self.name)
 
     @property
     def subject_type(self):
@@ -1744,7 +1801,7 @@ class PackageRunTask(RequirementsMixin):
 
     @property
     def subject_id(self):
-        return (self.name,)
+        return SubjectId(SubjectType.PKG_TASK, self.name, parent=self._pkg.name)
 
     @property
     def is_implicit(self):
@@ -1780,7 +1837,7 @@ class RunTask(RequirementsMixin):
 
     @property
     def subject_id(self):
-        return (self.name,)
+        return SubjectId(SubjectType.TASK, self.name)
 
     @property
     def is_implicit(self):
@@ -3116,7 +3173,7 @@ class PlanItem:
         # within the ordering key, the ordering is guaranteed to be deterministic.
         return (
             action_prio,
-            key.subject.subject_id,
+            get_subject_id_ordering_key(key.subject.subject_id),
             key.action.value,
             sysroot_tuple,
         )
@@ -3216,7 +3273,9 @@ class ExecutionFailureError(Exception):
     def __init__(self, step, subject):
         super().__init__(
             "Action {} of {} {} failed".format(
-                Action.strings[step], subject.subject_type, subject.subject_id
+                Action.strings[step],
+                subject.subject_type,
+                stringify_subject_id(subject.subject_id, with_type=False),
             )
         )
         self.step = step
@@ -3299,7 +3358,8 @@ class Plan:
                 item.require_edges.add(PlanKey(Action.PATCH_SRC, dep_source))
 
         def add_tool_dependencies(s):
-            for tool_name, stage_name in s.tool_stage_dependencies:
+            for subject_id in s.tool_stage_dependencies:
+                (tool_name, stage_name) = (subject_id.name, subject_id.stage)
                 dep_tool = self._cfg.get_tool_pkg(tool_name)
                 if self.build_scope is not None and dep_tool not in self.build_scope:
                     if self.pull_out_of_scope:
@@ -3518,7 +3578,7 @@ class Plan:
                 for circ_item in stack:
                     eprint(
                         Action.strings[circ_item.action],
-                        circ_item.subject.subject_id,
+                        stringify_subject_id(circ_item.subject.subject_id, with_type=False),
                     )
                 raise GenericError("Package has circular dependencies")
             else:
@@ -3790,7 +3850,7 @@ class Plan:
                         "n_all": len(scheduled),
                         "status": status,
                         "action": Action.strings[action],
-                        "subject": subject.subject_id,
+                        "subject": stringify_subject_id(subject.subject_id, with_type=False),
                         "artifact_files": [],
                     }
                     if action == Action.ARCHIVE_TOOL:
@@ -3812,7 +3872,10 @@ class Plan:
             if self.keep_going and any_failed_edges:
                 _util.log_info(
                     "Skipping action {} of {} due to failed prerequisites [{}/{}]".format(
-                        Action.strings[action], subject.subject_id, n + 1, len(scheduled)
+                        Action.strings[action],
+                        stringify_subject_id(subject.subject_id, with_type=False),
+                        n + 1,
+                        len(scheduled),
                     )
                 )
                 item.exec_status = ExecutionStatus.PREREQS_FAILED
@@ -3831,7 +3894,10 @@ class Plan:
             assert not any_failed_edges
             _util.log_info(
                 "{} {} [{}/{}]".format(
-                    Action.strings[action], subject.subject_id, n + 1, len(scheduled)
+                    Action.strings[action],
+                    stringify_subject_id(subject.subject_id, with_type=False),
+                    n + 1,
+                    len(scheduled),
                 )
             )
             try:
