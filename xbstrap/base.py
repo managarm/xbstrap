@@ -1769,6 +1769,15 @@ class TargetPackage(RequirementsMixin):
                 return ItemState(missing=True)
             return ItemState()
 
+    def check_want_pkg(self, settings):
+        if self._cfg.use_xbps:
+            if self._have_xbps_package():
+                return ItemState()
+            else:
+                return ItemState(missing=True)
+        else:
+            return self.check_staging(settings)
+
     def mark_as_installed(self, *, sysroot):
         _util.try_mkdir(os.path.join(sysroot, "etc"))
         _util.try_mkdir(os.path.join(sysroot, "etc", "xbstrap"))
@@ -3258,7 +3267,7 @@ class PlanItem:
             Action.RUN_PKG: lambda s, c: ItemState(missing=True),
             Action.RUN_TOOL: lambda s, c: ItemState(missing=True),
             Action.WANT_TOOL: lambda s, c: s.check_if_fully_installed(c),
-            Action.WANT_PKG: lambda s, c: s.check_staging(c),
+            Action.WANT_PKG: lambda s, c: s.check_want_pkg(c),
             Action.MIRROR_SRC: lambda s, c: s.check_if_mirrord(c),
         }
         self._state = visitors[self.action](self.subject, self.settings)
