@@ -94,9 +94,8 @@ def try_rmtree(path):
 
 def stat_mtime(path):
     try:
-        with open(path) as f:
-            stat = os.stat(path)
-            return stat.st_mtime
+        stat = os.stat(path)
+        return stat.st_mtime
     except FileNotFoundError:
         return None
 
@@ -2351,7 +2350,7 @@ def run_program(
                 )
             else:
                 if verbosity:
-                    _util.log_info(f"Sysroot is not bind mounted")
+                    _util.log_info("Sysroot is not bind mounted")
 
             with tempfile.NamedTemporaryFile("w+") as f:
                 json.dump(cbuild_json, f)
@@ -2553,6 +2552,7 @@ def patch_src(cfg, src):
                     "git",
                     "am",
                     "-3",
+                    "--keep-cr" if source.get("patch_keep_crlf", False) else "--no-keep-cr",
                     "--no-gpg-sign",
                     "--committer-date-is-author-date",
                     os.path.join(src.patch_dir, patch),
@@ -3564,12 +3564,12 @@ class Plan:
                 item.reverse_edge_list.append(target_item)
 
         # Sort all edge lists to make the order deterministic.
-        def sort_items(l):
-            l.sort(key=PlanItem.get_ordering_key)
+        def sort_items(items):
+            items.sort(key=PlanItem.get_ordering_key)
             # Alternatively, shuffle the edge lists to randomize the order.
             # Note that sorting them first ensures that the order is deterministic.
             if self.ordering_prng:
-                self.ordering_prng.shuffle(l)
+                self.ordering_prng.shuffle(items)
 
         root_list = list(self._items.values())
         sort_items(root_list)
