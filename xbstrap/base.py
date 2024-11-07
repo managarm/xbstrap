@@ -2552,6 +2552,7 @@ def patch_src(cfg, src):
                     "git",
                     "am",
                     "-3",
+                    "--keep-cr" if source.get("patch_keep_crlf", False) else "--no-keep-cr",
                     "--no-gpg-sign",
                     "--committer-date-is-author-date",
                     os.path.join(src.patch_dir, patch),
