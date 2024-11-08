@@ -23,6 +23,7 @@ import yaml
 
 import xbstrap.util as _util
 import xbstrap.vcs_utils as _vcs_utils
+import xbstrap.xbps_utils as _xbps_utils
 from xbstrap.exceptions import GenericError, RollingIdUnavailableError
 from xbstrap.util import eprint  # special cased since it's used a lot
 
@@ -267,6 +268,7 @@ class Config:
         self._target_pkgs = dict()
         self._tasks = dict()
         self._site_archs = set()
+        self._cached_repodata = dict()
 
         self._bootstrap_path = changed_source_root or os.path.join(
             path, os.path.dirname(os.readlink(os.path.join(path, "bootstrap.link")))
@@ -761,6 +763,38 @@ class Config:
             return pkg
         else:
             raise GenericError(f"Unknown package {name}")
+
+    def get_xbps_url(self, arch):
+        xbps_yml = self._root_yml["repositories"]["xbps"]
+        if isinstance(xbps_yml, str):
+            return xbps_yml
+        elif isinstance(xbps_yml, dict):
+            return xbps_yml[arch]
+        else:
+            raise RuntimeError("xbps repo specification must be dict or string")
+
+    def download_remote_xbps_repodata(self, arch):
+        index = self._cached_repodata.get(arch)
+        if index is not None:
+            return index
+
+        _util.try_mkdir(self.xbps_repository_dir)
+
+        repo_url = self.get_xbps_url(arch)
+        rd_path = os.path.join(self.xbps_repository_dir, f"remote-{arch}-repodata")
+        rd_url = urllib.parse.urljoin(repo_url + "/", f"{arch}-repodata")
+        _util.log_info(f"Downloading {arch}-repodata from {repo_url}")
+        _util.interactive_download(rd_url, rd_path)
+
+        index = _xbps_utils.read_repodata(rd_path)
+        self._cached_repodata[arch] = index
+        return index
+
+    def access_local_xbps_repodata(self, arch):
+        rd_path = os.path.join(self.xbps_repository_dir, f"{arch}-repodata")
+
+        index = _xbps_utils.read_repodata(rd_path)
+        return index
 
 
 class ScriptStep:
@@ -1693,30 +1727,27 @@ class TargetPackage(RequirementsMixin):
             return ItemState(missing=True)
         return ItemState()
 
-    def _have_xbps_package(self):
-        environ = os.environ.copy()
-
+    # Return the xbps repository that this package is pulled from.
+    @property
+    def xbps_repo_arch(self):
+        # noarch pkgs use the first "true" architecture.
         arch = self.architecture
-        if self.architecture == "noarch":
-            # XXX(arsen): all architectures should be checked at all times
-            # when we come around to making multiarch
-            arch = list(self._cfg.site_architectures)[0]
+        if arch == "noarch":
+            return next(iter(self._cfg.site_architectures))
+        return arch
 
-        _util.build_environ_paths(
-            environ, "PATH", prepend=[os.path.join(_util.find_home(), "bin")]
-        )
-        environ["XBPS_ARCH"] = arch
+    def get_remote_xbps_repodata_entry(self):
+        index = self._cfg.download_remote_xbps_repodata(self.xbps_repo_arch)
+        return index.get(self.name)
 
-        try:
-            subprocess.check_call(
-                ["xbps-query", "--repository=" + self._cfg.xbps_repository_dir, self.name],
-                env=environ,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-            return True
-        except subprocess.CalledProcessError:
-            return False
+    def get_local_xbps_repodata_entry(self):
+        index = self._cfg.access_local_xbps_repodata(self.xbps_repo_arch)
+        return index.get(self.name)
+
+    def _have_xbps_package(self):
+        # TODO: We may also want to verify that the file actually exists.
+        rd = self.get_local_xbps_repodata_entry()
+        return rd is not None
 
     def check_if_packed(self, settings):
         if self._cfg.use_xbps:
@@ -2776,8 +2807,6 @@ def pack_pkg(cfg, pkg, reproduce=False):
     version = pkg.compute_version(override_rolling_id=actual_rolling_id)
 
     if cfg.use_xbps:
-        from . import xbps_utils as _xbps_utils
-
         _util.try_mkdir(cfg.xbps_repository_dir)
 
         output = subprocess.DEVNULL
@@ -2876,17 +2905,13 @@ def install_pkg(cfg, pkg, *, sysroot):
         if verbosity:
             output = None
 
-        # noarch pkgs use the first "true" architecture.
-        # TODO: this should be dependent on the sysroot that we are installing into.
-        effective_arch = pkg.architecture
-        if pkg.architecture == "noarch":
-            effective_arch = list(cfg.site_architectures)[0]
-
         environ = os.environ.copy()
         _util.build_environ_paths(
             environ, "PATH", prepend=[os.path.join(_util.find_home(), "bin")]
         )
-        environ["XBPS_TARGET_ARCH"] = effective_arch
+        # TODO: Instead of using the repoarch, this should be dependent on the sysroot
+        #       that we are installing into.
+        environ["XBPS_TARGET_ARCH"] = pkg.xbps_repo_arch
         uname = os.uname()
         environ["XBPS_ARCH"] = f"{uname.machine}-{uname.sysname}.HOST"
 
@@ -2918,39 +2943,18 @@ def archive_pkg(cfg, pkg):
 
 
 def pull_pkg_pack(cfg, pkg):
-    from . import xbps_utils as _xbps_utils
-
     _util.try_mkdir(cfg.xbps_repository_dir)
 
-    # noarch pkgs use the first "true" architecture.
-    effective_arch = pkg.architecture
-    if pkg.architecture == "noarch":
-        effective_arch = list(cfg.site_architectures)[0]
-
-    xbps_yml = cfg._root_yml["repositories"]["xbps"]
-    if isinstance(xbps_yml, str):
-        repo_url = xbps_yml
-    elif isinstance(xbps_yml, dict):
-        repo_url = xbps_yml[effective_arch]
-    else:
-        raise RuntimeError("xbps repo specification must be dict or string")
-
-    # Download the repodata file.
-    rd_path = os.path.join(cfg.xbps_repository_dir, "remote-{}-repodata".format(effective_arch))
-    rd_url = urllib.parse.urljoin(repo_url + "/", "{}-repodata".format(effective_arch))
-    _util.log_info("Downloading {}-repodata from {}".format(effective_arch, repo_url))
-    _util.interactive_download(rd_url, rd_path)
-
-    # Find the package within the repodata's index file.
-    index = _xbps_utils.read_repodata(rd_path)
-    if pkg.name not in index:
-        raise GenericError("Package {} not found in remote repository".format(pkg.name))
-    assert "pkgver" in index[pkg.name]
+    rd_entry = pkg.get_remote_xbps_repodata_entry()
+    if rd_entry is None:
+        raise GenericError(f"Could not find remote repodata entry for {pkg.name}")
+    remote_pkgver = rd_entry["pkgver"]
 
     # Download the xbps file.
-    xbps_file = "{}.{}.xbps".format(index[pkg.name]["pkgver"], pkg.architecture)
+    repo_url = cfg.get_xbps_url(pkg.xbps_repo_arch)
+    xbps_file = f"{remote_pkgver}.{pkg.architecture}.xbps"
     pkg_url = urllib.parse.urljoin(repo_url + "/", xbps_file)
-    _util.log_info("Downloading {} from {}".format(xbps_file, repo_url))
+    _util.log_info(f"Downloading {xbps_file} from {repo_url}")
     _util.interactive_download(pkg_url, os.path.join(cfg.xbps_repository_dir, xbps_file))
 
     # Run xbps-rindex.
