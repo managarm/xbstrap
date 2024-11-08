@@ -3318,6 +3318,7 @@ class Plan:
         self.explain = False
         self.check = False
         self.update = False
+        self.restrict_updates = False
         self.recursive = False
         self.paranoid = False
         self.wanted = set()
@@ -3657,25 +3658,24 @@ class Plan:
                 dep_item = self._items[dep_pair]
                 dep_item.build_span = True
 
-        # Activate updatable items.
-        if self.update:
+        def is_outdated(item, dep_item):
+            ts = item.timestamp
+            dep_ts = dep_item.timestamp
+            if ts is None or dep_ts is None:
+                return False
+            return dep_ts > ts
 
-            def is_outdated(item, dep_item):
-                ts = item.timestamp
-                dep_ts = dep_item.timestamp
-                if ts is None or dep_ts is None:
-                    return False
-                return dep_ts > ts
-
+        # Handle --update and --recursive.
+        if self.update or self.recursive:
             for item in self._order:
-                # Unless we're doing a recursive update, we only follow check items
-                # that are reachable by build edges.
-                if not self.recursive and not item.build_span:
+                if self.restrict_updates and not item.build_span:
                     continue
+
+                # Both --update and --recursive activate missing/updatable items.
                 if item.is_missing or item.is_updatable:
                     activate(item.key)
 
-                # Activate items if their dependencies were activated.
+                # Both --update and --recursive activate on outdated build edges.
                 for dep_pair in item.build_edges:
                     dep_item = self._items[dep_pair]
                     if dep_item.active:
@@ -3683,6 +3683,8 @@ class Plan:
                     elif is_outdated(item, dep_item):
                         item.outdated = True
                         activate(item.key)
+
+                # Only --recursive activates on outdated requirements.
                 if self.recursive:
                     for dep_pair in item.require_edges:
                         dep_item = self._items[dep_pair]

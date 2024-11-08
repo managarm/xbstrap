@@ -175,6 +175,8 @@ def handle_plan_args(cfg, plan, args):
         plan.reset = xbstrap.base.ResetMode.RESET
     if args.hard_reset:
         plan.reset = xbstrap.base.ResetMode.HARD_RESET
+    if args.restrict_updates:
+        plan.restrict_updates = True
     if args.only_wanted:
         plan.only_wanted = True
     if args.keep_going:
@@ -212,7 +214,7 @@ handle_plan_args.parser.add_argument(
     "-u", "--update", action="store_true", help="check for package updates"
 )
 handle_plan_args.parser.add_argument(
-    "--recursive", action="store_true", help="when updating: also update requirements"
+    "--recursive", action="store_true", help="recursively run build steps that are out of date"
 )
 handle_plan_args.parser.add_argument(
     "--paranoid",
@@ -228,6 +230,11 @@ handle_plan_args.parser.add_argument(
     "--hard-reset",
     action="store_true",
     help="clean and reset repository state; risks loss of local changes and commits!",
+)
+handle_plan_args.parser.add_argument(
+    "--restrict-updates",
+    action="store_true",
+    help="restrict updates to packages that are explicitly wanted on the command line",
 )
 handle_plan_args.parser.add_argument(
     "--only-wanted",
