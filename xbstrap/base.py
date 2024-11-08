@@ -1761,6 +1761,19 @@ class TargetPackage(RequirementsMixin):
     def check_if_pull_needed(self, settings):
         if self._cfg.use_xbps:
             if self._have_xbps_package():
+                if settings.check_remotes:
+                    # Local repodata exists (otherwise _have_xbps_package() would return false).
+                    rd = self.get_local_xbps_repodata_entry()
+                    if rd is None:
+                        raise RuntimeError("Expected local xbps repodata to exist")
+
+                    remote_rd = self.get_remote_xbps_repodata_entry()
+                    if remote_rd is not None:
+                        version = _xbps_utils.parse_version(rd["pkgver"])
+                        remote_version = _xbps_utils.parse_version(remote_rd["pkgver"])
+                        if _xbps_utils.compare_version(version, remote_version) < 0:
+                            return ItemState(updatable=True)
+
                 return ItemState()
             else:
                 return ItemState(missing=True)
