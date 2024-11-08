@@ -472,6 +472,9 @@ def select_pkgs(cfg, args):
         else:
             sel = [cfg.get_target_pkg(name) for name in args.packages]
 
+            if args.installed:
+                sel.extend(cfg.get_installed_pkgs())
+
             if args.deps_of is not None:
                 for pkg_name in args.deps_of:
                     pkg = cfg.get_target_pkg(pkg_name)
@@ -485,6 +488,7 @@ def select_pkgs(cfg, args):
 
 select_pkgs.parser = argparse.ArgumentParser(add_help=False)
 select_pkgs.parser.add_argument("--all", action="store_true")
+select_pkgs.parser.add_argument("--installed", action="store_true")
 select_pkgs.parser.add_argument("--deps-of", type=str, action="append")
 select_pkgs.parser.add_argument("packages", nargs="*", type=str)
 

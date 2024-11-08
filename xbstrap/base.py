@@ -763,6 +763,7 @@ class Config:
             return pkg
         else:
             raise GenericError(f"Unknown package {name}")
+            raise GenericError(f"Unknown package {name}")
 
     def get_xbps_url(self, arch):
         xbps_yml = self._root_yml["repositories"]["xbps"]
@@ -795,6 +796,39 @@ class Config:
 
         index = _xbps_utils.read_repodata(rd_path)
         return index
+
+    def get_installed_pkgs(self):
+        if not self.use_xbps:
+            raise GenericError("Package management configuration cannot query installed packages")
+        environ = os.environ.copy()
+        _util.build_environ_paths(
+            environ, "PATH", prepend=[os.path.join(_util.find_home(), "bin")]
+        )
+
+        out = subprocess.check_output(
+            ["xbps-query", "-r", self.sysroot_dir, "-l"],
+            env=environ,
+            stderr=subprocess.DEVNULL,
+            encoding="utf-8",
+        )
+
+        # Lines have a format such as:
+        # "ii linux-headers-6.9.3_1            Linux kernel headers"
+        # "ii libexpat-2.5.0_6                 Stream-oriented XML parser library"
+        pattern = re.compile(r"^[\w?]+ ([^ ]+) ")
+        for line in out.splitlines():
+            match = pattern.match(line)
+            if not match:
+                raise GenericError(f"Unexpected line {repr(line)} from xbps-query")
+            pkgver = match.group(1)
+            name = pkgver.rsplit("-", maxsplit=1)[0]
+
+            pkg = self._target_pkgs.get(name)
+            if pkg is None:
+                continue
+            if not self.check_labels(pkg.label_set):
+                continue
+            yield pkg
 
 
 class ScriptStep:
