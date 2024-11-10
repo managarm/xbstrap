@@ -794,7 +794,10 @@ class Config:
     def access_local_xbps_repodata(self, arch):
         rd_path = os.path.join(self.xbps_repository_dir, f"{arch}-repodata")
 
-        index = _xbps_utils.read_repodata(rd_path)
+        try:
+            index = _xbps_utils.read_repodata(rd_path)
+        except FileNotFoundError:
+            return {}
         return index
 
     def get_installed_pkgs(self):
