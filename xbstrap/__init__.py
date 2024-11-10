@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: MIT
 
 import argparse
+import importlib.metadata
 import json
 import os
 import random
@@ -25,6 +26,9 @@ from xbstrap.util import eprint
 
 main_parser = argparse.ArgumentParser()
 main_parser.add_argument("-v", dest="verbose", action="store_true", help="verbose")
+main_parser.add_argument(
+    "--version", action="version", version=importlib.metadata.version("xbstrap")
+)
 main_parser.add_argument(
     "--debug-cfg-files",
     action="store_true",
