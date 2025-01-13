@@ -1089,7 +1089,7 @@ def main():
         elif args.command == "maintainer":
             do_maintainer(args)
         else:
-            assert not "Unexpected command"
+            main_parser.print_help()
     except (
         xbstrap.base.ExecutionFailureError,
         xbstrap.base.PlanFailureError,
