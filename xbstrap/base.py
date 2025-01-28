@@ -269,6 +269,7 @@ class Config:
         self._tasks = dict()
         self._site_archs = set()
         self._cached_repodata = dict()
+        self._included_files = set()
 
         self._bootstrap_path = changed_source_root or os.path.join(
             path, os.path.dirname(os.readlink(os.path.join(path, "bootstrap.link")))
@@ -423,9 +424,11 @@ class Config:
         filter_pkgs=None,
         filter_tasks=None,
     ):
+        current_realpath = os.path.realpath(current_path)
+        if current_realpath in self._included_files:
+            raise GenericError(f"Can't import {current_realpath} because it's already imported")
+        self._included_files.add(current_realpath)
         if "imports" in current_yml and isinstance(current_yml["imports"], list):
-            if current_yml is not self._root_yml:
-                raise GenericError("Nested imports are not supported")
             for import_def in current_yml["imports"]:
                 if "from" not in import_def and "file" not in import_def:
                     raise GenericError("Unexpected data in import")
