@@ -47,6 +47,12 @@ main_parser.add_argument(
 main_parser.add_argument(
     "-C", type=str, dest="build_dir", help="build dir (in place of cwd)", default=""
 )
+main_parser.add_argument(
+    "--quiet",
+    action="store_true",
+    default=False,
+    help="redirect stdout of packages to /dev/null",
+)
 main_subparsers = main_parser.add_subparsers(dest="command")
 
 
@@ -56,6 +62,7 @@ def config_for_args(args):
         changed_source_root=args.source_dir,
         debug_cfg_files=args.debug_cfg_files,
         ignore_cfg_cache=args.ignore_cfg_cache,
+        quiet=args.quiet,
     )
 
 
