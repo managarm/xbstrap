@@ -2568,7 +2568,9 @@ def checkout_src(cfg, src, settings):
                 subprocess.check_call(["git", "rebase", commit], cwd=src.source_dir)
 
         if source.get("submodules", False):
-            subprocess.check_call(["git", "submodule", "update", "--init"], cwd=src.source_dir)
+            subprocess.check_call(
+                ["git", "submodule", "update", "--init", "--recursive"], cwd=src.source_dir
+            )
     elif "hg" in source:
         args = ["hg", "checkout"]
         if "tag" in source:
