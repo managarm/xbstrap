@@ -252,10 +252,17 @@ def name_from_subject_id(subject_id):
 
 class Config:
     def __init__(
-        self, path, changed_source_root=None, *, debug_cfg_files=False, ignore_cfg_cache=False
+        self,
+        path,
+        changed_source_root=None,
+        *,
+        debug_cfg_files=False,
+        ignore_cfg_cache=False,
+        quiet=False,
     ):
         self.debug_cfg_files = debug_cfg_files
         self.ignore_cfg_cache = ignore_cfg_cache
+        self.quiet = quiet
 
         self._build_root_override = None if path == "" else path
         self._config_path = path
@@ -2181,7 +2188,7 @@ def run_program(
         "args": args,
         "workdir": workdir,
         "extra_environ": extra_environ,
-        "quiet": quiet,
+        "quiet": quiet or cfg.quiet,
         "cargo_home": cfg.cargo_config_toml is not None and cargo_home,
         "for_package": for_package,
         "virtual_tools": list(virtual_tools),
