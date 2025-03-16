@@ -92,6 +92,18 @@ def check_repo(src, subdir, *, check_remotes=0):
         else:
             git_url = urllib.parse.urljoin(xbstrap_mirror + "/git/", src.name)
 
+        def check_commit(ref):
+            try:
+                subprocess.check_call(
+                    ["git", "rev-parse", "--verify", "-q", ref],
+                    cwd=source_dir,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+            except subprocess.CalledProcessError:
+                return False
+            return True
+
         def get_local_commit(ref):
             try:
                 out = (
@@ -122,31 +134,42 @@ def check_repo(src, subdir, *, check_remotes=0):
             (commit, outref) = out[0].split("\t")
             return commit
 
+        known_commit = None
+        if "branch" in src._this_yml and "commit" in src._this_yml:
+            known_commit = src._this_yml["commit"]
+
         # There is a TOCTOU here; we assume that users do not concurrently delete directories.
         if not os.path.isdir(source_dir):
             return RepoStatus.MISSING
-        if "tag" in src._this_yml:
-            ref = "refs/tags/" + src._this_yml["tag"]
-            tracking_ref = "refs/tags/" + src._this_yml["tag"]
+
+        # If we know the commit hash, we do not need to check the remote.
+        # Instead, we simply check if the commit exists locally.
+        if known_commit:
+            if not check_commit(known_commit):
+                return RepoStatus.MISSING
         else:
-            ref = "refs/heads/" + src._this_yml["branch"]
-            tracking_ref = "refs/remotes/origin/" + src._this_yml["branch"]
-        local_commit = get_local_commit(tracking_ref)
-        if local_commit is None:
-            return RepoStatus.MISSING
+            if "tag" in src._this_yml:
+                ref = "refs/tags/" + src._this_yml["tag"]
+                tracking_ref = "refs/tags/" + src._this_yml["tag"]
+            else:
+                ref = "refs/heads/" + src._this_yml["branch"]
+                tracking_ref = "refs/remotes/origin/" + src._this_yml["branch"]
+            local_commit = get_local_commit(tracking_ref)
+            if local_commit is None:
+                return RepoStatus.MISSING
 
-        # Only check remote commits for
-        do_check_remote = False
-        if check_remotes >= 2:
-            do_check_remote = True
-        if check_remotes >= 1 and "tag" not in src._this_yml:
-            do_check_remote = True
+            # Only check remote commits for
+            do_check_remote = False
+            if check_remotes >= 2:
+                do_check_remote = True
+            if check_remotes >= 1 and "tag" not in src._this_yml:
+                do_check_remote = True
 
-        if do_check_remote:
-            _util.log_info("Checking for remote updates of {}".format(src.name))
-            remote_commit = get_remote_commit(ref)
-            if local_commit != remote_commit:
-                return RepoStatus.OUTDATED
+            if do_check_remote:
+                _util.log_info("Checking for remote updates of {}".format(src.name))
+                remote_commit = get_remote_commit(ref)
+                if local_commit != remote_commit:
+                    return RepoStatus.OUTDATED
     elif "hg" in src._this_yml:
         source_dir = os.path.join(subdir, src.name)
 
