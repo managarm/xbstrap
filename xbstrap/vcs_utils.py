@@ -92,10 +92,10 @@ def check_repo(src, subdir, *, check_remotes=0):
         else:
             git_url = urllib.parse.urljoin(xbstrap_mirror + "/git/", src.name)
 
-        def check_commit(ref):
+        def check_commit(ref, branch):
             try:
                 subprocess.check_call(
-                    ["git", "rev-parse", "--verify", "-q", ref],
+                    ["git", "branch", "--contains", ref, branch],
                     cwd=source_dir,
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
@@ -135,8 +135,10 @@ def check_repo(src, subdir, *, check_remotes=0):
             return commit
 
         known_commit = None
+        known_branch = None
         if "branch" in src._this_yml and "commit" in src._this_yml:
             known_commit = src._this_yml["commit"]
+            known_branch = src._this_yml["branch"]
 
         # There is a TOCTOU here; we assume that users do not concurrently delete directories.
         if not os.path.isdir(source_dir):
@@ -144,8 +146,8 @@ def check_repo(src, subdir, *, check_remotes=0):
 
         # If we know the commit hash, we do not need to check the remote.
         # Instead, we simply check if the commit exists locally.
-        if known_commit:
-            if not check_commit(known_commit):
+        if known_commit and known_branch:
+            if not check_commit(known_commit, known_branch):
                 return RepoStatus.MISSING
         else:
             if "tag" in src._this_yml:
