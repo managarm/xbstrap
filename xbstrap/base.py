@@ -3431,7 +3431,7 @@ class Plan:
         def add_source_dependencies(s):
             for src_name in s.source_dependencies:
                 dep_source = self._cfg.get_source(src_name)
-                item.require_edges.add(PlanKey(Action.PATCH_SRC, dep_source))
+                item.require_edges.add(PlanKey(Action.REGENERATE_SRC, dep_source))
 
         def add_tool_dependencies(s):
             for subject_id in s.tool_stage_dependencies:
