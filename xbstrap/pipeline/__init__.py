@@ -27,6 +27,8 @@ class Pipeline:
         self.cfg = cfg
         self.jobs = dict()
 
+        default_caps = pipe_yml.get("default_capabilities", [])
+
         # Determine the set of jobs.
         mentioned_tools = set()
         mentioned_pkgs = set()
@@ -44,9 +46,13 @@ class Pipeline:
 
             name = "batch:" + job_yml["name"]
             assert name not in self.jobs
-            job = Job(name, tools, pkgs)
-            if "capabilities" in job_yml:
-                job.capabilities = set(job_yml["capabilities"])
+            job = Job(
+                name,
+                tools,
+                pkgs,
+                default_caps=default_caps,
+                explicit_caps=job_yml.get("capabilities"),
+            )
             self.jobs[name] = job
 
             for name in job_yml.get("tasks", []):
@@ -59,7 +65,7 @@ class Pipeline:
                 continue
             name = "tool:" + tool.name
             assert name not in self.jobs
-            job = Job(name, [tool], [])
+            job = Job(name, [tool], [], default_caps=default_caps)
             if tool.stability_level == "unstable":
                 job.unstable = True
             self.jobs[name] = job
@@ -70,7 +76,7 @@ class Pipeline:
                 continue
             name = "package:" + pkg.name
             assert name not in self.jobs
-            job = Job(name, [], [pkg])
+            job = Job(name, [], [pkg], default_caps=default_caps)
             if pkg.stability_level == "unstable":
                 job.unstable = True
             self.jobs[name] = job
@@ -83,13 +89,25 @@ class Pipeline:
 
 
 class Job:
-    def __init__(self, name, tools, pkgs):
+    def __init__(self, name, tools, pkgs, *, default_caps, explicit_caps=None):
         self.name = name
         self.tools = set(tools)
         self.pkgs = set(pkgs)
         self.tasks = set()
-        self.capabilities = set()
         self.unstable = False
+
+        caps = set(default_caps)
+        if explicit_caps is not None:
+            with_caps = set(k for k in explicit_caps if not k.startswith("!"))
+            without_caps = set(k[1:] for k in explicit_caps if k.startswith("!"))
+            contradictory_caps = with_caps.intersection(without_caps)
+            if contradictory_caps:
+                raise RuntimeError(
+                    f"Job {self.name} has contradictory capabilities {contradictory_caps}"
+                )
+            caps.update(with_caps)
+            caps.difference_update(without_caps)
+        self.capabilities = caps
 
 
 def pipeline_for_dir(cfg):
