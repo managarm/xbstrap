@@ -1302,7 +1302,9 @@ class Source(RequirementsMixin):
             # ignore non-gits for mirroring
             return ItemState()
 
-        s = _vcs_utils.check_repo(self, f"mirror/{vcs}", check_remotes=settings.check_remotes)
+        mirror_root = os.path.join(self.cfg.build_root, "mirror")
+        mirror_dir = os.path.join(mirror_root, vcs)
+        s = _vcs_utils.check_repo(self, mirror_dir, check_remotes=settings.check_remotes)
         if s == _vcs_utils.RepoStatus.MISSING:
             return ItemState(missing=True)
         elif s == _vcs_utils.RepoStatus.OUTDATED:
