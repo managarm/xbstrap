@@ -891,7 +891,7 @@ def do_prereqs(args):
         os.chmod(os.path.join(bin_dir, "cbuildrt"), 0o755)
     if "xbps" in comps:
         url = "https://repo-default.voidlinux.org/static"
-        url += "/xbps-static-static-0.59_5.x86_64-musl.tar.xz"
+        url += "/xbps-static-static-0.59.2_1.x86_64-musl.tar.xz"
         tar_path = os.path.join(home, "xbps.tar.xz")
 
         _util.log_info(f"Downloading xbps from {url}")
