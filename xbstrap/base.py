@@ -1744,6 +1744,9 @@ class Build(RequirementsMixin):
 
         return replace_at_vars(self._this_yml.get("architecture", "x86_64"), substitute)
 
+    def all_subpkgs(self):
+        yield self.name
+
     @property
     def configure_steps(self):
         yield from self._configure_steps

@@ -40,9 +40,11 @@ class Pipeline:
                 tools.append(tool)
                 mentioned_tools.add(tool)
             for name in job_yml.get("packages", []):
-                pkg = cfg.get_target_pkg(name)
-                pkgs.append(pkg)
-                mentioned_pkgs.add(pkg)
+                build = cfg.get_build(name)
+                for subpkg_name in build.all_subpkgs():
+                    subpkg = cfg.get_target_pkg(subpkg_name)
+                    pkgs.append(subpkg)
+                mentioned_pkgs.add(subpkg)
 
             name = "batch:" + job_yml["name"]
             assert name not in self.jobs
@@ -69,15 +71,16 @@ class Pipeline:
             if tool.stability_level == "unstable":
                 job.unstable = True
             self.jobs[name] = job
-        for pkg in cfg.all_pkgs():
-            if pkg in mentioned_pkgs:
+        for build in cfg.all_builds():
+            if build in mentioned_pkgs:
                 continue
-            if pkg.stability_level == "broken":
+            if build.stability_level == "broken":
                 continue
-            name = "package:" + pkg.name
+            name = "package:" + build.name
             assert name not in self.jobs
-            job = Job(name, [], [pkg], default_caps=default_caps)
-            if pkg.stability_level == "unstable":
+            pkgs = [cfg.get_target_pkg(subpkg_name) for subpkg_name in build.all_subpkgs()]
+            job = Job(name, [], list(pkgs), default_caps=default_caps)
+            if build.stability_level == "unstable":
                 job.unstable = True
             self.jobs[name] = job
 
