@@ -507,15 +507,15 @@ select_pkgs.parser.add_argument("packages", nargs="*", type=str)
 def reconfigure_and_rebuild_pkgs(plan, args, sel, no_pack=False):
     if args.reconfigure:
         for pkg in sel:
-            plan.wanted.add((xbstrap.base.Action.CONFIGURE_PKG, pkg))
-            plan.wanted.add((xbstrap.base.Action.BUILD_PKG, pkg))
+            plan.wanted.add((xbstrap.base.Action.CONFIGURE_PKG, pkg.build))
+            plan.wanted.add((xbstrap.base.Action.BUILD_PKG, pkg.build))
             if no_pack:
                 return
             if plan.cfg.use_xbps:
                 plan.wanted.add((xbstrap.base.Action.PACK_PKG, pkg))
     elif args.rebuild:
         for pkg in sel:
-            plan.wanted.add((xbstrap.base.Action.BUILD_PKG, pkg))
+            plan.wanted.add((xbstrap.base.Action.BUILD_PKG, pkg.build))
             if no_pack:
                 return
             if plan.cfg.use_xbps:
@@ -536,7 +536,7 @@ def do_configure(args):
     sel = select_pkgs(cfg, args)
     plan = xbstrap.base.Plan(cfg)
     handle_plan_args(cfg, plan, args)
-    plan.wanted.update([(xbstrap.base.Action.CONFIGURE_PKG, pkg) for pkg in sel])
+    plan.wanted.update([(xbstrap.base.Action.CONFIGURE_PKG, pkg.build) for pkg in sel])
     plan.run_plan()
 
 
@@ -551,7 +551,7 @@ def do_build(args):
     plan = xbstrap.base.Plan(cfg)
     handle_plan_args(cfg, plan, args)
     reconfigure_and_rebuild_pkgs(plan, args, sel, no_pack=True)
-    plan.wanted.update([(xbstrap.base.Action.BUILD_PKG, pkg) for pkg in sel])
+    plan.wanted.update([(xbstrap.base.Action.BUILD_PKG, pkg.build) for pkg in sel])
     plan.run_plan()
 
 
@@ -567,7 +567,7 @@ def do_reproduce_build(args):
     plan = xbstrap.base.Plan(cfg)
     handle_plan_args(cfg, plan, args)
     reconfigure_and_rebuild_pkgs(plan, args, sel, no_pack=True)
-    plan.wanted.update([(xbstrap.base.Action.REPRODUCE_BUILD_PKG, pkg) for pkg in sel])
+    plan.wanted.update([(xbstrap.base.Action.REPRODUCE_BUILD_PKG, pkg.build) for pkg in sel])
     plan.run_plan()
 
 
@@ -692,7 +692,7 @@ def do_archive(args):
     sel = select_pkgs(cfg, args)
     plan = xbstrap.base.Plan(cfg)
     handle_plan_args(cfg, plan, args)
-    plan.wanted.update([(xbstrap.base.Action.ARCHIVE_PKG, pkg) for pkg in sel])
+    plan.wanted.update([(xbstrap.base.Action.ARCHIVE_PKG, pkg.build) for pkg in sel])
     plan.run_plan()
 
 
@@ -748,7 +748,7 @@ def do_run_task(args):
     if args.pkg:
         sel = select_pkgs(cfg, args)
         for task_name in args.task:
-            task = sel[0].get_task(task_name)
+            task = sel[0].build.get_task(task_name)
             if not task:
                 raise RuntimeError(
                     "task {} of package {} not found".format(args.task[0], task_name)

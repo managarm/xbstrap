@@ -191,6 +191,7 @@ ArtifactFile = collections.namedtuple("ArtifactFile", ["name", "filepath", "arch
 class SubjectType(Enum):
     SRC = "src"
     TOOL = "tool"
+    BUILD = "build"
     PKG = "pkg"
     PKG_TASK = "pkg-task"
     TASK = "task"
@@ -273,6 +274,7 @@ class Config:
         self._tool_pkgs = dict()
         self._tool_stages = dict()
         self._target_pkgs = dict()
+        self._builds = dict()
         self._tasks = dict()
         self._site_archs = set()
         self._cached_repodata = dict()
@@ -498,9 +500,11 @@ class Config:
                     if src.name in self._sources:
                         raise GenericError("Duplicate source {}".format(src.name))
                     self._sources[src.name] = src
-                pkg = TargetPackage(self, pkg_yml)
+                build = Build(self, pkg_yml)
+                pkg = TargetPackage(self, build, pkg_yml)
                 if not (filter_pkgs is None) and (pkg.name not in filter_pkgs):
                     continue
+                self._builds[build.name] = build
                 self._target_pkgs[pkg.name] = pkg
 
         if "tasks" in current_yml and isinstance(current_yml["tasks"], list):
@@ -759,11 +763,26 @@ class Config:
                 continue
             yield tool
 
+    def all_builds(self):
+        for pkg in self._builds.values():
+            if not self.check_labels(pkg.label_set):
+                continue
+            yield pkg
+
     def all_pkgs(self):
         for pkg in self._target_pkgs.values():
             if not self.check_labels(pkg.label_set):
                 continue
             yield pkg
+
+    def get_build(self, name):
+        if name in self._builds:
+            build = self._builds[name]
+            if not self.check_labels(build.label_set):
+                raise GenericError(f"Build {name} does not match label configuration")
+            return build
+        else:
+            raise GenericError(f"Unknown build {name}")
 
     def get_target_pkg(self, name):
         if name in self._target_pkgs:
@@ -772,7 +791,6 @@ class Config:
                 raise GenericError(f"Package {name} does not match label configuration")
             return pkg
         else:
-            raise GenericError(f"Unknown package {name}")
             raise GenericError(f"Unknown package {name}")
 
     def get_xbps_url(self, arch):
@@ -1628,7 +1646,7 @@ class HostPackage(RequirementsMixin):
         return ItemState(timestamp=stat.st_mtime)
 
 
-class TargetPackage(RequirementsMixin):
+class Build(RequirementsMixin):
     def __init__(self, cfg, pkg_yml):
         self._cfg = cfg
         self._this_yml = pkg_yml
@@ -1696,11 +1714,11 @@ class TargetPackage(RequirementsMixin):
 
     @property
     def subject_id(self):
-        return SubjectId(SubjectType.PKG, self.name)
+        return SubjectId(SubjectType.BUILD, self.name)
 
     @property
     def subject_type(self):
-        return "package"
+        return "build"
 
     @property
     def is_default(self):
@@ -1775,6 +1793,64 @@ class TargetPackage(RequirementsMixin):
         if not os.access(self.staging_dir, os.F_OK):
             return ItemState(missing=True)
         return ItemState()
+
+
+class TargetPackage(RequirementsMixin):
+    def __init__(self, cfg, build, pkg_yml):
+        self._cfg = cfg
+        self._build = build
+        self._this_yml = pkg_yml
+
+    @property
+    def build(self):
+        return self._build
+
+    @property
+    def label_set(self):
+        return self._build.label_set
+
+    @property
+    def source(self):
+        return self._build.source
+
+    @property
+    def staging_dir(self):
+        return self._build.staging_dir
+
+    @property
+    def name(self):
+        return self._this_yml["name"]
+
+    @property
+    def subject_id(self):
+        return SubjectId(SubjectType.PKG, self.name)
+
+    @property
+    def subject_type(self):
+        return "package"
+
+    @property
+    def is_default(self):
+        return self.build.is_default
+
+    @property
+    def stability_level(self):
+        return self.build.stability_level
+
+    @property
+    def is_implicit(self):
+        return self.build.is_implicit
+
+    @property
+    def architecture(self):
+        return self.build.architecture
+
+    def compute_version(self, **kwargs):
+        return self.build.compute_version(**kwargs)
+
+    @property
+    def version(self):
+        return self.build.version
 
     # Return the xbps repository that this package is pulled from.
     @property
@@ -1868,7 +1944,7 @@ class TargetPackage(RequirementsMixin):
             else:
                 return ItemState(missing=True)
         else:
-            return self.check_staging(settings)
+            return self.build.check_staging(settings)
 
     def mark_as_installed(self, *, sysroot):
         _util.try_mkdir(os.path.join(sysroot, "etc"))
@@ -1878,23 +1954,23 @@ class TargetPackage(RequirementsMixin):
 
 
 class PackageRunTask(RequirementsMixin):
-    def __init__(self, cfg, pkg, task_yml):
+    def __init__(self, cfg, build, task_yml):
         self._cfg = cfg
-        self._pkg = pkg
+        self._build = build
         self._task = task_yml["name"]
         self._script_step = ScriptStep(task_yml)
 
     @property
     def name(self):
-        return "{}:{}".format(self._pkg.name, self._task)
+        return "{}:{}".format(self._build.name, self._task)
 
     @property
     def task_name(self):
         return self._task
 
     @property
-    def pkg(self):
-        return self._pkg
+    def build(self):
+        return self._build
 
     @property
     def script_step(self):
@@ -1902,7 +1978,7 @@ class PackageRunTask(RequirementsMixin):
 
     @property
     def subject_id(self):
-        return SubjectId(SubjectType.PKG_TASK, self.name, parent=self._pkg.name)
+        return SubjectId(SubjectType.PKG_TASK, self.name, parent=self._build.name)
 
     @property
     def is_implicit(self):
@@ -1914,11 +1990,11 @@ class PackageRunTask(RequirementsMixin):
 
     @property
     def _this_yml(self):
-        return self._pkg._this_yml
+        return self._build._this_yml
 
     @property
     def source(self):
-        return self._pkg.source
+        return self._build.source
 
 
 class RunTask(RequirementsMixin):
@@ -2237,12 +2313,12 @@ def run_program(
         }
         manifest["source_date_epoch"] = src.source_date_epoch
     elif context == "pkg-task":
-        pkg = subject.pkg
-        src = cfg.get_source(pkg.source)
+        build = subject.build
+        src = cfg.get_source(build.source)
         manifest["subject"] = {
             "source_subdir": src.source_subdir,
-            "build_subdir": pkg.build_subdir,
-            "collect_subdir": pkg.collect_subdir,
+            "build_subdir": build.build_subdir,
+            "collect_subdir": build.collect_subdir,
         }
         manifest["source_date_epoch"] = src.source_date_epoch
 
@@ -2494,11 +2570,11 @@ def run_step(
     )
 
 
-def postprocess_libtool(cfg, pkg):
+def postprocess_libtool(cfg, build):
     for libdir in ["lib", "lib64", "lib32", "usr/lib", "usr/lib64", "usr/lib32"]:
         filelist = []
         try:
-            filelist = os.listdir(os.path.join(pkg.collect_dir, libdir))
+            filelist = os.listdir(os.path.join(build.collect_dir, libdir))
         except OSError as e:
             if e.errno != errno.ENOENT:
                 raise
@@ -2507,7 +2583,7 @@ def postprocess_libtool(cfg, pkg):
             if not ent.endswith(".la"):
                 continue
             _util.log_info("Removed libtool file {}".format(ent))
-            os.unlink(os.path.join(pkg.collect_dir, libdir, ent))
+            os.unlink(os.path.join(build.collect_dir, libdir, ent))
 
 
 # ---------------------------------------------------------------------------------------
@@ -2763,41 +2839,55 @@ def archive_tool(cfg, tool):
 # ---------------------------------------------------------------------------------------
 
 
-def configure_pkg(cfg, pkg, *, sysroot):
-    try_rmtree(pkg.build_dir)
-    _util.try_mkdir(pkg.build_dir, True)
+def configure_pkg(cfg, build, *, sysroot):
+    try_rmtree(build.build_dir)
+    _util.try_mkdir(build.build_dir, True)
 
-    for step in pkg.configure_steps:
+    for step in build.configure_steps:
         tool_pkgs = []
-        for dep_name in map(name_from_subject_id, pkg.resolve_tool_deps(exposed_only=True)):
+        for dep_name in map(name_from_subject_id, build.resolve_tool_deps(exposed_only=True)):
             tool_pkgs.append(cfg.get_tool_pkg(dep_name))
 
         run_step(
-            cfg, "pkg", pkg, step, tool_pkgs, pkg.virtual_tools, sysroot=sysroot, for_package=True
+            cfg,
+            "pkg",
+            build,
+            step,
+            tool_pkgs,
+            build.virtual_tools,
+            sysroot=sysroot,
+            for_package=True,
         )
 
-    pkg.mark_as_configured()
+    build.mark_as_configured()
 
 
-def build_pkg(cfg, pkg, *, sysroot, reproduce=False):
+def build_pkg(cfg, build, *, sysroot, reproduce=False):
     _util.try_mkdir(cfg.package_out_dir)
-    try_rmtree(pkg.collect_dir)
-    os.mkdir(pkg.collect_dir)
+    try_rmtree(build.collect_dir)
+    os.mkdir(build.collect_dir)
 
-    for step in pkg.build_steps:
+    for step in build.build_steps:
         tool_pkgs = []
-        for dep_name in map(name_from_subject_id, pkg.resolve_tool_deps(exposed_only=True)):
+        for dep_name in map(name_from_subject_id, build.resolve_tool_deps(exposed_only=True)):
             tool_pkgs.append(cfg.get_tool_pkg(dep_name))
 
         run_step(
-            cfg, "pkg", pkg, step, tool_pkgs, pkg.virtual_tools, sysroot=sysroot, for_package=True
+            cfg,
+            "pkg",
+            build,
+            step,
+            tool_pkgs,
+            build.virtual_tools,
+            sysroot=sysroot,
+            for_package=True,
         )
 
-    postprocess_libtool(cfg, pkg)
+    postprocess_libtool(cfg, build)
 
     if not reproduce:
-        try_rmtree(pkg.staging_dir)
-        os.rename(pkg.collect_dir, pkg.staging_dir)
+        try_rmtree(build.staging_dir)
+        os.rename(build.collect_dir, build.staging_dir)
     else:
 
         def discover_dirtree(root):
@@ -2813,8 +2903,8 @@ def build_pkg(cfg, pkg, *, sysroot, reproduce=False):
             recurse()
             return s
 
-        repro_paths = discover_dirtree(pkg.collect_dir)
-        exist_paths = discover_dirtree(pkg.staging_dir)
+        repro_paths = discover_dirtree(build.collect_dir)
+        exist_paths = discover_dirtree(build.staging_dir)
 
         repro_only = repro_paths.difference(exist_paths)
         exist_only = exist_paths.difference(repro_paths)
@@ -2829,8 +2919,8 @@ def build_pkg(cfg, pkg, *, sysroot, reproduce=False):
 
         any_issues = False
         for path in repro_paths:
-            repro_stat = os.stat(os.path.join(pkg.collect_dir, path))
-            exist_stat = os.stat(os.path.join(pkg.collect_dir, path))
+            repro_stat = os.stat(os.path.join(build.collect_dir, path))
+            exist_stat = os.stat(os.path.join(build.collect_dir, path))
 
             if stat.S_IFMT(repro_stat.st_mode) != stat.S_IFMT(exist_stat.st_mode):
                 _util.log_info("File type mismatch in file {}".format(path))
@@ -2839,8 +2929,8 @@ def build_pkg(cfg, pkg, *, sysroot, reproduce=False):
 
             if stat.S_ISREG(repro_stat.st_mode):
                 if not filecmp.cmp(
-                    os.path.join(pkg.collect_dir, path),
-                    os.path.join(pkg.staging_dir, path),
+                    os.path.join(build.collect_dir, path),
+                    os.path.join(build.staging_dir, path),
                     shallow=False,
                 ):
                     _util.log_info("Content mismatch in file {}".format(path))
@@ -3000,10 +3090,10 @@ def install_pkg(cfg, pkg, *, sysroot):
         pkg.mark_as_installed(sysroot=sysroot)
 
 
-def archive_pkg(cfg, pkg):
-    with tarfile.open(pkg.archive_file, "w:gz") as tar:
-        for ent in os.listdir(pkg.staging_dir):
-            tar.add(os.path.join(pkg.staging_dir, ent), arcname=ent)
+def archive_pkg(cfg, build):
+    with tarfile.open(build.archive_file, "w:gz") as tar:
+        for ent in os.listdir(build.staging_dir):
+            tar.add(os.path.join(build.staging_dir, ent), arcname=ent)
 
 
 def pull_pkg_pack(cfg, pkg):
@@ -3079,7 +3169,7 @@ def run_task(cfg, task):
 
 def run_pkg_task(cfg, task):
     tools_required = []
-    for dep_name in map(name_from_subject_id, task.pkg.resolve_tool_deps(exposed_only=True)):
+    for dep_name in map(name_from_subject_id, task.build.resolve_tool_deps(exposed_only=True)):
         tools_required.append(cfg.get_tool_pkg(dep_name))
 
     run_step(
@@ -3088,7 +3178,7 @@ def run_pkg_task(cfg, task):
         task,
         task.script_step,
         tools_required,
-        task.pkg.virtual_tools,
+        task.build.virtual_tools,
         for_package=False,
     )
 
@@ -3506,6 +3596,7 @@ class Plan:
             add_task_dependencies(subject)
 
         elif action == Action.CONFIGURE_PKG:
+            assert isinstance(subject, Build)
             src = self._cfg.get_source(subject.source)
             item.build_edges.add(PlanKey(Action.REGENERATE_SRC, src))
 
@@ -3517,6 +3608,7 @@ class Plan:
             add_task_dependencies(subject)
 
         elif action == Action.BUILD_PKG or action == Action.REPRODUCE_BUILD_PKG:
+            assert isinstance(subject, Build)
             item.build_edges.add(PlanKey(Action.CONFIGURE_PKG, subject))
 
             # Usually dependencies will already be installed during the configuration phase.
@@ -3528,9 +3620,11 @@ class Plan:
             add_task_dependencies(subject)
 
         elif action == Action.PACK_PKG or action == Action.REPRODUCE_PACK_PKG:
-            item.build_edges.add(PlanKey(Action.BUILD_PKG, subject))
+            assert isinstance(subject, TargetPackage)
+            item.build_edges.add(PlanKey(Action.BUILD_PKG, subject.build))
 
         elif action == Action.INSTALL_PKG:
+            assert isinstance(subject, TargetPackage)
             if self.build_scope is not None and subject not in self.build_scope:
                 if self.pull_out_of_scope:
                     if not self._cfg.use_xbps:
@@ -3541,7 +3635,7 @@ class Plan:
             elif self._cfg.use_xbps:
                 item.build_edges.add(PlanKey(Action.PACK_PKG, subject))
             else:
-                item.build_edges.add(PlanKey(Action.BUILD_PKG, subject))
+                item.build_edges.add(PlanKey(Action.BUILD_PKG, subject.build))
 
             # See Action.BUILD_PKG for rationale.
             add_implicit_pkgs()
@@ -3552,12 +3646,13 @@ class Plan:
                 item.build_edges.add(PlanKey(Action.INSTALL_TOOL_STAGE, stage))
 
         elif action == Action.ARCHIVE_PKG:
+            assert isinstance(subject, Build)
             item.build_edges.add(PlanKey(Action.BUILD_PKG, subject))
 
-        elif action in [
-            Action.PULL_PKG_PACK,
-            Action.PULL_ARCHIVE,
-        ]:
+        elif action == Action.PULL_PKG_PACK:
+            assert isinstance(subject, TargetPackage)
+
+        elif action == Action.PULL_ARCHIVE:
             pass
 
         elif action == Action.RUN:
@@ -3568,7 +3663,7 @@ class Plan:
             add_task_dependencies(subject)
 
         elif action == Action.RUN_PKG:
-            item.build_edges.add(PlanKey(Action.BUILD_PKG, subject.pkg))
+            item.build_edges.add(PlanKey(Action.BUILD_PKG, subject.build))
             add_implicit_pkgs()
             add_pkg_dependencies(subject)
             add_tool_dependencies(subject)
