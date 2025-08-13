@@ -3660,7 +3660,7 @@ class Plan:
 
         elif action == Action.INSTALL_PKG:
             assert isinstance(subject, TargetPackage)
-            if self.build_scope is not None and subject not in self.build_scope:
+            if self.build_scope is not None and subject.build not in self.build_scope:
                 if self.pull_out_of_scope:
                     if not self._cfg.use_xbps:
                         raise RuntimeError("Need xbps to pull packages that are out of scope")
@@ -3922,14 +3922,14 @@ class Plan:
 
         # Add all packages that have a build directory.
         try:
-            pkg_dirs = os.listdir(self.cfg.pkg_build_dir)
+            build_dirs = os.listdir(self.cfg.pkg_build_dir)
         except FileNotFoundError:
-            pkg_dirs = []
-        pkg_dict = {pkg.name: pkg for pkg in self.cfg.all_pkgs()}
-        for name in pkg_dirs:
-            pkg = pkg_dict.get(name)
-            if pkg is not None:
-                scope.add(pkg)
+            build_dirs = []
+        build_dict = {build.name: build for build in self.cfg.all_builds()}
+        for name in build_dirs:
+            build = build_dict.get(name)
+            if build is not None:
+                scope.add(build)
 
         self.build_scope = scope
 
