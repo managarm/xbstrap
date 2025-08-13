@@ -2078,7 +2078,7 @@ def execute_manifest(manifest):
                 return os.path.join(build_root, manifest["subject"]["build_subdir"])
             elif varname == "PREFIX":
                 return os.path.join(build_root, manifest["subject"]["prefix_subdir"])
-        elif manifest["context"] == "pkg" or manifest["context"] == "pkg-task":
+        elif manifest["context"] in {"build", "pkg", "pkg-task"}:
             if varname == "THIS_SOURCE_DIR":
                 return os.path.join(source_root, manifest["subject"]["source_subdir"])
             elif varname == "THIS_BUILD_DIR":
@@ -2202,6 +2202,8 @@ def execute_manifest(manifest):
             workdir = os.path.join(source_root, manifest["subject"]["source_subdir"])
         elif manifest["context"] == "tool" or manifest["context"] == "tool-stage":
             workdir = os.path.join(build_root, manifest["subject"]["build_subdir"])
+        elif manifest["context"] == "build":
+            workdir = os.path.join(build_root, manifest["subject"]["build_subdir"])
         elif manifest["context"] == "pkg":
             workdir = os.path.join(build_root, manifest["subject"]["build_subdir"])
         elif manifest["context"] == "task":
@@ -2298,7 +2300,11 @@ def run_program(
             "prefix_subdir": tool.prefix_subdir,
         }
         manifest["source_date_epoch"] = src.source_date_epoch
-    elif context == "pkg":
+    elif context == "build":
+        # TODO: For now we translate "build" -> "pkg".
+        #       This is a workaround for compatibility with old execute-manifest.
+        #       We can remove this in the next release.
+        manifest["context"] = "pkg"
         src = cfg.get_source(subject.source)
         manifest["subject"] = {
             "source_subdir": src.source_subdir,
@@ -2853,7 +2859,7 @@ def configure_pkg(cfg, build, *, sysroot):
 
         run_step(
             cfg,
-            "pkg",
+            "build",
             build,
             step,
             tool_pkgs,
@@ -2877,7 +2883,7 @@ def build_pkg(cfg, build, *, sysroot, reproduce=False):
 
         run_step(
             cfg,
-            "pkg",
+            "build",
             build,
             step,
             tool_pkgs,

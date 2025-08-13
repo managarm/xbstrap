@@ -78,9 +78,9 @@ def do_runtool(args):
     if args.build is not None:
         pkg = cfg.get_target_pkg(args.build)
 
-        context = "pkg"
+        context = "build"
         workdir = "@THIS_BUILD_DIR@"
-        subject = pkg
+        subject = pkg.build
 
         tool_pkgs.extend(cfg.get_tool_pkg(name) for name in pkg.tool_dependencies)
         args = args.opts
@@ -955,8 +955,8 @@ def do_lsp(args):
 
     xbstrap.base.run_program(
         cfg,
-        "pkg",
-        pkg,
+        "build",
+        pkg.build,
         [xbstrap.base.replace_at_vars(x, resolve_host_paths) for x in args.lsp_program],
         tool_pkgs=tool_pkgs,
         workdir="@THIS_SOURCE_DIR@",
