@@ -22,6 +22,7 @@ import jsonschema
 import yaml
 
 import xbstrap.util as _util
+import xbstrap.subpkgs as _subpkgs
 import xbstrap.vcs_utils as _vcs_utils
 import xbstrap.xbps_utils as _xbps_utils
 from xbstrap.exceptions import GenericError, RollingIdUnavailableError
@@ -506,6 +507,11 @@ class Config:
                     continue
                 self._builds[build.name] = build
                 self._target_pkgs[pkg.name] = pkg
+
+                # TODO: Integrate subpackages into filtering.
+                for subpkg_yml in pkg_yml.get("subpackages", []):
+                    subpkg = TargetPackage(self, build, pkg_yml, subpkg_yml)
+                    self._target_pkgs[subpkg.name] = subpkg
 
         if "tasks" in current_yml and isinstance(current_yml["tasks"], list):
             for task_yml in current_yml["tasks"]:
@@ -1673,6 +1679,10 @@ class Build(RequirementsMixin):
                 self._tasks[task_yml["name"]] = PackageRunTask(cfg, self, task_yml)
 
     @property
+    def cfg(self):
+        return self._cfg
+
+    @property
     def label_set(self):
         return self._labels
 
@@ -1746,6 +1756,8 @@ class Build(RequirementsMixin):
 
     def all_subpkgs(self):
         yield self.name
+        for subpkg_yml in self._this_yml.get("subpackages", []):
+            yield subpkg_yml["name"]
 
     @property
     def configure_steps(self):
@@ -1799,10 +1811,11 @@ class Build(RequirementsMixin):
 
 
 class TargetPackage(RequirementsMixin):
-    def __init__(self, cfg, build, pkg_yml):
+    def __init__(self, cfg, build, pkg_yml, subpkg_yml=None):
         self._cfg = cfg
         self._build = build
         self._this_yml = pkg_yml
+        self._subpkg_yml = subpkg_yml
 
     @property
     def build(self):
@@ -1822,6 +1835,8 @@ class TargetPackage(RequirementsMixin):
 
     @property
     def name(self):
+        if self._subpkg_yml:
+            return self._subpkg_yml["name"]
         return self._this_yml["name"]
 
     @property
@@ -1854,6 +1869,15 @@ class TargetPackage(RequirementsMixin):
     @property
     def version(self):
         return self.build.version
+
+    @property
+    def is_main_pkg(self):
+        return self._subpkg_yml is None
+
+    @property
+    def subpkg_include(self):
+        assert self._subpkg_yml
+        return self._subpkg_yml.get("include", [])
 
     # Return the xbps repository that this package is pulled from.
     @property
@@ -2977,7 +3001,9 @@ def pack_pkg(cfg, pkg, reproduce=False):
             output = None
 
         with tempfile.TemporaryDirectory() as pack_dir:
-            installtree(pkg.staging_dir, pack_dir)
+            # Copy only the files for this specific subpackage.
+            mapping = _subpkgs.determine_mapping(pkg.build)
+            _subpkgs.install_mapping(pkg, mapping, pack_dir)
 
             install_sh = _xbps_utils.compose_xbps_install(cfg, pkg)
             if install_sh:

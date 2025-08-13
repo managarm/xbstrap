@@ -352,6 +352,17 @@ properties:
                                           - type: array
                                             items:
                                                 type: string
+                'subpackages':
+                    type: array
+                    items:
+                        type: object
+                        additionalProperties: false
+                        required: ['name']
+                        properties:
+                            'name': { type: string }
+                            'include':
+                                type: array
+                                items: { type: string }
     'tasks':
         type: array
         items:
