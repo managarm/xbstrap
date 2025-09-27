@@ -3,7 +3,6 @@
 import contextlib
 import errno
 import fcntl
-import fnmatch
 import os
 import os.path as path
 import re
@@ -166,6 +165,9 @@ def translate_glob(pat, *, recursive=False, include_hidden=False, seps=None):
                 results.append(any_sep)
     res = "".join(results)
     return rf"(?s:{res})\Z"
+
+
+_re_setops_sub = re.compile(r"([&~|])").sub
 
 
 # This is fnmatch._translate() from Python 3.14.

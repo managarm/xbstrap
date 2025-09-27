@@ -21,8 +21,8 @@ import colorama
 import jsonschema
 import yaml
 
-import xbstrap.util as _util
 import xbstrap.subpkgs as _subpkgs
+import xbstrap.util as _util
 import xbstrap.vcs_utils as _vcs_utils
 import xbstrap.xbps_utils as _xbps_utils
 from xbstrap.exceptions import GenericError, RollingIdUnavailableError
