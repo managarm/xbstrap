@@ -1985,6 +1985,7 @@ class PackageRunTask(RequirementsMixin):
         self._cfg = cfg
         self._build = build
         self._task = task_yml["name"]
+        self._this_yml = task_yml
         self._script_step = ScriptStep(task_yml)
 
     @property
@@ -2014,10 +2015,6 @@ class PackageRunTask(RequirementsMixin):
     @property
     def subject_type(self):
         return "task"
-
-    @property
-    def _this_yml(self):
-        return self._build._this_yml
 
     @property
     def source(self):
@@ -3203,9 +3200,11 @@ def run_task(cfg, task):
 
 
 def run_pkg_task(cfg, task):
-    tools_required = []
+    tools_required = set()
     for dep_name in map(name_from_subject_id, task.build.resolve_tool_deps(exposed_only=True)):
-        tools_required.append(cfg.get_tool_pkg(dep_name))
+        tools_required.add(cfg.get_tool_pkg(dep_name))
+    for dep_name in map(name_from_subject_id, task.resolve_tool_deps(exposed_only=True)):
+        tools_required.add(cfg.get_tool_pkg(dep_name))
 
     run_step(
         cfg,
