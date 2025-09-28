@@ -3698,10 +3698,15 @@ class Plan:
 
         elif action == Action.RUN_PKG:
             item.build_edges.add(PlanKey(Action.BUILD_PKG, subject.build))
+
+            # Add the dependencies of the task itself.
             add_implicit_pkgs()
             add_pkg_dependencies(subject)
             add_tool_dependencies(subject)
             add_task_dependencies(subject)
+
+            # Also add the dependencies that installing the package would add.
+            add_pkg_dependencies(subject.build)
 
         elif action == Action.RUN_TOOL:
             for stage in subject.pkg.all_stages():
