@@ -167,6 +167,8 @@ properties:
         type: object
         additionalProperties: false
         properties:
+            'min_version':
+                type: string
             'patch_author':
                 type: string
             'patch_email':
