@@ -44,7 +44,7 @@ class Pipeline:
                 for subpkg_name in build.all_subpkgs():
                     subpkg = cfg.get_target_pkg(subpkg_name)
                     pkgs.append(subpkg)
-                mentioned_pkgs.add(subpkg)
+                mentioned_pkgs.add(build)
 
             name = "batch:" + job_yml["name"]
             assert name not in self.jobs
