@@ -93,6 +93,11 @@ class Pipeline:
 
 class Job:
     def __init__(self, name, tools, pkgs, *, default_caps, explicit_caps=None):
+        for tool in tools:
+            assert isinstance(tool, xbstrap.base.HostPackage)
+        for pkg in pkgs:
+            assert isinstance(pkg, xbstrap.base.TargetPackage)
+
         self.name = name
         self.tools = set(tools)
         self.pkgs = set(pkgs)
@@ -159,14 +164,14 @@ def do_compute_graph(args):
                         break
 
             plan = xbstrap.base.Plan(cfg)
-            plan.build_scope = set().union(job.tools, job.pkgs)
+            plan.build_scope = set().union(job.tools, [pkg.build for pkg in job.pkgs])
             for tool in job.tools:
                 plan.wanted.update([(xbstrap.base.Action.ARCHIVE_TOOL, tool)])
             for pkg in job.pkgs:
                 if cfg.use_xbps:
                     plan.wanted.update([(xbstrap.base.Action.PACK_PKG, pkg)])
                 else:
-                    plan.wanted.update([(xbstrap.base.Action.BUILD_PKG, pkg)])
+                    plan.wanted.update([(xbstrap.base.Action.BUILD_PKG, pkg.build)])
             for task in job.tasks:
                 plan.wanted.update([(xbstrap.base.Action.RUN, task)])
             plan.compute_plan(no_ordering=True)
@@ -247,14 +252,14 @@ def do_compute_graph(args):
 
         for item in items.values():
             plan = xbstrap.base.Plan(cfg)
-            plan.build_scope = set().union(item.job.tools, item.job.pkgs)
+            plan.build_scope = set().union(item.job.tools, [pkg.build for pkg in item.job.pkgs])
             for tool in item.job.tools:
                 plan.wanted.update([(xbstrap.base.Action.ARCHIVE_TOOL, tool)])
             for pkg in item.job.pkgs:
                 if cfg.use_xbps:
                     plan.wanted.update([(xbstrap.base.Action.PACK_PKG, pkg)])
                 else:
-                    plan.wanted.update([(xbstrap.base.Action.BUILD_PKG, pkg)])
+                    plan.wanted.update([(xbstrap.base.Action.BUILD_PKG, pkg.build)])
             for task in item.job.tasks:
                 plan.wanted.update([(xbstrap.base.Action.RUN, task)])
             plan.compute_plan(no_ordering=True)
@@ -351,7 +356,7 @@ def do_run_job(args):
         plan.check = True
     if args.keep_going:
         plan.keep_going = True
-    plan.build_scope = set().union(job.tools, job.pkgs)
+    plan.build_scope = set().union(job.tools, [pkg.build for pkg in job.pkgs])
 
     if args.progress_file is not None:
         plan.progress_file = xbstrap.cli_utils.open_file_from_cli(args.progress_file, "wt")
@@ -362,7 +367,7 @@ def do_run_job(args):
         if cfg.use_xbps:
             plan.wanted.update([(xbstrap.base.Action.PACK_PKG, pkg)])
         else:
-            plan.wanted.update([(xbstrap.base.Action.BUILD_PKG, pkg)])
+            plan.wanted.update([(xbstrap.base.Action.BUILD_PKG, pkg.build)])
     for task in job.tasks:
         plan.wanted.update([(xbstrap.base.Action.RUN, task)])
     plan.run_plan()
