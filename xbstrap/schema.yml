@@ -321,7 +321,7 @@ properties:
                 'stability_level':
                     type: string
                     enum: ['stable', 'unstable', 'broken']
-                'implict_package':
+                'implicit_package':
                     type: boolean
                 'source': { $ref: '#/definitions/nested_source' }
                 'from_source':

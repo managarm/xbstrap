@@ -1742,9 +1742,12 @@ class Build(RequirementsMixin):
 
     @property
     def is_implicit(self):
-        if "implict_package" not in self._this_yml:
-            return False
-        return self._this_yml["implict_package"]
+        if "implicit_package" in self._this_yml:
+            return self._this_yml["implicit_package"]
+        # Compatibility for legacy misspelling.
+        if "implict_package" in self._this_yml:
+            return self._this_yml["implict_package"]
+        return False
 
     @property
     def architecture(self):
