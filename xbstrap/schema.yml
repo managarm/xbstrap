@@ -80,6 +80,8 @@ definitions:
                 type: string
             'patch-path-strip':
                 type: integer
+            'patch_path_strip':
+                type: integer
             'checksum':
                 type: string
             # VCS sources.

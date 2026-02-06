@@ -2769,7 +2769,12 @@ def patch_src(cfg, src):
                 ["hg", "import", os.path.join(src.patch_dir, patch)], cwd=src.source_dir
             )
         elif "url" in source:
-            path_strip = str(source["patch-path-strip"]) if "patch-path-strip" in source else "0"
+            path_strip = "0"
+            if "patch_path_strip" in source:
+                path_strip = str(source["patch_path_strip"])
+            elif "patch-path-strip" in source:  # Accept old spelling
+                path_strip = str(source["patch-path-strip"])
+
             with open(os.path.join(src.patch_dir, patch), "r") as fd:
                 subprocess.check_call(
                     ["patch", "-p", path_strip, "--merge"], stdin=fd, cwd=src.source_dir
