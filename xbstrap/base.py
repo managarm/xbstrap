@@ -197,6 +197,7 @@ class SubjectType(Enum):
     PKG = "pkg"
     PKG_TASK = "pkg-task"
     TASK = "task"
+    ROOTFS = "rootfs"
 
 
 SubjectId = collections.namedtuple(
@@ -281,6 +282,7 @@ class Config:
         self._site_archs = set()
         self._cached_repodata = dict()
         self._included_files = set()
+        self._rootfs_cache = dict()
 
         self._bootstrap_path = changed_source_root or os.path.join(
             path, os.path.dirname(os.readlink(os.path.join(path, "bootstrap.link")))
@@ -868,6 +870,18 @@ class Config:
                 continue
             yield pkg
 
+    def get_rootfs(self, packages):
+        sorted_pkgs = tuple(sorted(set(packages)))
+        hasher = hashlib.sha256()
+        hasher.update("\n".join(sorted_pkgs).encode())
+        digest = hasher.hexdigest()
+
+        if digest not in self._rootfs_cache:
+            rootfs = RootFs(sorted_pkgs, digest)
+            self._rootfs_cache[digest] = rootfs
+
+        return self._rootfs_cache[digest]
+
 
 class ScriptStep:
     def __init__(self, step_yml, containerless=False):
@@ -1303,6 +1317,11 @@ class Source(RequirementsMixin):
     def regenerate_steps(self):
         yield from self._regenerate_steps
 
+    @property
+    def rootfs_packages(self):
+        if "rootfs_packages" in self._this_yml:
+            yield from self._this_yml["rootfs_packages"]
+
     def check_if_fetched(self, settings):
         s = _vcs_utils.check_repo(self, self.sub_dir, check_remotes=settings.check_remotes)
         if s == _vcs_utils.RepoStatus.MISSING:
@@ -1604,6 +1623,11 @@ class HostPackage(RequirementsMixin):
     def configure_steps(self):
         yield from self._configure_steps
 
+    @property
+    def rootfs_packages(self):
+        if "rootfs_packages" in self._this_yml:
+            yield from self._this_yml["rootfs_packages"]
+
     def compute_version(self, **kwargs):
         source = self._cfg.get_source(self.source)
 
@@ -1770,6 +1794,11 @@ class Build(RequirementsMixin):
     @property
     def build_steps(self):
         yield from self._build_steps
+
+    @property
+    def rootfs_packages(self):
+        if "rootfs_packages" in self._this_yml:
+            yield from self._this_yml["rootfs_packages"]
 
     def compute_version(self, **kwargs):
         source = self._cfg.get_source(self.source)
@@ -2070,6 +2099,11 @@ class RunTask(RequirementsMixin):
             architecture = replace_at_vars(e.get("architecture", "x86_64"), substitute)
             yield ArtifactFile(e["name"], os.path.join(path, e["name"]), architecture)
 
+    @property
+    def rootfs_packages(self):
+        if "rootfs_packages" in self._this_yml:
+            yield from self._this_yml["rootfs_packages"]
+
 
 def execute_manifest(manifest):
     source_root = manifest["source_root"]
@@ -2243,6 +2277,243 @@ def execute_manifest(manifest):
             raise GenericError("Unexpected context")
 
     subprocess.check_call(args, env=environ, cwd=workdir, stdout=output, stderr=output)
+
+
+# ---
+# System root management.
+# ---
+
+
+class RootFs:
+    def __init__(self, packages, hash):
+        self.packages = tuple(sorted(set(packages)))
+        self.hash = hash
+
+        if self.packages:
+            self._name = self.packages[-1]
+        else:
+            self._name = "base"
+
+    @property
+    def subject_id(self):
+        return SubjectId(SubjectType.ROOTFS, self.hash)
+
+    @property
+    def subject_type(self):
+        return "rootfs"
+
+    @property
+    def name(self):
+        return self._name
+
+    def check_if_prepared(self, _, cfg):
+        rootfs_cache = os.path.join(cfg.source_root, ".xbstrap", "rootfs_cache")
+        rootfs_path = os.path.join(rootfs_cache, self.hash)
+        rootfs_marker_path = os.path.join(rootfs_path, "prepared.xbstrap")
+
+        return ItemState(missing=not os.path.exists(rootfs_marker_path))
+
+
+def prepare_rootfs(cfg, rootfs):
+    # Inspired by https://codeberg.org/Mintsuki/jinx.
+
+    apt_cache = os.path.join(cfg.source_root, ".xbstrap", "apt_cache")
+    rootfs_cache = os.path.join(cfg.source_root, ".xbstrap", "rootfs_cache")
+
+    _util.try_mkdir(apt_cache)
+    _util.try_mkdir(rootfs_cache)
+
+    rootfs_path = os.path.join(rootfs_cache, rootfs.hash)
+    rootfs_marker_path = os.path.join(rootfs_path, "prepared.xbstrap")
+
+    assert not os.path.exists(rootfs_marker_path)
+
+    if rootfs.packages:
+        parent_rootfs = cfg.get_rootfs(rootfs.packages[:-1])
+        parent_rootfs_path = os.path.join(rootfs_cache, parent_rootfs.hash)
+
+        assert os.path.exists(parent_rootfs_path)
+
+    try_rmtree(rootfs_path)
+
+    _util.try_mkdir(rootfs_path)
+
+    def run_with_unshare(args, env=None):
+        result = subprocess.call(
+            [
+                "unshare",
+                "--user",
+                "--map-auto",
+                "--map-root-user",
+                "--mount",
+                "--pid",
+                "--fork",
+                "--",
+                *args,
+            ],
+            env=env,
+        )
+        if result != 0:
+            raise RuntimeError("Command {} failed".format(args))
+
+    def run_in_container(rootfs, args, extra_script="", extra_script_post=""):
+        _util.log_info("Running {} in container".format(args))
+
+        environ = os.environ.copy()
+        _util.build_environ_paths(
+            environ, "PATH", prepend=[os.path.join(_util.find_home(), "bin")]
+        )
+
+        script = f"""
+            set -e
+
+            {extra_script}
+
+            mount --bind '{apt_cache}' '{rootfs}/var/cache/apt/archives'
+
+            mount --rbind --make-rslave /dev '{rootfs}/dev'
+            mount --rbind --make-rslave /sys '{rootfs}/sys'
+
+            mount -t proc proc '{rootfs}/proc'
+            mount -t tmpfs run '{rootfs}/run'
+            mount -t tmpfs tmpfs '{rootfs}/tmp'
+            mount -t tmpfs tmpfs '{rootfs}/var/tmp'
+
+            chroot '{rootfs}' /bin/sh -c '
+                export LANG=C.UTF-8
+                export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin"
+                export LD_LIBRARY_PATH="/usr/local/lib64:/usr/local/lib:/usr/lib64:/usr/lib"
+                export DEBIAN_FRONTEND=noninteractive
+
+                {" ".join(args)}
+            '
+
+            {extra_script_post}
+        """
+        run_with_unshare(["sh", "-c", script], env=environ)
+
+    if rootfs.packages:
+        lower_dirs = []
+
+        for i in range(len(rootfs.packages)):
+            parent_rootfs = cfg.get_rootfs(rootfs.packages[:i])
+            lower_dirs.append(os.path.join(rootfs_cache, parent_rootfs.hash))
+
+        lower_dir_options = [f"lowerdir+={dir}" for dir in lower_dirs]
+        mount_options = [
+            *lower_dir_options,
+            "upperdir=/var/tmp/upper",
+            "workdir=/var/tmp/work",
+            "userxattr",
+        ]
+
+        extra_script = f"""
+            mount_options=""
+            for opt in {" ".join(f"'{opt}'" for opt in mount_options)}; do
+                mount_options="$mount_options -o $opt"
+            done
+
+            mount -t tmpfs tmpfs /var/tmp
+            mkdir -p /var/tmp/upper
+            mkdir -p /var/tmp/work
+            mkdir -p /var/tmp/merged
+
+            mount -t overlay overlay $mount_options /var/tmp/merged
+        """
+
+        extra_script_post = f"""
+            cp -Prf --preserve=mode,timestamps /var/tmp/upper/. '{rootfs_path}'
+        """
+
+        run_in_container(
+            "/var/tmp/merged",
+            ["apt-get", "install", "-y", rootfs.packages[-1]],
+            extra_script=extra_script,
+            extra_script_post=extra_script_post,
+        )
+    else:
+        container_yml = cfg._root_yml.get("container", dict())
+        site_container_yml = cfg._site_yml.get("container", dict())
+
+        suite = container_yml["suite"]
+        snapshot = container_yml["snapshot"]
+
+        src_mount = site_container_yml.get("src_mount")
+        build_mount = site_container_yml.get("build_mount")
+
+        if src_mount.startswith("/"):
+            src_mount = src_mount[1:]
+        if build_mount.startswith("/"):
+            build_mount = build_mount[1:]
+
+        site_src_mount = os.path.join(rootfs_path, src_mount)
+        site_build_mount = os.path.join(rootfs_path, build_mount)
+
+        apt_cache_dir = os.path.join(rootfs_path, "var", "cache", "apt", "archives")
+        _util.try_mkdir(apt_cache_dir, recursive=True)
+
+        environ = os.environ.copy()
+        environ["DEBOOTSTRAP_DIR"] = os.path.join(_util.find_home(), "debootstrap")
+        _util.build_environ_paths(
+            environ, "PATH", prepend=[os.path.join(_util.find_home(), "bin")]
+        )
+
+        script = f"""
+            set -e
+
+            mount --bind '{apt_cache}' '{apt_cache_dir}'
+            debootstrap \
+                --foreign '{suite}' '{rootfs_path}' \
+                'https://snapshot.debian.org/archive/debian/{snapshot}'
+
+            mkdir -p '{site_src_mount}'
+            mkdir -p '{site_build_mount}'
+
+            for dev in tty null zero full random urandom; do
+                rm -f '{rootfs_path}/dev/'$dev
+                touch '{rootfs_path}/dev/'$dev
+            done
+        """
+        run_with_unshare(["sh", "-c", script], env=environ)
+
+        run_in_container(rootfs_path, ["/debootstrap/debootstrap", "--second-stage"])
+
+        with open(os.path.join(rootfs_path, "etc", "locale.gen"), "w") as f:
+            f.write("en_US.UTF-8 UTF-8\n")
+
+        with open(os.path.join(rootfs_path, "etc", "apt", "apt.conf"), "w") as f:
+            f.write('APT::Install-Suggests "0";\n')
+            f.write('APT::Install-Recommends "0";\n')
+            f.write('APT::Sandbox::User "root";\n')
+            f.write('Acquire::Check-Valid-Until "0";\n')
+
+        run_in_container(rootfs_path, ["apt-get", "update", "-y"])
+        run_in_container(rootfs_path, ["apt-get", "install", "-y", "locales"])
+        run_in_container(rootfs_path, ["locale-gen"])
+
+        base_pkgs = container_yml.get("base_packages", [])
+
+        run_in_container(
+            rootfs_path, ["apt-get", "install", "-y", "python3", "python3-pip", *base_pkgs]
+        )
+        run_in_container(
+            rootfs_path,
+            [
+                "python3",
+                "-m",
+                "pip",
+                "install",
+                "--progress-bar",
+                "off",
+                "--root-user-action",
+                "ignore",
+                "--break-system-packages",
+                "xbstrap",
+            ],
+        )
+
+    # Create the marker file
+    open(rootfs_marker_path, "w").close()
 
 
 def run_program(
@@ -2515,6 +2786,36 @@ def run_program(
         else:
             assert runtime == "cbuildrt"
 
+            rootfs = container_yml.get("rootfs")
+
+            if rootfs is None:
+                if isinstance(subject, Build):
+                    rootfs = cfg.get_rootfs(subject.rootfs_packages)
+                elif isinstance(subject, HostPackage):
+                    rootfs = cfg.get_rootfs(subject.rootfs_packages)
+                elif isinstance(subject, PackageRunTask) or isinstance(subject, RunTask):
+                    rootfs = cfg.get_rootfs(subject.rootfs_packages)
+                else:
+                    raise GenericError("Subject type does not support rootfs")
+
+                rootfs_cache = os.path.join(cfg.source_root, ".xbstrap", "rootfs_cache")
+                rootfs_path = os.path.join(rootfs_cache, rootfs.hash)
+
+                lower_dirs = []
+
+                # Linux requires at least two lowerdirs for overlayfs.
+                # We make sure to always have at least two by adding an empty layer if necessary.
+                if len(rootfs.packages) == 0:
+                    empty_layer = tempfile.TemporaryDirectory(prefix="layer.")
+                    lower_dirs.append(empty_layer.name)
+
+                for i in range(len(rootfs.packages)):
+                    parent_rootfs = cfg.get_rootfs(rootfs.packages[:i])
+                    lower_dirs.append(os.path.join(rootfs_cache, parent_rootfs.hash))
+
+                lower_dirs.append(rootfs_path)
+                rootfs = {"layers": lower_dirs}
+
             manifest["source_root"] = container_yml["src_mount"]
             manifest["build_root"] = container_yml["build_mount"]
 
@@ -2533,7 +2834,7 @@ def run_program(
             cbuild_json = {
                 "user": {"uid": container_yml["uid"], "gid": container_yml["gid"]},
                 "process": {"args": ["xbstrap", "execute-manifest", "-c", yaml.dump(manifest)]},
-                "rootfs": container_yml["rootfs"],
+                "rootfs": rootfs,
                 "isolateNetwork": isolate_network,
                 "bindMounts": [
                     {"destination": container_yml["src_mount"], "source": cfg.source_root},
@@ -3302,6 +3603,8 @@ class Action(Enum):
     WANT_PKG = 22
     # xbstrap-mirror functionality.
     MIRROR_SRC = 23
+    # System root related actions.
+    PREPARE_ROOTFS = 24
 
 
 Action.strings = {
@@ -3328,6 +3631,7 @@ Action.strings = {
     Action.WANT_TOOL: "want-tool",
     Action.WANT_PKG: "want-pkg",
     Action.MIRROR_SRC: "mirror",
+    Action.PREPARE_ROOTFS: "prepare-rootfs",
 }
 
 
@@ -3477,6 +3781,7 @@ class PlanItem:
             Action.WANT_TOOL: lambda s, c: s.check_if_fully_installed(c),
             Action.WANT_PKG: lambda s, c: s.check_want_pkg(c),
             Action.MIRROR_SRC: lambda s, c: s.check_if_mirrord(c),
+            Action.PREPARE_ROOTFS: lambda s, c: s.check_if_prepared(c, self.plan._cfg),
         }
         self._state = visitors[self.action](self.subject, self.settings)
 
@@ -3539,6 +3844,9 @@ class Plan:
 
         if cfg.container_runtime == "cbuildrt":
             self.isolate_sysroots = True
+
+            container_yml = self.cfg._site_yml.get("container", dict())
+            self.layered_rootfs = "rootfs" not in container_yml
 
     @property
     def cfg(self):
@@ -3603,6 +3911,30 @@ class Plan:
                 dep_task = self._cfg.get_task(task_name)
                 item.order_before_edges.add(PlanKey(Action.RUN, dep_task))
 
+        def add_rootfs_dependencies(s):
+            if self.cfg.container_runtime != "cbuildrt" or not self.layered_rootfs:
+                return
+
+            rootfs_id = None
+
+            if isinstance(s, Source):
+                rootfs_id = self._cfg.get_rootfs(s.rootfs_packages)
+            elif isinstance(s, HostPackage):
+                rootfs_id = self._cfg.get_rootfs(s.rootfs_packages)
+            elif isinstance(s, Build):
+                rootfs_id = self._cfg.get_rootfs(s.rootfs_packages)
+            elif isinstance(s, RunTask):
+                rootfs_id = self._cfg.get_rootfs(s.rootfs_packages)
+            elif isinstance(s, PackageRunTask):
+                build = s.build
+                assert isinstance(build, Build) or isinstance(build, TargetPackage)
+                rootfs_id = self._cfg.get_rootfs(build.rootfs_packages)
+            else:
+                raise RuntimeError("Unexpected subject type for rootfs dependencies")
+
+            assert rootfs_id is not None
+            item.require_edges.add(PlanKey(Action.PREPARE_ROOTFS, rootfs_id))
+
         if action == Action.FETCH_SRC:
             # FETCH_SRC has no dependencies.
             pass
@@ -3627,6 +3959,7 @@ class Plan:
             add_tool_dependencies(subject)
             add_pkg_dependencies(subject)
             add_task_dependencies(subject)
+            add_rootfs_dependencies(subject)
 
         elif action == Action.COMPILE_TOOL_STAGE:
             item.build_edges.add(PlanKey(Action.CONFIGURE_TOOL, subject.pkg))
@@ -3636,6 +3969,7 @@ class Plan:
             add_tool_dependencies(subject)
             add_pkg_dependencies(subject)
             add_task_dependencies(subject)
+            add_rootfs_dependencies(subject)
 
         elif action == Action.INSTALL_TOOL_STAGE:
             item.build_edges.add(PlanKey(Action.COMPILE_TOOL_STAGE, subject))
@@ -3644,6 +3978,7 @@ class Plan:
             add_tool_dependencies(subject)
             add_pkg_dependencies(subject)
             add_task_dependencies(subject)
+            add_rootfs_dependencies(subject)
 
         elif action == Action.CONFIGURE_PKG:
             assert isinstance(subject, Build)
@@ -3656,6 +3991,7 @@ class Plan:
             add_pkg_dependencies(subject)
             add_tool_dependencies(subject)
             add_task_dependencies(subject)
+            add_rootfs_dependencies(subject)
 
         elif action == Action.BUILD_PKG or action == Action.REPRODUCE_BUILD_PKG:
             assert isinstance(subject, Build)
@@ -3668,6 +4004,7 @@ class Plan:
             add_pkg_dependencies(subject)
             add_tool_dependencies(subject)
             add_task_dependencies(subject)
+            add_rootfs_dependencies(subject)
 
         elif action == Action.PACK_PKG or action == Action.REPRODUCE_PACK_PKG:
             assert isinstance(subject, TargetPackage)
@@ -3711,6 +4048,7 @@ class Plan:
             add_pkg_dependencies(subject)
             add_tool_dependencies(subject)
             add_task_dependencies(subject)
+            add_rootfs_dependencies(subject)
 
         elif action == Action.RUN_PKG:
             item.build_edges.add(PlanKey(Action.BUILD_PKG, subject.build))
@@ -3720,6 +4058,7 @@ class Plan:
             add_pkg_dependencies(subject)
             add_tool_dependencies(subject)
             add_task_dependencies(subject)
+            add_rootfs_dependencies(subject)
 
             # Also add the dependencies that installing the package would add.
             add_pkg_dependencies(subject.build)
@@ -3732,6 +4071,14 @@ class Plan:
             add_tool_dependencies(subject)
             add_pkg_dependencies(subject)
             add_task_dependencies(subject)
+            add_rootfs_dependencies(subject)
+
+        elif action == Action.PREPARE_ROOTFS:
+            packages = subject.packages
+
+            if packages:
+                rootfs_id = self._cfg.get_rootfs(packages[:-1])
+                item.require_edges.add(PlanKey(Action.PREPARE_ROOTFS, rootfs_id))
 
         return item
 
@@ -4180,6 +4527,8 @@ class Plan:
                     raise ExecutionFailureError(action, subject)
                 elif action == Action.MIRROR_SRC:
                     mirror_src(self._cfg, subject)
+                elif action == Action.PREPARE_ROOTFS:
+                    prepare_rootfs(self._cfg, subject)
                 else:
                     raise AssertionError("Unexpected action")
                 item.exec_status = ExecutionStatus.SUCCESS

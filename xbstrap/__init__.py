@@ -868,7 +868,7 @@ do_rolling_determine.parser.set_defaults(_impl=do_rolling_determine)
 
 def do_prereqs(args):
     comps = set(args.components)
-    valid_comps = ["cbuildrt", "xbps", "xmu"]
+    valid_comps = ["cbuildrt", "debootstrap", "xbps", "xmu"]
     if not comps.issubset(valid_comps):
         raise RuntimeError(f"Unknown component given; choose from: {valid_comps}")
 
@@ -889,6 +889,42 @@ def do_prereqs(args):
                 if info.name == "cbuildrt":
                     tar.extract(info, bin_dir)
         os.chmod(os.path.join(bin_dir, "cbuildrt"), 0o755)
+    if "debootstrap" in comps:
+        url = "https://salsa.debian.org/installer-team/debootstrap/-/archive/1.0.142/debootstrap-1.0.142.tar.gz"
+        tar_path = os.path.join(home, "debootstrap.tar.gz")
+
+        debootstrap_dir = os.path.join(home, "debootstrap")
+        xbstrap.base.try_rmtree(debootstrap_dir)
+        _util.try_mkdir(debootstrap_dir)
+
+        with open(os.path.join(debootstrap_dir, "arch"), "w") as f:
+            uname = os.uname()
+            if uname.machine == "x86_64":
+                f.write("amd64")
+            elif uname.machine == "aarch64":
+                f.write("arm64")
+            elif uname.machine in ["i386", "i486", "i586", "i686"]:
+                f.write("i386")
+            else:
+                raise RuntimeError(f"Unsupported architecture: {uname.machine}")
+
+        scripts_dir = os.path.join(debootstrap_dir, "scripts")
+        _util.try_mkdir(scripts_dir)
+
+        _util.log_info(f"Downloading debootstrap from {url}")
+        _util.interactive_download(url, tar_path)
+        with tarfile.open(tar_path, "r:gz") as tar:
+            for info in tar:
+                name = info.name.split("/", 1)[-1]
+                if name == "debootstrap":
+                    info.name = "debootstrap"
+                    tar.extract(info, bin_dir)
+                elif name == "functions":
+                    info.name = "functions"
+                    tar.extract(info, debootstrap_dir)
+                elif os.path.dirname(name) == "scripts":
+                    info.name = os.path.basename(name)
+                    tar.extract(info, scripts_dir)
     if "xbps" in comps:
         url = "https://repo-default.voidlinux.org/static"
         url += "/xbps-static-static-0.59.2_1.x86_64-musl.tar.xz"
