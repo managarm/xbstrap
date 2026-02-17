@@ -11,6 +11,7 @@ import shlex
 import shutil
 import stat
 import subprocess
+import sys
 import tarfile
 import tempfile
 import urllib.request
@@ -3191,7 +3192,14 @@ def pull_archive(cfg, subject):
         os.mkdir(subject.prefix_dir)
         with tarfile.open(subject.archive_file, "r:gz") as tar:
             for info in tar:
-                tar.extract(info, subject.prefix_dir)
+                if sys.version_info >= (3, 12):
+                    # Maybe should have a more aggressive filter, but we have
+                    # legitimate "evil-looking" tool tars (specifically, GCC
+                    # tarballs link to the binutils directory, which is outside
+                    # of the root)
+                    tar.extract(info, subject.prefix_dir, filter="fully_trusted")
+                else:
+                    tar.extract(info, subject.prefix_dir)
     else:
         # TODO: Also support packages here.
         raise GenericError("Unexpected subject for pull-archive")
