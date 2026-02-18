@@ -3577,7 +3577,7 @@ class Plan:
 
         def add_tool_dependencies(s):
             for subject_id in s.tool_stage_dependencies:
-                (tool_name, stage_name) = (subject_id.name, subject_id.stage)
+                tool_name, stage_name = (subject_id.name, subject_id.stage)
                 dep_tool = self._cfg.get_tool_pkg(tool_name)
                 if self.build_scope is not None and dep_tool not in self.build_scope:
                     if self.pull_out_of_scope:
@@ -3992,7 +3992,7 @@ class Plan:
         else:
             _util.log_info("Nothing to do")
         for item in printed:
-            (action, subject) = (item.action, item.subject)
+            action, subject = (item.action, item.subject)
             if self.explain:
                 symbol = f"#{numbering[item]}"
                 eprint(f"{symbol:>5} ", end="")
@@ -4061,7 +4061,7 @@ class Plan:
 
         any_failed_items = False
         for n, item in enumerate(scheduled):
-            (action, subject) = (item.action, item.subject)
+            action, subject = (item.action, item.subject)
 
             # Check if any prerequisites failed; this can generally only happen with --keep-going.
             any_failed_edges = False
@@ -4198,7 +4198,7 @@ class Plan:
         if any_failed_items:
             _util.log_info("The following steps failed:")
             for item in scheduled:
-                (action, subject) = (item.action, item.subject)
+                action, subject = (item.action, item.subject)
                 assert item.exec_status != ExecutionStatus.NULL
                 if item.exec_status == ExecutionStatus.SUCCESS:
                     continue
