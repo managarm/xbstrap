@@ -11,6 +11,7 @@ import shlex
 import shutil
 import stat
 import subprocess
+import sys
 import tarfile
 import tempfile
 import urllib.request
@@ -3191,7 +3192,14 @@ def pull_archive(cfg, subject):
         os.mkdir(subject.prefix_dir)
         with tarfile.open(subject.archive_file, "r:gz") as tar:
             for info in tar:
-                tar.extract(info, subject.prefix_dir)
+                if sys.version_info >= (3, 12):
+                    # Maybe should have a more aggressive filter, but we have
+                    # legitimate "evil-looking" tool tars (specifically, GCC
+                    # tarballs link to the binutils directory, which is outside
+                    # of the root)
+                    tar.extract(info, subject.prefix_dir, filter="fully_trusted")
+                else:
+                    tar.extract(info, subject.prefix_dir)
     else:
         # TODO: Also support packages here.
         raise GenericError("Unexpected subject for pull-archive")
@@ -3569,7 +3577,7 @@ class Plan:
 
         def add_tool_dependencies(s):
             for subject_id in s.tool_stage_dependencies:
-                (tool_name, stage_name) = (subject_id.name, subject_id.stage)
+                tool_name, stage_name = (subject_id.name, subject_id.stage)
                 dep_tool = self._cfg.get_tool_pkg(tool_name)
                 if self.build_scope is not None and dep_tool not in self.build_scope:
                     if self.pull_out_of_scope:
@@ -3984,7 +3992,7 @@ class Plan:
         else:
             _util.log_info("Nothing to do")
         for item in printed:
-            (action, subject) = (item.action, item.subject)
+            action, subject = (item.action, item.subject)
             if self.explain:
                 symbol = f"#{numbering[item]}"
                 eprint(f"{symbol:>5} ", end="")
@@ -4053,7 +4061,7 @@ class Plan:
 
         any_failed_items = False
         for n, item in enumerate(scheduled):
-            (action, subject) = (item.action, item.subject)
+            action, subject = (item.action, item.subject)
 
             # Check if any prerequisites failed; this can generally only happen with --keep-going.
             any_failed_edges = False
@@ -4190,7 +4198,7 @@ class Plan:
         if any_failed_items:
             _util.log_info("The following steps failed:")
             for item in scheduled:
-                (action, subject) = (item.action, item.subject)
+                action, subject = (item.action, item.subject)
                 assert item.exec_status != ExecutionStatus.NULL
                 if item.exec_status == ExecutionStatus.SUCCESS:
                     continue

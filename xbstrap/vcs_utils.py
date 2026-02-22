@@ -118,7 +118,7 @@ def check_repo(src, subdir, *, check_remotes=0):
             except subprocess.CalledProcessError:
                 return None
             assert len(out) == 1
-            (commit, outref) = out[0].split(" ")
+            commit, outref = out[0].split(" ")
             return commit
 
         def get_remote_commit(ref):
@@ -131,7 +131,7 @@ def check_repo(src, subdir, *, check_remotes=0):
             except subprocess.CalledProcessError:
                 return None
             assert len(out) == 1
-            (commit, outref) = out[0].split("\t")
+            commit, outref = out[0].split("\t")
             return commit
 
         known_commit = None

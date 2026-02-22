@@ -209,7 +209,7 @@ def do_compute_graph(args):
                         }
                     )
             for key in plan.materialized_steps():
-                (action, subject) = (key.action, key.subject)
+                action, subject = (key.action, key.subject)
                 if action == xbstrap.base.Action.WANT_TOOL:
                     if subject in job.tools:
                         continue
@@ -265,7 +265,7 @@ def do_compute_graph(args):
             plan.compute_plan(no_ordering=True)
 
             for key in plan.materialized_steps():
-                (action, subject) = (key.action, key.subject)
+                action, subject = (key.action, key.subject)
                 if action == xbstrap.base.Action.WANT_TOOL:
                     if subject in item.job.tools:
                         continue
