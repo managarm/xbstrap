@@ -1018,6 +1018,51 @@ do_maintainer.parser.set_defaults(_impl=do_maintainer)
 # ----------------------------------------------------------------------------------------
 
 
+def do_discard(args):
+    cfg = config_for_args(args)
+    sel = select_pkgs(cfg, args)
+    plan = xbstrap.base.Plan(cfg)
+    handle_plan_args(cfg, plan, args)
+    if args.discard_src:
+        plan.wanted.update(
+            [(xbstrap.base.Action.DISCARD_SRC, cfg.get_source(pkg.source)) for pkg in sel]
+        )
+    plan.wanted.update([(xbstrap.base.Action.DISCARD_PKG, pkg) for pkg in sel])
+    if args.uninstall:
+        plan.wanted.update([(xbstrap.base.Action.UNINSTALL_PKG, pkg) for pkg in sel])
+    plan.run_plan()
+
+
+do_discard.parser = main_subparsers.add_parser(
+    "discard",
+    parents=[handle_plan_args.parser, select_pkgs.parser],
+    description="Discard a package from your tree",
+)
+do_discard.parser.add_argument("--discard-src", action="store_true")
+do_discard.parser.add_argument("--uninstall", action="store_true")
+
+
+# ----------------------------------------------------------------------------------------
+
+
+def do_uninstall(args):
+    cfg = config_for_args(args)
+    sel = select_pkgs(cfg, args)
+    plan = xbstrap.base.Plan(cfg)
+    handle_plan_args(cfg, plan, args)
+    plan.wanted.update([(xbstrap.base.Action.UNINSTALL_PKG, pkg) for pkg in sel])
+    plan.run_plan()
+
+
+do_uninstall.parser = main_subparsers.add_parser(
+    "uninstall",
+    parents=[handle_plan_args.parser, select_pkgs.parser],
+    description="Discard a package from your tree",
+)
+
+# ----------------------------------------------------------------------------------------
+
+
 def do_execute_manifest(args):
     if args.c is not None:
         manifest = yaml.load(args.c, Loader=xbstrap.base.global_yaml_loader)
@@ -1095,6 +1140,10 @@ def main():
             do_lsp(args)
         elif args.command == "maintainer":
             do_maintainer(args)
+        elif args.command == "discard":
+            do_discard(args)
+        elif args.command == "uninstall":
+            do_uninstall(args)
         else:
             main_parser.print_help()
     except (
