@@ -286,6 +286,10 @@ properties:
                 'tasks':
                     type: array
                     items: { $ref: '#/definitions/nested_task' }
+                'rootfs_packages':
+                    type: array
+                    items:
+                        type: string
     'packages':
         type: array
         items:
@@ -365,6 +369,10 @@ properties:
                             'include':
                                 type: array
                                 items: { type: string }
+                'rootfs_packages':
+                    type: array
+                    items:
+                        type: string
     'tasks':
         type: array
         items:
@@ -397,3 +405,20 @@ properties:
                 'tools_required': { $ref: '#/definitions/tool_deps' }
                 'pkgs_required': { $ref: '#/definitions/pkg_deps' }
                 'tasks_required': { $ref: '#/definitions/task_deps' }
+                'rootfs_packages':
+                    type: array
+                    items:
+                        type: string
+    'container':
+        type: object
+        additionalProperties: false
+        required: ['suite', 'snapshot']
+        properties:
+            'suite':
+                type: string
+            'snapshot':
+                type: string
+            'base_packages':
+                type: array
+                items:
+                    type: string
