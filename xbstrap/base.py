@@ -2791,6 +2791,8 @@ def run_program(
             if rootfs is None:
                 if isinstance(subject, Build):
                     rootfs = cfg.get_rootfs(subject.rootfs_packages)
+                elif isinstance(subject, HostStage):
+                    rootfs = cfg.get_rootfs(subject.pkg.rootfs_packages)
                 elif isinstance(subject, HostPackage):
                     rootfs = cfg.get_rootfs(subject.rootfs_packages)
                 elif isinstance(subject, PackageRunTask) or isinstance(subject, RunTask):
@@ -3919,6 +3921,8 @@ class Plan:
 
             if isinstance(s, Source):
                 rootfs_id = self._cfg.get_rootfs(s.rootfs_packages)
+            elif isinstance(s, HostStage):
+                rootfs_id = self._cfg.get_rootfs(s.pkg.rootfs_packages)
             elif isinstance(s, HostPackage):
                 rootfs_id = self._cfg.get_rootfs(s.rootfs_packages)
             elif isinstance(s, Build):
