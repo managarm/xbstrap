@@ -2361,7 +2361,7 @@ def prepare_rootfs(cfg, rootfs):
 
         environ = os.environ.copy()
         _util.build_environ_paths(
-            environ, "PATH", prepend=[os.path.join(_util.find_home(), "bin")]
+            environ, "PATH", prepend=[os.path.join(_util.find_home(), "bin"), "/sbin"]
         )
 
         script = f"""
@@ -2455,7 +2455,7 @@ def prepare_rootfs(cfg, rootfs):
         environ = os.environ.copy()
         environ["DEBOOTSTRAP_DIR"] = os.path.join(_util.find_home(), "debootstrap")
         _util.build_environ_paths(
-            environ, "PATH", prepend=[os.path.join(_util.find_home(), "bin")]
+            environ, "PATH", prepend=[os.path.join(_util.find_home(), "bin"), "/sbin"]
         )
 
         script = f"""
