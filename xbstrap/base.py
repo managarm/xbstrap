@@ -871,9 +871,16 @@ class Config:
             yield pkg
 
     def get_rootfs(self, packages):
+        container_yml = self._root_yml.get("container", {})
+        suite = container_yml.get("suite", "")
+        snapshot = container_yml.get("snapshot", "")
         sorted_pkgs = tuple(sorted(set(packages)))
+
         hasher = hashlib.sha256()
-        hasher.update("\n".join(sorted_pkgs).encode())
+        hasher.update(b"debian\0")
+        hasher.update(suite.encode() + b"\0")
+        hasher.update(snapshot.encode() + b"\0")
+        hasher.update("\0".join(sorted_pkgs).encode())
         digest = hasher.hexdigest()
 
         if digest not in self._rootfs_cache:
