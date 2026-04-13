@@ -51,10 +51,14 @@ def find_home():
     return os.path.expanduser("~/.xbstrap")
 
 
-def find_cbuildrt_workspace():
+def find_cache_dir():
     if "XBSTRAP_CACHE_DIR" in os.environ:
-        return os.path.join(os.environ["XBSTRAP_CACHE_DIR"], "cbuildrt")
-    return os.path.join(find_home(), "cbuildrt")
+        return os.environ["XBSTRAP_CACHE_DIR"]
+    return find_home()
+
+
+def find_cbuildrt_workspace():
+    return os.path.join(find_cache_dir(), "cbuildrt")
 
 
 def try_mkdir(path, recursive=False):

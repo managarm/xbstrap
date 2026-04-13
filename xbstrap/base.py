@@ -2314,7 +2314,7 @@ class RootFs:
         return self._name
 
     def check_if_prepared(self, _, cfg):
-        rootfs_cache = os.path.join(cfg.source_root, ".xbstrap", "rootfs_cache")
+        rootfs_cache = os.path.join(_util.find_cache_dir(), "rootfs_cache")
         rootfs_marker_path = os.path.join(rootfs_cache, self.hash + ".prepared")
 
         return ItemState(missing=not os.path.exists(rootfs_marker_path))
@@ -2322,7 +2322,7 @@ class RootFs:
 
 # Build the cbuildrt lower layer configuration for a given rootfs.
 def _build_rootfs_layers(cfg, rootfs):
-    rootfs_cache = os.path.join(cfg.source_root, ".xbstrap", "rootfs_cache")
+    rootfs_cache = os.path.join(_util.find_cache_dir(), "rootfs_cache")
 
     base_rootfs = cfg.get_rootfs(())
     layers = [
@@ -2342,7 +2342,7 @@ def prepare_rootfs(cfg, rootfs):
 
     site_container_yml = cfg._site_yml.get("container", dict())
 
-    rootfs_cache = os.path.join(cfg.source_root, ".xbstrap", "rootfs_cache")
+    rootfs_cache = os.path.join(_util.find_cache_dir(), "rootfs_cache")
     _util.try_mkdir(rootfs_cache)
 
     base_tar_path = os.path.join(rootfs_cache, rootfs.hash + "-base.tar")
