@@ -2366,8 +2366,7 @@ def prepare_rootfs(cfg, rootfs):
         environ=None,
         host_environ=None,
     ):
-        workspace = _util.find_cbuildrt_workspace()
-        _util.try_mkdir(workspace, recursive=True)
+        workspace = _util.ensure_cbuildrt_workspace()
 
         cbuild_json = {
             "user": {"uid": 0, "gid": 0},
@@ -2375,8 +2374,10 @@ def prepare_rootfs(cfg, rootfs):
                 "args": list(args),
                 "environ": environ or {},
             },
-            "subUid": {"auto": True, "self": site_container_yml["uid"]},
-            "subGid": {"auto": True, "self": site_container_yml["gid"]},
+            "mapCurrentUserTo": {
+                "uid": site_container_yml["uid"],
+                "gid": site_container_yml["gid"],
+            },
             "bindMounts": bind_mounts or [],
             "volumes": volumes or [],
         }
@@ -2399,7 +2400,7 @@ def prepare_rootfs(cfg, rootfs):
             )
 
             result = subprocess.call(
-                ["cbuildrt", "--workspace", workspace, f.name],
+                ["cbuildrt", "run", "--workspace", workspace, f.name],
                 env=host_environ,
             )
             if result != 0:
@@ -2842,8 +2843,10 @@ def run_program(
                 ],
             }
             if is_xbstrap_rootfs:
-                cbuild_json["subUid"] = {"auto": True, "self": container_yml["uid"]}
-                cbuild_json["subGid"] = {"auto": True, "self": container_yml["gid"]}
+                cbuild_json["mapCurrentUserTo"] = {
+                    "uid": container_yml["uid"],
+                    "gid": container_yml["gid"],
+                }
             if sysroot is not None:
                 if verbosity:
                     _util.log_info(f"Bind mounting {sysroot} as sysroot")
@@ -2868,10 +2871,9 @@ def run_program(
                     environ, "PATH", prepend=[os.path.join(_util.find_home(), "bin")]
                 )
 
-                workspace = _util.find_cbuildrt_workspace()
-                _util.try_mkdir(workspace, recursive=True)
+                workspace = _util.ensure_cbuildrt_workspace()
                 proc = subprocess.Popen(
-                    ["cbuildrt", "--workspace", workspace, f.name],
+                    ["cbuildrt", "run", "--workspace", workspace, f.name],
                     env=environ,
                 )
                 proc.wait()
