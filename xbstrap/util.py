@@ -6,6 +6,7 @@ import fcntl
 import os
 import os.path as path
 import re
+import subprocess
 import sys
 import urllib.parse
 import urllib.request
@@ -59,6 +60,20 @@ def find_cache_dir():
 
 def find_cbuildrt_workspace():
     return os.path.join(find_cache_dir(), "cbuildrt")
+
+
+def ensure_cbuildrt_workspace():
+    workspace = find_cbuildrt_workspace()
+    try_mkdir(os.path.dirname(workspace), recursive=True)
+    meta_path = os.path.join(workspace, "workspace.json")
+    if not os.path.exists(meta_path):
+        environ = os.environ.copy()
+        build_environ_paths(environ, "PATH", prepend=[os.path.join(find_home(), "bin")])
+        subprocess.check_call(
+            ["cbuildrt", "init", "--workspace", workspace],
+            env=environ,
+        )
+    return workspace
 
 
 def try_mkdir(path, recursive=False):
