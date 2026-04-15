@@ -871,9 +871,16 @@ class Config:
             yield pkg
 
     def get_rootfs(self, packages):
+        container_yml = self._root_yml.get("container", {})
+        suite = container_yml.get("suite", "")
+        snapshot = container_yml.get("snapshot", "")
         sorted_pkgs = tuple(sorted(set(packages)))
+
         hasher = hashlib.sha256()
-        hasher.update("\n".join(sorted_pkgs).encode())
+        hasher.update(b"debian\0")
+        hasher.update(suite.encode() + b"\0")
+        hasher.update(snapshot.encode() + b"\0")
+        hasher.update("\0".join(sorted_pkgs).encode())
         digest = hasher.hexdigest()
 
         if digest not in self._rootfs_cache:
@@ -2307,133 +2314,121 @@ class RootFs:
         return self._name
 
     def check_if_prepared(self, _, cfg):
-        rootfs_cache = os.path.join(cfg.source_root, ".xbstrap", "rootfs_cache")
-        rootfs_path = os.path.join(rootfs_cache, self.hash)
-        rootfs_marker_path = os.path.join(rootfs_path, "prepared.xbstrap")
+        rootfs_cache = os.path.join(_util.find_cache_dir(), "rootfs_cache")
+        rootfs_marker_path = os.path.join(rootfs_cache, self.hash + ".prepared")
 
         return ItemState(missing=not os.path.exists(rootfs_marker_path))
+
+
+# Build the cbuildrt lower layer configuration for a given rootfs.
+def _build_rootfs_layers(cfg, rootfs):
+    rootfs_cache = os.path.join(_util.find_cache_dir(), "rootfs_cache")
+
+    base_rootfs = cfg.get_rootfs(())
+    layers = [
+        os.path.join(rootfs_cache, base_rootfs.hash + "-base.tar"),
+        os.path.join(rootfs_cache, base_rootfs.hash + "-full.tar"),
+    ]
+
+    for i in range(len(rootfs.packages)):
+        pkg_rootfs = cfg.get_rootfs(rootfs.packages[: i + 1])
+        layers.append(os.path.join(rootfs_cache, pkg_rootfs.hash + "-full.tar"))
+
+    return layers
 
 
 def prepare_rootfs(cfg, rootfs):
     # Inspired by https://codeberg.org/Mintsuki/jinx.
 
-    apt_cache = os.path.join(cfg.source_root, ".xbstrap", "apt_cache")
-    rootfs_cache = os.path.join(cfg.source_root, ".xbstrap", "rootfs_cache")
+    site_container_yml = cfg._site_yml.get("container", dict())
 
-    _util.try_mkdir(apt_cache)
+    rootfs_cache = os.path.join(_util.find_cache_dir(), "rootfs_cache")
     _util.try_mkdir(rootfs_cache)
 
-    rootfs_path = os.path.join(rootfs_cache, rootfs.hash)
-    rootfs_marker_path = os.path.join(rootfs_path, "prepared.xbstrap")
+    base_tar_path = os.path.join(rootfs_cache, rootfs.hash + "-base.tar")
+    full_tar_path = os.path.join(rootfs_cache, rootfs.hash + "-full.tar")
+    rootfs_marker_path = os.path.join(rootfs_cache, rootfs.hash + ".prepared")
 
-    assert not os.path.exists(rootfs_marker_path)
+    # Remove existing tar files.
+    for tar_path in (base_tar_path, full_tar_path):
+        try:
+            os.remove(tar_path)
+        except FileNotFoundError:
+            pass
+
+    def run_cbuildrt(
+        args,
+        *,
+        rootfs=None,
+        no_chroot_or_mounts=False,
+        bind_mounts=None,
+        volumes=None,
+        environ=None,
+        host_environ=None,
+    ):
+        workspace = _util.find_cbuildrt_workspace()
+        _util.try_mkdir(workspace, recursive=True)
+
+        cbuild_json = {
+            "user": {"uid": 0, "gid": 0},
+            "process": {
+                "args": list(args),
+                "environ": environ or {},
+            },
+            "subUid": {"auto": True, "self": site_container_yml["uid"]},
+            "subGid": {"auto": True, "self": site_container_yml["gid"]},
+            "bindMounts": bind_mounts or [],
+            "volumes": volumes or [],
+        }
+        if rootfs is not None:
+            cbuild_json["rootfs"] = rootfs
+        if no_chroot_or_mounts:
+            cbuild_json["noChroot"] = True
+            cbuild_json["noSystemMounts"] = True
+
+        with tempfile.NamedTemporaryFile("w+", suffix=".json") as f:
+            json.dump(cbuild_json, f)
+            f.flush()
+
+            if host_environ is None:
+                host_environ = os.environ.copy()
+            _util.build_environ_paths(
+                host_environ,
+                "PATH",
+                prepend=[os.path.join(_util.find_home(), "bin"), "/sbin"],
+            )
+
+            result = subprocess.call(
+                ["cbuildrt", "--workspace", workspace, f.name],
+                env=host_environ,
+            )
+            if result != 0:
+                raise RuntimeError("cbuildrt failed with exit code {}".format(result))
+
+    container_environ = {
+        "LANG": "C.UTF-8",
+        "DEBIAN_FRONTEND": "noninteractive",
+    }
 
     if rootfs.packages:
         parent_rootfs = cfg.get_rootfs(rootfs.packages[:-1])
-        parent_rootfs_path = os.path.join(rootfs_cache, parent_rootfs.hash)
+        lower_dirs = _build_rootfs_layers(cfg, parent_rootfs)
 
-        assert os.path.exists(parent_rootfs_path)
-
-    try_rmtree(rootfs_path)
-
-    _util.try_mkdir(rootfs_path)
-
-    def run_with_unshare(args, env=None):
-        result = subprocess.call(
-            [
-                "unshare",
-                "--user",
-                "--map-auto",
-                "--map-root-user",
-                "--mount",
-                "--pid",
-                "--fork",
-                "--",
-                *args,
+        _util.log_info("Installing {} into rootfs".format(rootfs.packages[-1]))
+        run_cbuildrt(
+            args=["apt-get", "install", "-y", rootfs.packages[-1]],
+            rootfs={
+                "layers": lower_dirs,
+                "withUpper": True,
+                "extractUpper": full_tar_path,
+            },
+            volumes=[
+                {"name": "apt_cache", "destination": "/var/cache/apt/archives"},
             ],
-            env=env,
-        )
-        if result != 0:
-            raise RuntimeError("Command {} failed".format(args))
-
-    def run_in_container(rootfs, args, extra_script="", extra_script_post=""):
-        _util.log_info("Running {} in container".format(args))
-
-        environ = os.environ.copy()
-        _util.build_environ_paths(
-            environ, "PATH", prepend=[os.path.join(_util.find_home(), "bin"), "/sbin"]
-        )
-
-        script = f"""
-            set -e
-
-            {extra_script}
-
-            mount --bind '{apt_cache}' '{rootfs}/var/cache/apt/archives'
-
-            mount --rbind --make-rslave /dev '{rootfs}/dev'
-            mount --rbind --make-rslave /sys '{rootfs}/sys'
-
-            mount -t proc proc '{rootfs}/proc'
-            mount -t tmpfs run '{rootfs}/run'
-            mount -t tmpfs tmpfs '{rootfs}/tmp'
-            mount -t tmpfs tmpfs '{rootfs}/var/tmp'
-
-            chroot '{rootfs}' /bin/sh -c '
-                export LANG=C.UTF-8
-                export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin"
-                export LD_LIBRARY_PATH="/usr/local/lib64:/usr/local/lib:/usr/lib64:/usr/lib"
-                export DEBIAN_FRONTEND=noninteractive
-
-                {" ".join(args)}
-            '
-
-            {extra_script_post}
-        """
-        run_with_unshare(["sh", "-c", script], env=environ)
-
-    if rootfs.packages:
-        lower_dirs = []
-
-        for i in range(len(rootfs.packages)):
-            parent_rootfs = cfg.get_rootfs(rootfs.packages[:i])
-            lower_dirs.append(os.path.join(rootfs_cache, parent_rootfs.hash))
-
-        lower_dir_options = [f"lowerdir+={dir}" for dir in lower_dirs]
-        mount_options = [
-            *lower_dir_options,
-            "upperdir=/var/tmp/upper",
-            "workdir=/var/tmp/work",
-            "userxattr",
-        ]
-
-        extra_script = f"""
-            mount_options=""
-            for opt in {" ".join(f"'{opt}'" for opt in mount_options)}; do
-                mount_options="$mount_options -o $opt"
-            done
-
-            mount -t tmpfs tmpfs /var/tmp
-            mkdir -p /var/tmp/upper
-            mkdir -p /var/tmp/work
-            mkdir -p /var/tmp/merged
-
-            mount -t overlay overlay $mount_options /var/tmp/merged
-        """
-
-        extra_script_post = f"""
-            cp -Prf --preserve=mode,timestamps /var/tmp/upper/. '{rootfs_path}'
-        """
-
-        run_in_container(
-            "/var/tmp/merged",
-            ["apt-get", "install", "-y", rootfs.packages[-1]],
-            extra_script=extra_script,
-            extra_script_post=extra_script_post,
+            environ=container_environ,
         )
     else:
         container_yml = cfg._root_yml.get("container", dict())
-        site_container_yml = cfg._site_yml.get("container", dict())
 
         suite = container_yml["suite"]
         snapshot = container_yml["snapshot"]
@@ -2446,70 +2441,90 @@ def prepare_rootfs(cfg, rootfs):
         if build_mount.startswith("/"):
             build_mount = build_mount[1:]
 
-        site_src_mount = os.path.join(rootfs_path, src_mount)
-        site_build_mount = os.path.join(rootfs_path, build_mount)
+        # OverlayFS needs at least one lowerdir.
+        empty_layer_dir = os.path.join(rootfs_cache, "empty")
+        _util.try_mkdir(empty_layer_dir)
 
-        apt_cache_dir = os.path.join(rootfs_path, "var", "cache", "apt", "archives")
-        _util.try_mkdir(apt_cache_dir, recursive=True)
+        host_environ = os.environ.copy()
+        host_environ["DEBOOTSTRAP_DIR"] = os.path.join(_util.find_home(), "debootstrap")
 
-        environ = os.environ.copy()
-        environ["DEBOOTSTRAP_DIR"] = os.path.join(_util.find_home(), "debootstrap")
+        # debootstrap is installed in ~/.xbstrap/bin, so we need PATH to include it.
         _util.build_environ_paths(
-            environ, "PATH", prepend=[os.path.join(_util.find_home(), "bin"), "/sbin"]
+            host_environ,
+            "PATH",
+            prepend=[os.path.join(_util.find_home(), "bin"), "/sbin"],
         )
+
+        # Run debootstrap via cbuildrt with noChroot + noSystemMounts.
+        # This creates the -base.tar.
+        script = f"""
+            set -e
+
+            target="$(pwd)"
+
+            debootstrap '{suite}' "$target" \
+                'https://snapshot.debian.org/archive/debian/{snapshot}'
+
+            mkdir -p "$target/{src_mount}"
+            mkdir -p "$target/{build_mount}"
+
+            for dev in tty null zero full random urandom; do
+                rm -f "$target/dev/$dev"
+                touch "$target/dev/$dev"
+            done
+        """
+        _util.log_info("Building base rootfs")
+        run_cbuildrt(
+            args=["sh", "-c", script],
+            rootfs={
+                "layers": [empty_layer_dir],
+                "withUpper": True,
+                "extractUpper": base_tar_path,
+            },
+            no_chroot_or_mounts=True,
+            volumes=[
+                {"name": "apt_cache", "destination": "/var/cache/apt/archives"},
+            ],
+            host_environ=host_environ,
+        )
+
+        # Install packages and xbstrap itself.
+        # This creates the -full.tar.
+        base_pkgs = container_yml.get("base_packages", [])
+        base_pkgs_str = " ".join(shlex.quote(p) for p in base_pkgs)
 
         script = f"""
             set -e
 
-            mount --bind '{apt_cache}' '{apt_cache_dir}'
-            debootstrap \
-                --foreign '{suite}' '{rootfs_path}' \
-                'https://snapshot.debian.org/archive/debian/{snapshot}'
+            printf '%s\\n' 'en_US.UTF-8 UTF-8' > /etc/locale.gen
 
-            mkdir -p '{site_src_mount}'
-            mkdir -p '{site_build_mount}'
+            cat > /etc/apt/apt.conf <<APTEOF
+APT::Install-Suggests "0";
+APT::Install-Recommends "0";
+APT::Sandbox::User "root";
+Acquire::Check-Valid-Until "0";
+APTEOF
 
-            for dev in tty null zero full random urandom; do
-                rm -f '{rootfs_path}/dev/'$dev
-                touch '{rootfs_path}/dev/'$dev
-            done
+            apt-get update -y
+            apt-get install -y locales
+            locale-gen
+
+            apt-get install -y python3 python3-pip {base_pkgs_str}
+            python3 -m pip install --progress-bar off --root-user-action ignore --break-system-packages xbstrap
         """
-        run_with_unshare(["sh", "-c", script], env=environ)
 
-        run_in_container(rootfs_path, ["/debootstrap/debootstrap", "--second-stage"])
-
-        with open(os.path.join(rootfs_path, "etc", "locale.gen"), "w") as f:
-            f.write("en_US.UTF-8 UTF-8\n")
-
-        with open(os.path.join(rootfs_path, "etc", "apt", "apt.conf"), "w") as f:
-            f.write('APT::Install-Suggests "0";\n')
-            f.write('APT::Install-Recommends "0";\n')
-            f.write('APT::Sandbox::User "root";\n')
-            f.write('Acquire::Check-Valid-Until "0";\n')
-
-        run_in_container(rootfs_path, ["apt-get", "update", "-y"])
-        run_in_container(rootfs_path, ["apt-get", "install", "-y", "locales"])
-        run_in_container(rootfs_path, ["locale-gen"])
-
-        base_pkgs = container_yml.get("base_packages", [])
-
-        run_in_container(
-            rootfs_path, ["apt-get", "install", "-y", "python3", "python3-pip", *base_pkgs]
-        )
-        run_in_container(
-            rootfs_path,
-            [
-                "python3",
-                "-m",
-                "pip",
-                "install",
-                "--progress-bar",
-                "off",
-                "--root-user-action",
-                "ignore",
-                "--break-system-packages",
-                "xbstrap",
+        _util.log_info("Finalizing rootfs")
+        run_cbuildrt(
+            args=["sh", "-c", script],
+            rootfs={
+                "layers": [base_tar_path],
+                "withUpper": True,
+                "extractUpper": full_tar_path,
+            },
+            volumes=[
+                {"name": "apt_cache", "destination": "/var/cache/apt/archives"},
             ],
+            environ=container_environ,
         )
 
     # Create the marker file
@@ -2576,6 +2591,8 @@ def run_program(
         "option_values": {name: cfg.get_option_value(name) for name in cfg.all_options},
     }
 
+    rootfs_pkgs = []
+
     if context == "source":
         manifest["subject"] = {"source_subdir": subject.source_subdir}
         manifest["source_date_epoch"] = subject.source_date_epoch
@@ -2587,6 +2604,7 @@ def run_program(
             "prefix_subdir": subject.prefix_subdir,
         }
         manifest["source_date_epoch"] = src.source_date_epoch
+        rootfs_pkgs = list(subject.rootfs_packages)
     elif context == "tool-stage":
         tool = subject.pkg
         src = cfg.get_source(tool.source)
@@ -2596,6 +2614,7 @@ def run_program(
             "prefix_subdir": tool.prefix_subdir,
         }
         manifest["source_date_epoch"] = src.source_date_epoch
+        rootfs_pkgs = list(tool.rootfs_packages)
     elif context == "build":
         # TODO: For now we translate "build" -> "pkg".
         #       This is a workaround for compatibility with old execute-manifest.
@@ -2608,6 +2627,7 @@ def run_program(
             "collect_subdir": subject.collect_subdir,
         }
         manifest["source_date_epoch"] = src.source_date_epoch
+        rootfs_pkgs = list(subject.rootfs_packages)
     elif context == "tool-task":
         tool = subject.pkg
         src = cfg.get_source(tool.source)
@@ -2626,6 +2646,9 @@ def run_program(
             "collect_subdir": build.collect_subdir,
         }
         manifest["source_date_epoch"] = src.source_date_epoch
+        rootfs_pkgs = list(build.rootfs_packages)
+    elif context == "task":
+        rootfs_pkgs = list(subject.rootfs_packages)
 
     for tool in pkg_queue:
         manifest["tools"].append(
@@ -2787,36 +2810,11 @@ def run_program(
             assert runtime == "cbuildrt"
 
             rootfs = container_yml.get("rootfs")
+            is_xbstrap_rootfs = rootfs is None
 
             if rootfs is None:
-                if isinstance(subject, Build):
-                    rootfs = cfg.get_rootfs(subject.rootfs_packages)
-                elif isinstance(subject, HostStage):
-                    rootfs = cfg.get_rootfs(subject.pkg.rootfs_packages)
-                elif isinstance(subject, HostPackage):
-                    rootfs = cfg.get_rootfs(subject.rootfs_packages)
-                elif isinstance(subject, PackageRunTask) or isinstance(subject, RunTask):
-                    rootfs = cfg.get_rootfs(subject.rootfs_packages)
-                else:
-                    raise GenericError("Subject type does not support rootfs")
-
-                rootfs_cache = os.path.join(cfg.source_root, ".xbstrap", "rootfs_cache")
-                rootfs_path = os.path.join(rootfs_cache, rootfs.hash)
-
-                lower_dirs = []
-
-                # Linux requires at least two lowerdirs for overlayfs.
-                # We make sure to always have at least two by adding an empty layer if necessary.
-                if len(rootfs.packages) == 0:
-                    empty_layer = tempfile.TemporaryDirectory(prefix="layer.")
-                    lower_dirs.append(empty_layer.name)
-
-                for i in range(len(rootfs.packages)):
-                    parent_rootfs = cfg.get_rootfs(rootfs.packages[:i])
-                    lower_dirs.append(os.path.join(rootfs_cache, parent_rootfs.hash))
-
-                lower_dirs.append(rootfs_path)
-                rootfs = {"layers": lower_dirs}
+                rootfs = cfg.get_rootfs(rootfs_pkgs)
+                rootfs = {"layers": _build_rootfs_layers(cfg, rootfs)}
 
             manifest["source_root"] = container_yml["src_mount"]
             manifest["build_root"] = container_yml["build_mount"]
@@ -2843,6 +2841,9 @@ def run_program(
                     {"destination": container_yml["build_mount"], "source": cfg.build_root},
                 ],
             }
+            if is_xbstrap_rootfs:
+                cbuild_json["subUid"] = {"auto": True, "self": container_yml["uid"]}
+                cbuild_json["subGid"] = {"auto": True, "self": container_yml["gid"]}
             if sysroot is not None:
                 if verbosity:
                     _util.log_info(f"Bind mounting {sysroot} as sysroot")
@@ -2867,7 +2868,12 @@ def run_program(
                     environ, "PATH", prepend=[os.path.join(_util.find_home(), "bin")]
                 )
 
-                proc = subprocess.Popen(["cbuildrt", f.name], env=environ)
+                workspace = _util.find_cbuildrt_workspace()
+                _util.try_mkdir(workspace, recursive=True)
+                proc = subprocess.Popen(
+                    ["cbuildrt", "--workspace", workspace, f.name],
+                    env=environ,
+                )
                 proc.wait()
                 if proc.returncode != 0:
                     raise ProgramFailureError()

@@ -673,6 +673,22 @@ do_install.parser = main_subparsers.add_parser(
 )
 
 
+def do_prepare_rootfs(args):
+    cfg = config_for_args(args)
+    plan = xbstrap.base.Plan(cfg)
+    handle_plan_args(cfg, plan, args)
+    rootfs = cfg.get_rootfs([])
+    plan.wanted.add((xbstrap.base.Action.PREPARE_ROOTFS, rootfs))
+    plan.run_plan()
+
+
+do_prepare_rootfs.parser = main_subparsers.add_parser(
+    "prepare-rootfs",
+    parents=[handle_plan_args.parser],
+)
+do_prepare_rootfs.parser.set_defaults(_impl=do_prepare_rootfs)
+
+
 def do_archive_tool(args):
     cfg = config_for_args(args)
     sel = select_tools(cfg, args)
