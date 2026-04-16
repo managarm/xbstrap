@@ -70,7 +70,7 @@ def ensure_cbuildrt_workspace():
         environ = os.environ.copy()
         build_environ_paths(environ, "PATH", prepend=[os.path.join(find_home(), "bin")])
         subprocess.check_call(
-            ["cbuildrt", "init", "--workspace", workspace],
+            ["cbuildrt", "--workspace", workspace, "init"],
             env=environ,
         )
     return workspace

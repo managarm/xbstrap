@@ -2400,7 +2400,7 @@ def prepare_rootfs(cfg, rootfs):
             )
 
             result = subprocess.call(
-                ["cbuildrt", "run", "--workspace", workspace, f.name],
+                ["cbuildrt", "--workspace", workspace, "run", f.name],
                 env=host_environ,
             )
             if result != 0:
@@ -2873,7 +2873,7 @@ def run_program(
 
                 workspace = _util.ensure_cbuildrt_workspace()
                 proc = subprocess.Popen(
-                    ["cbuildrt", "run", "--workspace", workspace, f.name],
+                    ["cbuildrt", "--workspace", workspace, "run", f.name],
                     env=environ,
                 )
                 proc.wait()
