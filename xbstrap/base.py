@@ -3385,6 +3385,7 @@ def pack_pkg(cfg, pkg, reproduce=False):
                     environ, "PATH", prepend=[os.path.join(_util.find_home(), "bin")]
                 )
                 environ["XBPS_ARCH"] = arch
+                environ["XBPS_TARGET_ARCH"] = arch
 
                 _util.log_info("Running {} ({})".format(args, arch))
                 subprocess.call(args, env=environ, stdout=output)
