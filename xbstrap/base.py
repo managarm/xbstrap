@@ -2348,15 +2348,17 @@ def _build_rootfs_seed_tar(tar_path):
 def _build_rootfs_layers(cfg, rootfs):
     rootfs_cache = os.path.join(_util.find_cache_dir(), "rootfs_cache")
 
+    # OverlayFS requires at least two lower layers when no upper layer is used.
+    # Hence, always prepend an empty layer.
+    empty_layer_dir = os.path.join(rootfs_cache, "empty")
+    _util.try_mkdir(empty_layer_dir)
+
     base_rootfs = cfg.get_rootfs(())
-    layers = [
-        os.path.join(rootfs_cache, base_rootfs.hash + "-base.tar"),
-        os.path.join(rootfs_cache, base_rootfs.hash + "-full.tar"),
-    ]
+    layers = [empty_layer_dir, os.path.join(rootfs_cache, base_rootfs.hash + ".tar")]
 
     for i in range(len(rootfs.packages)):
         pkg_rootfs = cfg.get_rootfs(rootfs.packages[: i + 1])
-        layers.append(os.path.join(rootfs_cache, pkg_rootfs.hash + "-full.tar"))
+        layers.append(os.path.join(rootfs_cache, pkg_rootfs.hash + ".tar"))
 
     return layers
 
@@ -2369,16 +2371,14 @@ def prepare_rootfs(cfg, rootfs):
     rootfs_cache = os.path.join(_util.find_cache_dir(), "rootfs_cache")
     _util.try_mkdir(rootfs_cache)
 
-    base_tar_path = os.path.join(rootfs_cache, rootfs.hash + "-base.tar")
-    full_tar_path = os.path.join(rootfs_cache, rootfs.hash + "-full.tar")
+    out_tar_path = os.path.join(rootfs_cache, rootfs.hash + ".tar")
     rootfs_marker_path = os.path.join(rootfs_cache, rootfs.hash + ".prepared")
 
-    # Remove existing tar files.
-    for tar_path in (base_tar_path, full_tar_path):
-        try:
-            os.remove(tar_path)
-        except FileNotFoundError:
-            pass
+    # Remove existing tar file.
+    try:
+        os.remove(out_tar_path)
+    except FileNotFoundError:
+        pass
 
     def run_cbuildrt(
         args,
@@ -2445,7 +2445,7 @@ def prepare_rootfs(cfg, rootfs):
             rootfs={
                 "layers": lower_dirs,
                 "withUpper": True,
-                "extractUpper": full_tar_path,
+                "extractUpper": out_tar_path,
             },
             volumes=[
                 {"name": "apt_cache", "destination": "/var/cache/apt/archives"},
@@ -2480,34 +2480,37 @@ def prepare_rootfs(cfg, rootfs):
             prepend=[os.path.join(_util.find_home(), "bin"), "/sbin"],
         )
 
-        # Run debootstrap via cbuildrt with noChroot + noSystemMounts.
-        # This creates the -base.tar.
-        script = f"""
-            set -e
+        with tempfile.TemporaryDirectory() as scratch:
+            seed_tar = os.path.join(scratch, "seed.tar")
+            base_tar = os.path.join(scratch, "base.tar")
+            _build_rootfs_seed_tar(seed_tar)
 
-            target="$(pwd)"
+            # Run debootstrap via cbuildrt with noChroot + noSystemMounts.
+            script = f"""
+                set -e
 
-            debootstrap '{suite}' "$target" \
-                'https://snapshot.debian.org/archive/debian/{snapshot}'
+                target="$(pwd)"
 
-            mkdir -p "$target/{src_mount}"
-            mkdir -p "$target/{build_mount}"
+                debootstrap '{suite}' "$target" \
+                    'https://snapshot.debian.org/archive/debian/{snapshot}'
 
-            for dev in tty null zero full random urandom; do
-                rm -f "$target/dev/$dev"
-                touch "$target/dev/$dev"
-            done
-        """
-        _util.log_info("Building base rootfs")
-        with tempfile.NamedTemporaryFile(suffix=".tar") as seed_tar:
-            _build_rootfs_seed_tar(seed_tar.name)
+                mkdir -p "$target/{src_mount}"
+                mkdir -p "$target/{build_mount}"
+
+                for dev in tty null zero full random urandom; do
+                    rm -f "$target/dev/$dev"
+                    touch "$target/dev/$dev"
+                done
+            """
+
+            _util.log_info("Building base rootfs")
             run_cbuildrt(
                 args=["sh", "-c", script],
                 rootfs={
                     "layers": [empty_layer_dir],
                     "withUpper": True,
-                    "extractUpper": base_tar_path,
-                    "importUpper": seed_tar.name,
+                    "extractUpper": base_tar,
+                    "importUpper": seed_tar,
                 },
                 no_chroot_or_mounts=True,
                 volumes=[
@@ -2516,44 +2519,44 @@ def prepare_rootfs(cfg, rootfs):
                 host_environ=host_environ,
             )
 
-        # Install packages and xbstrap itself.
-        # This creates the -full.tar.
-        base_pkgs = container_yml.get("base_packages", [])
-        base_pkgs_str = " ".join(shlex.quote(p) for p in base_pkgs)
+            # Install packages and xbstrap itself.
+            base_pkgs = container_yml.get("base_packages", [])
+            base_pkgs_str = " ".join(shlex.quote(p) for p in base_pkgs)
 
-        script = f"""
-            set -e
+            script = f"""
+                set -e
 
-            printf '%s\\n' 'en_US.UTF-8 UTF-8' > /etc/locale.gen
+                printf '%s\\n' 'en_US.UTF-8 UTF-8' > /etc/locale.gen
 
-            cat > /etc/apt/apt.conf <<APTEOF
+                cat > /etc/apt/apt.conf <<APTEOF
 APT::Install-Suggests "0";
 APT::Install-Recommends "0";
 APT::Sandbox::User "root";
 Acquire::Check-Valid-Until "0";
 APTEOF
 
-            apt-get update -y
-            apt-get install -y locales
-            locale-gen
+                apt-get update -y
+                apt-get install -y locales
+                locale-gen
 
-            apt-get install -y python3 python3-pip {base_pkgs_str}
-            python3 -m pip install --progress-bar off --root-user-action ignore --break-system-packages xbstrap
-        """
+                apt-get install -y python3 python3-pip {base_pkgs_str}
+                python3 -m pip install --progress-bar off --root-user-action ignore --break-system-packages xbstrap
+            """
 
-        _util.log_info("Finalizing rootfs")
-        run_cbuildrt(
-            args=["sh", "-c", script],
-            rootfs={
-                "layers": [base_tar_path],
-                "withUpper": True,
-                "extractUpper": full_tar_path,
-            },
-            volumes=[
-                {"name": "apt_cache", "destination": "/var/cache/apt/archives"},
-            ],
-            environ=container_environ,
-        )
+            _util.log_info("Finalizing rootfs")
+            run_cbuildrt(
+                args=["sh", "-c", script],
+                rootfs={
+                    "layers": [empty_layer_dir],
+                    "withUpper": True,
+                    "extractUpper": out_tar_path,
+                    "importUpper": base_tar,
+                },
+                volumes=[
+                    {"name": "apt_cache", "destination": "/var/cache/apt/archives"},
+                ],
+                environ=container_environ,
+            )
 
     # Create the marker file
     open(rootfs_marker_path, "w").close()
