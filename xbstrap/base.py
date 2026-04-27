@@ -2323,9 +2323,9 @@ class RootFs:
 
     def check_if_prepared(self, _, cfg):
         rootfs_cache = os.path.join(_util.find_cache_dir(), "rootfs_cache")
-        rootfs_marker_path = os.path.join(rootfs_cache, self.hash + ".prepared")
+        rootfs_tar_path = os.path.join(rootfs_cache, self.hash + ".tar")
 
-        return ItemState(missing=not os.path.exists(rootfs_marker_path))
+        return ItemState(missing=not os.path.exists(rootfs_tar_path))
 
 
 # Build the initial file system that debootstrap runs on.
@@ -2372,7 +2372,6 @@ def prepare_rootfs(cfg, rootfs):
     _util.try_mkdir(rootfs_cache)
 
     out_tar_path = os.path.join(rootfs_cache, rootfs.hash + ".tar")
-    rootfs_marker_path = os.path.join(rootfs_cache, rootfs.hash + ".prepared")
 
     # Remove existing tar file.
     try:
@@ -2557,9 +2556,6 @@ APTEOF
                 ],
                 environ=container_environ,
             )
-
-    # Create the marker file
-    open(rootfs_marker_path, "w").close()
 
 
 def run_program(
