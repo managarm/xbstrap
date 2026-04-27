@@ -422,3 +422,11 @@ properties:
                 type: array
                 items:
                     type: string
+            'uid':
+                type: integer
+            'gid':
+                type: integer
+            'src_mount':
+                type: string
+            'build_mount':
+                type: string

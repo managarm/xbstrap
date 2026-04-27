@@ -599,6 +599,14 @@ class Config:
         return self._site_yml["container"].get("runtime")
 
     @property
+    def container_build_yml(self):
+        site_container_yml = self._site_yml.get("container") or {}
+        if "rootfs" in site_container_yml:
+            return site_container_yml
+        root_container_yml = self._root_yml.get("container") or {}
+        return root_container_yml
+
+    @property
     def site_architectures(self):
         return self._site_archs
 
@@ -2340,7 +2348,7 @@ def _build_rootfs_layers(cfg, rootfs):
 def prepare_rootfs(cfg, rootfs):
     # Inspired by https://codeberg.org/Mintsuki/jinx.
 
-    site_container_yml = cfg._site_yml.get("container", dict())
+    build_yml = cfg.container_build_yml
 
     rootfs_cache = os.path.join(_util.find_cache_dir(), "rootfs_cache")
     _util.try_mkdir(rootfs_cache)
@@ -2375,8 +2383,8 @@ def prepare_rootfs(cfg, rootfs):
                 "environ": environ or {},
             },
             "mapCurrentUserTo": {
-                "uid": site_container_yml["uid"],
-                "gid": site_container_yml["gid"],
+                "uid": build_yml["uid"],
+                "gid": build_yml["gid"],
             },
             "bindMounts": bind_mounts or [],
             "volumes": volumes or [],
@@ -2434,8 +2442,8 @@ def prepare_rootfs(cfg, rootfs):
         suite = container_yml["suite"]
         snapshot = container_yml["snapshot"]
 
-        src_mount = site_container_yml.get("src_mount")
-        build_mount = site_container_yml.get("build_mount")
+        src_mount = build_yml.get("src_mount")
+        build_mount = build_yml.get("build_mount")
 
         if src_mount.startswith("/"):
             src_mount = src_mount[1:]
@@ -2662,6 +2670,7 @@ def run_program(
 
     runtime = cfg.container_runtime
     container_yml = cfg._site_yml.get("container", dict())
+    build_yml = cfg.container_build_yml
 
     use_container = True
     if containerless:
@@ -2695,13 +2704,15 @@ def run_program(
             if proc.returncode != 0:
                 raise ProgramFailureError()
         elif runtime == "docker":
-            if any(prop not in container_yml for prop in ["src_mount", "build_mount", "image"]):
+            if any(prop not in build_yml for prop in ["src_mount", "build_mount"]) or (
+                "image" not in container_yml
+            ):
                 raise GenericError(
                     "Docker runtime requires src_mount, build_mount and image properties"
                 )
 
-            manifest["source_root"] = container_yml["src_mount"]
-            manifest["build_root"] = container_yml["build_mount"]
+            manifest["source_root"] = build_yml["src_mount"]
+            manifest["build_root"] = build_yml["build_mount"]
 
             _util.log_info(
                 "Running {} (tools: {}) in Docker".format(args, [tool.name for tool in pkg_queue])
@@ -2717,9 +2728,9 @@ def run_program(
                 "-i",
                 "--init",
                 "-v",
-                cfg.source_root + ":" + container_yml["src_mount"],
+                cfg.source_root + ":" + build_yml["src_mount"],
                 "-v",
-                cfg.build_root + ":" + container_yml["build_mount"],
+                cfg.build_root + ":" + build_yml["build_mount"],
             ]
             if os.isatty(0):  # FD zero = stdin.
                 docker_args += ["-t"]
@@ -2737,8 +2748,8 @@ def run_program(
             if proc.returncode != 0:
                 raise ProgramFailureError()
         elif runtime == "runc":
-            manifest["source_root"] = container_yml["src_mount"]
-            manifest["build_root"] = container_yml["build_mount"]
+            manifest["source_root"] = build_yml["src_mount"]
+            manifest["build_root"] = build_yml["build_mount"]
 
             _util.log_info(
                 "Running {} (tools: {}) via runc".format(args, [tool.name for tool in pkg_queue])
@@ -2767,13 +2778,13 @@ def run_program(
                 "hostname": container_yml["id"],
                 "mounts": [
                     {
-                        "destination": container_yml["src_mount"],
+                        "destination": build_yml["src_mount"],
                         "source": cfg.source_root,
                         "options": ["bind"],
                         "type": "none",
                     },
                     {
-                        "destination": container_yml["build_mount"],
+                        "destination": build_yml["build_mount"],
                         "source": cfg.build_root,
                         "options": ["bind"],
                         "type": "none",
@@ -2817,8 +2828,8 @@ def run_program(
                 rootfs = cfg.get_rootfs(rootfs_pkgs)
                 rootfs = {"layers": _build_rootfs_layers(cfg, rootfs)}
 
-            manifest["source_root"] = container_yml["src_mount"]
-            manifest["build_root"] = container_yml["build_mount"]
+            manifest["source_root"] = build_yml["src_mount"]
+            manifest["build_root"] = build_yml["build_mount"]
 
             _util.log_info(
                 "Running {} (tools: {}) via cbuildrt".format(
@@ -2833,28 +2844,26 @@ def run_program(
             _util.try_mkdir(cfg.sysroot_dir)
 
             cbuild_json = {
-                "user": {"uid": container_yml["uid"], "gid": container_yml["gid"]},
+                "user": {"uid": build_yml["uid"], "gid": build_yml["gid"]},
                 "process": {"args": ["xbstrap", "execute-manifest", "-c", yaml.dump(manifest)]},
                 "rootfs": rootfs,
                 "isolateNetwork": isolate_network,
                 "bindMounts": [
-                    {"destination": container_yml["src_mount"], "source": cfg.source_root},
-                    {"destination": container_yml["build_mount"], "source": cfg.build_root},
+                    {"destination": build_yml["src_mount"], "source": cfg.source_root},
+                    {"destination": build_yml["build_mount"], "source": cfg.build_root},
                 ],
             }
             if is_xbstrap_rootfs:
                 cbuild_json["mapCurrentUserTo"] = {
-                    "uid": container_yml["uid"],
-                    "gid": container_yml["gid"],
+                    "uid": build_yml["uid"],
+                    "gid": build_yml["gid"],
                 }
             if sysroot is not None:
                 if verbosity:
                     _util.log_info(f"Bind mounting {sysroot} as sysroot")
                 cbuild_json["bindMounts"].append(
                     {
-                        "destination": os.path.join(
-                            container_yml["build_mount"], cfg.sysroot_subdir
-                        ),
+                        "destination": os.path.join(build_yml["build_mount"], cfg.sysroot_subdir),
                         "source": sysroot,
                     },
                 )
