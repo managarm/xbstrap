@@ -2328,6 +2328,22 @@ class RootFs:
         return ItemState(missing=not os.path.exists(rootfs_marker_path))
 
 
+# Build the initial file system that debootstrap runs on.
+def _build_rootfs_seed_tar(tar_path):
+    components = ["var", "var/cache", "var/cache/apt", "var/cache/apt/archives"]
+    with tarfile.open(tar_path, "w") as tf:
+        for comp in components:
+            info = tarfile.TarInfo(name=comp)
+            info.type = tarfile.DIRTYPE
+            info.mode = 0o755
+            info.uid = 0
+            info.gid = 0
+            info.uname = "root"
+            info.gname = "root"
+            info.mtime = 0
+            tf.addfile(info)
+
+
 # Build the cbuildrt lower layer configuration for a given rootfs.
 def _build_rootfs_layers(cfg, rootfs):
     rootfs_cache = os.path.join(_util.find_cache_dir(), "rootfs_cache")
@@ -2483,19 +2499,22 @@ def prepare_rootfs(cfg, rootfs):
             done
         """
         _util.log_info("Building base rootfs")
-        run_cbuildrt(
-            args=["sh", "-c", script],
-            rootfs={
-                "layers": [empty_layer_dir],
-                "withUpper": True,
-                "extractUpper": base_tar_path,
-            },
-            no_chroot_or_mounts=True,
-            volumes=[
-                {"name": "apt_cache", "destination": "/var/cache/apt/archives"},
-            ],
-            host_environ=host_environ,
-        )
+        with tempfile.NamedTemporaryFile(suffix=".tar") as seed_tar:
+            _build_rootfs_seed_tar(seed_tar.name)
+            run_cbuildrt(
+                args=["sh", "-c", script],
+                rootfs={
+                    "layers": [empty_layer_dir],
+                    "withUpper": True,
+                    "extractUpper": base_tar_path,
+                    "importUpper": seed_tar.name,
+                },
+                no_chroot_or_mounts=True,
+                volumes=[
+                    {"name": "apt_cache", "destination": "/var/cache/apt/archives"},
+                ],
+                host_environ=host_environ,
+            )
 
         # Install packages and xbstrap itself.
         # This creates the -full.tar.
