@@ -2401,6 +2401,7 @@ def prepare_rootfs(cfg, rootfs):
                 "uid": build_yml["uid"],
                 "gid": build_yml["gid"],
             },
+            "provideDev": True,
             "bindMounts": bind_mounts or [],
             "volumes": volumes or [],
         }
@@ -2485,26 +2486,14 @@ def prepare_rootfs(cfg, rootfs):
             _build_rootfs_seed_tar(seed_tar)
 
             # Run debootstrap via cbuildrt with noChroot + noSystemMounts.
-            script = f"""
-                set -e
-
-                target="$(pwd)"
-
-                debootstrap '{suite}' "$target" \
-                    'https://snapshot.debian.org/archive/debian/{snapshot}'
-
-                mkdir -p "$target/{src_mount}"
-                mkdir -p "$target/{build_mount}"
-
-                for dev in tty null zero full random urandom; do
-                    rm -f "$target/dev/$dev"
-                    touch "$target/dev/$dev"
-                done
-            """
-
             _util.log_info("Building base rootfs")
             run_cbuildrt(
-                args=["sh", "-c", script],
+                args=[
+                    "debootstrap",
+                    suite,
+                    ".",
+                    f"https://snapshot.debian.org/archive/debian/{snapshot}",
+                ],
                 rootfs={
                     "layers": [empty_layer_dir],
                     "withUpper": True,
@@ -2540,6 +2529,9 @@ APTEOF
 
                 apt-get install -y python3 python3-pip {base_pkgs_str}
                 python3 -m pip install --progress-bar off --root-user-action ignore --break-system-packages xbstrap
+
+                mkdir -p "$target/{src_mount}"
+                mkdir -p "$target/{build_mount}"
             """
 
             _util.log_info("Finalizing rootfs")
@@ -2872,6 +2864,7 @@ def run_program(
                 ],
             }
             if is_xbstrap_rootfs:
+                cbuild_json["provideDev"] = True
                 cbuild_json["mapCurrentUserTo"] = {
                     "uid": build_yml["uid"],
                     "gid": build_yml["gid"],
