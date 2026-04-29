@@ -2354,11 +2354,11 @@ def _build_rootfs_layers(cfg, rootfs):
     _util.try_mkdir(empty_layer_dir)
 
     base_rootfs = cfg.get_rootfs(())
-    layers = [empty_layer_dir, os.path.join(rootfs_cache, base_rootfs.hash + ".tar")]
+    layers = [empty_layer_dir, os.path.join(rootfs_cache, base_rootfs.hash + ".tar.zstd")]
 
     for i in range(len(rootfs.packages)):
         pkg_rootfs = cfg.get_rootfs(rootfs.packages[: i + 1])
-        layers.append(os.path.join(rootfs_cache, pkg_rootfs.hash + ".tar"))
+        layers.append(os.path.join(rootfs_cache, pkg_rootfs.hash + ".tar.zstd"))
 
     return layers
 
@@ -2371,7 +2371,7 @@ def prepare_rootfs(cfg, rootfs):
     rootfs_cache = os.path.join(_util.find_cache_dir(), "rootfs_cache")
     _util.try_mkdir(rootfs_cache)
 
-    out_tar_path = os.path.join(rootfs_cache, rootfs.hash + ".tar")
+    out_tar_path = os.path.join(rootfs_cache, rootfs.hash + ".tar.zstd")
 
     # Remove existing tar file.
     try:
