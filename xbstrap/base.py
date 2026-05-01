@@ -599,6 +599,14 @@ class Config:
         return self._site_yml["container"].get("runtime")
 
     @property
+    def container_build_yml(self):
+        site_container_yml = self._site_yml.get("container") or {}
+        if "rootfs" in site_container_yml:
+            return site_container_yml
+        root_container_yml = self._root_yml.get("container") or {}
+        return root_container_yml
+
+    @property
     def site_architectures(self):
         return self._site_archs
 
@@ -2315,24 +2323,42 @@ class RootFs:
 
     def check_if_prepared(self, _, cfg):
         rootfs_cache = os.path.join(_util.find_cache_dir(), "rootfs_cache")
-        rootfs_marker_path = os.path.join(rootfs_cache, self.hash + ".prepared")
+        rootfs_tar_path = os.path.join(rootfs_cache, self.hash + ".tar")
 
-        return ItemState(missing=not os.path.exists(rootfs_marker_path))
+        return ItemState(missing=not os.path.exists(rootfs_tar_path))
+
+
+# Build the initial file system that debootstrap runs on.
+def _build_rootfs_seed_tar(tar_path):
+    components = ["var", "var/cache", "var/cache/apt", "var/cache/apt/archives"]
+    with tarfile.open(tar_path, "w") as tf:
+        for comp in components:
+            info = tarfile.TarInfo(name=comp)
+            info.type = tarfile.DIRTYPE
+            info.mode = 0o755
+            info.uid = 0
+            info.gid = 0
+            info.uname = "root"
+            info.gname = "root"
+            info.mtime = 0
+            tf.addfile(info)
 
 
 # Build the cbuildrt lower layer configuration for a given rootfs.
 def _build_rootfs_layers(cfg, rootfs):
     rootfs_cache = os.path.join(_util.find_cache_dir(), "rootfs_cache")
 
+    # OverlayFS requires at least two lower layers when no upper layer is used.
+    # Hence, always prepend an empty layer.
+    empty_layer_dir = os.path.join(rootfs_cache, "empty")
+    _util.try_mkdir(empty_layer_dir)
+
     base_rootfs = cfg.get_rootfs(())
-    layers = [
-        os.path.join(rootfs_cache, base_rootfs.hash + "-base.tar"),
-        os.path.join(rootfs_cache, base_rootfs.hash + "-full.tar"),
-    ]
+    layers = [empty_layer_dir, os.path.join(rootfs_cache, base_rootfs.hash + ".tar.zstd")]
 
     for i in range(len(rootfs.packages)):
         pkg_rootfs = cfg.get_rootfs(rootfs.packages[: i + 1])
-        layers.append(os.path.join(rootfs_cache, pkg_rootfs.hash + "-full.tar"))
+        layers.append(os.path.join(rootfs_cache, pkg_rootfs.hash + ".tar.zstd"))
 
     return layers
 
@@ -2340,21 +2366,18 @@ def _build_rootfs_layers(cfg, rootfs):
 def prepare_rootfs(cfg, rootfs):
     # Inspired by https://codeberg.org/Mintsuki/jinx.
 
-    site_container_yml = cfg._site_yml.get("container", dict())
+    build_yml = cfg.container_build_yml
 
     rootfs_cache = os.path.join(_util.find_cache_dir(), "rootfs_cache")
     _util.try_mkdir(rootfs_cache)
 
-    base_tar_path = os.path.join(rootfs_cache, rootfs.hash + "-base.tar")
-    full_tar_path = os.path.join(rootfs_cache, rootfs.hash + "-full.tar")
-    rootfs_marker_path = os.path.join(rootfs_cache, rootfs.hash + ".prepared")
+    out_tar_path = os.path.join(rootfs_cache, rootfs.hash + ".tar.zstd")
 
-    # Remove existing tar files.
-    for tar_path in (base_tar_path, full_tar_path):
-        try:
-            os.remove(tar_path)
-        except FileNotFoundError:
-            pass
+    # Remove existing tar file.
+    try:
+        os.remove(out_tar_path)
+    except FileNotFoundError:
+        pass
 
     def run_cbuildrt(
         args,
@@ -2375,9 +2398,10 @@ def prepare_rootfs(cfg, rootfs):
                 "environ": environ or {},
             },
             "mapCurrentUserTo": {
-                "uid": site_container_yml["uid"],
-                "gid": site_container_yml["gid"],
+                "uid": build_yml["uid"],
+                "gid": build_yml["gid"],
             },
+            "provideDev": True,
             "bindMounts": bind_mounts or [],
             "volumes": volumes or [],
         }
@@ -2421,7 +2445,7 @@ def prepare_rootfs(cfg, rootfs):
             rootfs={
                 "layers": lower_dirs,
                 "withUpper": True,
-                "extractUpper": full_tar_path,
+                "extractUpper": out_tar_path,
             },
             volumes=[
                 {"name": "apt_cache", "destination": "/var/cache/apt/archives"},
@@ -2434,8 +2458,8 @@ def prepare_rootfs(cfg, rootfs):
         suite = container_yml["suite"]
         snapshot = container_yml["snapshot"]
 
-        src_mount = site_container_yml.get("src_mount")
-        build_mount = site_container_yml.get("build_mount")
+        src_mount = build_yml.get("src_mount")
+        build_mount = build_yml.get("build_mount")
 
         if src_mount.startswith("/"):
             src_mount = src_mount[1:]
@@ -2456,80 +2480,74 @@ def prepare_rootfs(cfg, rootfs):
             prepend=[os.path.join(_util.find_home(), "bin"), "/sbin"],
         )
 
-        # Run debootstrap via cbuildrt with noChroot + noSystemMounts.
-        # This creates the -base.tar.
-        script = f"""
-            set -e
+        with tempfile.TemporaryDirectory() as scratch:
+            seed_tar = os.path.join(scratch, "seed.tar")
+            base_tar = os.path.join(scratch, "base.tar")
+            _build_rootfs_seed_tar(seed_tar)
 
-            target="$(pwd)"
+            # Run debootstrap via cbuildrt with noChroot + noSystemMounts.
+            _util.log_info("Building base rootfs")
+            run_cbuildrt(
+                args=[
+                    "debootstrap",
+                    suite,
+                    ".",
+                    f"https://snapshot.debian.org/archive/debian/{snapshot}",
+                ],
+                rootfs={
+                    "layers": [empty_layer_dir],
+                    "withUpper": True,
+                    "extractUpper": base_tar,
+                    "importUpper": seed_tar,
+                },
+                no_chroot_or_mounts=True,
+                volumes=[
+                    {"name": "apt_cache", "destination": "/var/cache/apt/archives"},
+                ],
+                host_environ=host_environ,
+            )
 
-            debootstrap '{suite}' "$target" \
-                'https://snapshot.debian.org/archive/debian/{snapshot}'
+            # Install packages and xbstrap itself.
+            base_pkgs = container_yml.get("base_packages", [])
+            base_pkgs_str = " ".join(shlex.quote(p) for p in base_pkgs)
 
-            mkdir -p "$target/{src_mount}"
-            mkdir -p "$target/{build_mount}"
+            script = f"""
+                set -e
 
-            for dev in tty null zero full random urandom; do
-                rm -f "$target/dev/$dev"
-                touch "$target/dev/$dev"
-            done
-        """
-        _util.log_info("Building base rootfs")
-        run_cbuildrt(
-            args=["sh", "-c", script],
-            rootfs={
-                "layers": [empty_layer_dir],
-                "withUpper": True,
-                "extractUpper": base_tar_path,
-            },
-            no_chroot_or_mounts=True,
-            volumes=[
-                {"name": "apt_cache", "destination": "/var/cache/apt/archives"},
-            ],
-            host_environ=host_environ,
-        )
+                printf '%s\\n' 'en_US.UTF-8 UTF-8' > /etc/locale.gen
 
-        # Install packages and xbstrap itself.
-        # This creates the -full.tar.
-        base_pkgs = container_yml.get("base_packages", [])
-        base_pkgs_str = " ".join(shlex.quote(p) for p in base_pkgs)
-
-        script = f"""
-            set -e
-
-            printf '%s\\n' 'en_US.UTF-8 UTF-8' > /etc/locale.gen
-
-            cat > /etc/apt/apt.conf <<APTEOF
+                cat > /etc/apt/apt.conf <<APTEOF
 APT::Install-Suggests "0";
 APT::Install-Recommends "0";
 APT::Sandbox::User "root";
 Acquire::Check-Valid-Until "0";
 APTEOF
 
-            apt-get update -y
-            apt-get install -y locales
-            locale-gen
+                apt-get update -y
+                apt-get install -y locales
+                locale-gen
 
-            apt-get install -y python3 python3-pip {base_pkgs_str}
-            python3 -m pip install --progress-bar off --root-user-action ignore --break-system-packages xbstrap
-        """
+                apt-get install -y python3 python3-pip {base_pkgs_str}
+                python3 -m pip install --progress-bar off --root-user-action ignore --break-system-packages xbstrap
 
-        _util.log_info("Finalizing rootfs")
-        run_cbuildrt(
-            args=["sh", "-c", script],
-            rootfs={
-                "layers": [base_tar_path],
-                "withUpper": True,
-                "extractUpper": full_tar_path,
-            },
-            volumes=[
-                {"name": "apt_cache", "destination": "/var/cache/apt/archives"},
-            ],
-            environ=container_environ,
-        )
+                mkdir -p "$target/{src_mount}"
+                mkdir -p "$target/{build_mount}"
+            """
 
-    # Create the marker file
-    open(rootfs_marker_path, "w").close()
+            _util.log_info("Finalizing rootfs")
+            run_cbuildrt(
+                args=["sh", "-c", script],
+                rootfs={
+                    "layers": [empty_layer_dir],
+                    "withUpper": True,
+                    "extractUpper": out_tar_path,
+                    "importUpper": base_tar,
+                },
+                volumes=[
+                    {"name": "apt_cache", "destination": "/var/cache/apt/archives"},
+                ],
+                environ=container_environ,
+            )
 
 
 def run_program(
@@ -2662,6 +2680,7 @@ def run_program(
 
     runtime = cfg.container_runtime
     container_yml = cfg._site_yml.get("container", dict())
+    build_yml = cfg.container_build_yml
 
     use_container = True
     if containerless:
@@ -2695,13 +2714,15 @@ def run_program(
             if proc.returncode != 0:
                 raise ProgramFailureError()
         elif runtime == "docker":
-            if any(prop not in container_yml for prop in ["src_mount", "build_mount", "image"]):
+            if any(prop not in build_yml for prop in ["src_mount", "build_mount"]) or (
+                "image" not in container_yml
+            ):
                 raise GenericError(
                     "Docker runtime requires src_mount, build_mount and image properties"
                 )
 
-            manifest["source_root"] = container_yml["src_mount"]
-            manifest["build_root"] = container_yml["build_mount"]
+            manifest["source_root"] = build_yml["src_mount"]
+            manifest["build_root"] = build_yml["build_mount"]
 
             _util.log_info(
                 "Running {} (tools: {}) in Docker".format(args, [tool.name for tool in pkg_queue])
@@ -2717,9 +2738,9 @@ def run_program(
                 "-i",
                 "--init",
                 "-v",
-                cfg.source_root + ":" + container_yml["src_mount"],
+                cfg.source_root + ":" + build_yml["src_mount"],
                 "-v",
-                cfg.build_root + ":" + container_yml["build_mount"],
+                cfg.build_root + ":" + build_yml["build_mount"],
             ]
             if os.isatty(0):  # FD zero = stdin.
                 docker_args += ["-t"]
@@ -2737,8 +2758,8 @@ def run_program(
             if proc.returncode != 0:
                 raise ProgramFailureError()
         elif runtime == "runc":
-            manifest["source_root"] = container_yml["src_mount"]
-            manifest["build_root"] = container_yml["build_mount"]
+            manifest["source_root"] = build_yml["src_mount"]
+            manifest["build_root"] = build_yml["build_mount"]
 
             _util.log_info(
                 "Running {} (tools: {}) via runc".format(args, [tool.name for tool in pkg_queue])
@@ -2767,13 +2788,13 @@ def run_program(
                 "hostname": container_yml["id"],
                 "mounts": [
                     {
-                        "destination": container_yml["src_mount"],
+                        "destination": build_yml["src_mount"],
                         "source": cfg.source_root,
                         "options": ["bind"],
                         "type": "none",
                     },
                     {
-                        "destination": container_yml["build_mount"],
+                        "destination": build_yml["build_mount"],
                         "source": cfg.build_root,
                         "options": ["bind"],
                         "type": "none",
@@ -2817,8 +2838,8 @@ def run_program(
                 rootfs = cfg.get_rootfs(rootfs_pkgs)
                 rootfs = {"layers": _build_rootfs_layers(cfg, rootfs)}
 
-            manifest["source_root"] = container_yml["src_mount"]
-            manifest["build_root"] = container_yml["build_mount"]
+            manifest["source_root"] = build_yml["src_mount"]
+            manifest["build_root"] = build_yml["build_mount"]
 
             _util.log_info(
                 "Running {} (tools: {}) via cbuildrt".format(
@@ -2833,28 +2854,27 @@ def run_program(
             _util.try_mkdir(cfg.sysroot_dir)
 
             cbuild_json = {
-                "user": {"uid": container_yml["uid"], "gid": container_yml["gid"]},
+                "user": {"uid": build_yml["uid"], "gid": build_yml["gid"]},
                 "process": {"args": ["xbstrap", "execute-manifest", "-c", yaml.dump(manifest)]},
                 "rootfs": rootfs,
                 "isolateNetwork": isolate_network,
                 "bindMounts": [
-                    {"destination": container_yml["src_mount"], "source": cfg.source_root},
-                    {"destination": container_yml["build_mount"], "source": cfg.build_root},
+                    {"destination": build_yml["src_mount"], "source": cfg.source_root},
+                    {"destination": build_yml["build_mount"], "source": cfg.build_root},
                 ],
             }
             if is_xbstrap_rootfs:
+                cbuild_json["provideDev"] = True
                 cbuild_json["mapCurrentUserTo"] = {
-                    "uid": container_yml["uid"],
-                    "gid": container_yml["gid"],
+                    "uid": build_yml["uid"],
+                    "gid": build_yml["gid"],
                 }
             if sysroot is not None:
                 if verbosity:
                     _util.log_info(f"Bind mounting {sysroot} as sysroot")
                 cbuild_json["bindMounts"].append(
                     {
-                        "destination": os.path.join(
-                            container_yml["build_mount"], cfg.sysroot_subdir
-                        ),
+                        "destination": os.path.join(build_yml["build_mount"], cfg.sysroot_subdir),
                         "source": sysroot,
                     },
                 )
