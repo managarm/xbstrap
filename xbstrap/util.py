@@ -3,6 +3,7 @@
 import contextlib
 import errno
 import fcntl
+import json
 import os
 import os.path as path
 import re
@@ -62,6 +63,14 @@ def find_cbuildrt_workspace():
     return os.path.join(find_cache_dir(), "cbuildrt")
 
 
+class CbuildrtWorkspace:
+    __slots__ = ("path", "has_subids")
+
+    def __init__(self, path, has_subids):
+        self.path = path
+        self.has_subids = has_subids
+
+
 def ensure_cbuildrt_workspace():
     workspace = find_cbuildrt_workspace()
     try_mkdir(os.path.dirname(workspace), recursive=True)
@@ -73,7 +82,10 @@ def ensure_cbuildrt_workspace():
             ["cbuildrt", "--workspace", workspace, "init"],
             env=environ,
         )
-    return workspace
+    with open(meta_path) as f:
+        meta = json.load(f)
+    has_subids = meta.get("subUid") is not None and meta.get("subGid") is not None
+    return CbuildrtWorkspace(workspace, has_subids)
 
 
 def try_mkdir(path, recursive=False):
