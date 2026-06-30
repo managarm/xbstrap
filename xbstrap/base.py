@@ -2323,7 +2323,7 @@ class RootFs:
 
     def check_if_prepared(self, _, cfg):
         rootfs_cache = os.path.join(_util.find_cache_dir(), "rootfs_cache")
-        rootfs_tar_path = os.path.join(rootfs_cache, self.hash + ".tar")
+        rootfs_tar_path = os.path.join(rootfs_cache, self.hash + ".tar.zstd")
 
         return ItemState(missing=not os.path.exists(rootfs_tar_path))
 
