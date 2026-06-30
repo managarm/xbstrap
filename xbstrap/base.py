@@ -924,6 +924,10 @@ class ScriptStep:
         return self._step_yml.get("containerless", False) or self._containerless
 
     @property
+    def root_in_container(self):
+        return self._step_yml.get("root_in_container", False)
+
+    @property
     def isolate_network(self):
         return self._step_yml.get("isolate_network")
 
@@ -2323,7 +2327,7 @@ class RootFs:
 
     def check_if_prepared(self, _, cfg):
         rootfs_cache = os.path.join(_util.find_cache_dir(), "rootfs_cache")
-        rootfs_tar_path = os.path.join(rootfs_cache, self.hash + ".tar")
+        rootfs_tar_path = os.path.join(rootfs_cache, self.hash + ".tar.zstd")
 
         return ItemState(missing=not os.path.exists(rootfs_tar_path))
 
@@ -2390,6 +2394,10 @@ def prepare_rootfs(cfg, rootfs):
         host_environ=None,
     ):
         workspace = _util.ensure_cbuildrt_workspace()
+        if not workspace.has_subids:
+            raise GenericError(
+                "cbuildrt workspace has no subordinate IDs, which are required to prepare the rootfs"
+            )
 
         cbuild_json = {
             "user": {"uid": 0, "gid": 0},
@@ -2424,7 +2432,7 @@ def prepare_rootfs(cfg, rootfs):
             )
 
             result = subprocess.call(
-                ["cbuildrt", "--workspace", workspace, "run", f.name],
+                ["cbuildrt", "--workspace", workspace.path, "run", f.name],
                 env=host_environ,
             )
             if result != 0:
@@ -2563,6 +2571,7 @@ def run_program(
     extra_environ=dict(),
     for_package=False,
     containerless=False,
+    root_in_container=False,
     isolate_network=False,
     quiet=False,
     cargo_home=True,
@@ -2834,6 +2843,17 @@ def run_program(
             rootfs = container_yml.get("rootfs")
             is_xbstrap_rootfs = rootfs is None
 
+            workspace = _util.ensure_cbuildrt_workspace()
+            if not workspace.has_subids:
+                if is_xbstrap_rootfs:
+                    raise GenericError(
+                        "cbuildrt workspace has no subordinate IDs, which are required for an xbstrap-built rootfs"
+                    )
+                if root_in_container:
+                    raise GenericError(
+                        "cbuildrt workspace has no subordinate IDs, which are required for root_in_container"
+                    )
+
             if rootfs is None:
                 rootfs = cfg.get_rootfs(rootfs_pkgs)
                 rootfs = {"layers": _build_rootfs_layers(cfg, rootfs)}
@@ -2854,7 +2874,6 @@ def run_program(
             _util.try_mkdir(cfg.sysroot_dir)
 
             cbuild_json = {
-                "user": {"uid": build_yml["uid"], "gid": build_yml["gid"]},
                 "process": {"args": ["xbstrap", "execute-manifest", "-c", yaml.dump(manifest)]},
                 "rootfs": rootfs,
                 "isolateNetwork": isolate_network,
@@ -2865,10 +2884,15 @@ def run_program(
             }
             if is_xbstrap_rootfs:
                 cbuild_json["provideDev"] = True
+            if workspace.has_subids:
                 cbuild_json["mapCurrentUserTo"] = {
                     "uid": build_yml["uid"],
                     "gid": build_yml["gid"],
                 }
+            if root_in_container:
+                cbuild_json["user"] = {"uid": 0, "gid": 0}
+            else:
+                cbuild_json["user"] = {"uid": build_yml["uid"], "gid": build_yml["gid"]}
             if sysroot is not None:
                 if verbosity:
                     _util.log_info(f"Bind mounting {sysroot} as sysroot")
@@ -2891,9 +2915,8 @@ def run_program(
                     environ, "PATH", prepend=[os.path.join(_util.find_home(), "bin")]
                 )
 
-                workspace = _util.ensure_cbuildrt_workspace()
                 proc = subprocess.Popen(
-                    ["cbuildrt", "--workspace", workspace, "run", f.name],
+                    ["cbuildrt", "--workspace", workspace.path, "run", f.name],
                     env=environ,
                 )
                 proc.wait()
@@ -2929,6 +2952,7 @@ def run_step(
         extra_environ=step.environ,
         for_package=for_package,
         containerless=step.containerless,
+        root_in_container=step.root_in_container,
         isolate_network=isolate_network,
         quiet=step.quiet and not verbosity,
         cargo_home=step.cargo_home,

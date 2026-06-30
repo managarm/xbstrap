@@ -129,6 +129,7 @@ definitions:
                     type: string
             'args': { $ref: '#/definitions/args' }
             'containerless': { type: boolean }
+            'root_in_container': { type: boolean }
             'quiet': { type: boolean }
             'sources_required': { $ref: '#/definitions/source_deps' }
             'tools_required': { $ref: '#/definitions/tool_deps' }
@@ -149,6 +150,7 @@ definitions:
                     additionalProperties:
                         type: string
                 'containerless': { type: boolean }
+                'root_in_container': { type: boolean }
                 'isolate_network': { type: boolean }
                 'quiet':
                     type: boolean
@@ -400,6 +402,7 @@ properties:
                             'architecture': { type: string }
                 'args': { $ref: '#/definitions/args' }
                 'containerless': { type: boolean }
+                'root_in_container': { type: boolean }
                 'quiet': { type: boolean }
                 'sources_required': { $ref: '#/definitions/source_deps' }
                 'tools_required': { $ref: '#/definitions/tool_deps' }
