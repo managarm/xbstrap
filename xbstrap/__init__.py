@@ -942,12 +942,24 @@ def do_prereqs(args):
                     info.name = os.path.basename(name)
                     tar.extract(info, scripts_dir)
     if "xbps" in comps:
-        url = "https://repo-default.voidlinux.org/static"
-        url += "/xbps-static-static-0.60.4_1.x86_64-musl.tar.xz"
+        mirrors = [
+            "https://repo-default.voidlinux.org/static",
+            "https://repo-de.voidlinux.org/static",
+            "https://mirrors.summithq.com/voidlinux/static",
+        ]
         tar_path = os.path.join(home, "xbps.tar.xz")
 
-        _util.log_info(f"Downloading xbps from {url}")
-        _util.interactive_download(url, tar_path)
+        for mirror in mirrors:
+            url = mirror + "/xbps-static-static-0.60.4_1.x86_64-musl.tar.xz"
+            _util.log_info(f"Downloading xbps from {url}")
+            try:
+                _util.interactive_download(url, tar_path)
+                break
+            except Exception as e:
+                _util.log_warn(f"Failed to download from {url}: {e}")
+        else:
+            raise RuntimeError("Failed to download xbps from all mirrors")
+
         with tarfile.open(tar_path, "r:xz") as tar:
             for info in tar:
                 if os.path.dirname(info.name) == "./usr/bin":
