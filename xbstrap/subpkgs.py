@@ -111,3 +111,15 @@ def install_mapping(pkg, root, outdir):
             shutil.copy2(src_path, dest_path)
 
     visit(root, pkg.build.staging_dir, outdir)
+
+
+# Yields (path, mapping) for all regular files in the mapping.
+def walk_files(root):
+    def visit(mapping, path):
+        if mapping.directory:
+            for name, child in mapping.children.items():
+                yield from visit(child, os.path.join(path, name))
+        elif mapping.dirent.is_file(follow_symlinks=False):
+            yield path, mapping
+
+    yield from visit(root, "/")

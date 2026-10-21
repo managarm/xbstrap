@@ -3407,6 +3407,13 @@ def pack_pkg(cfg, pkg, reproduce=False):
             if "replaces" in metadata:
                 args += ["--replaces", " ".join(metadata["replaces"])]
 
+            config_files = _xbps_utils.compose_xbps_file_list(pkg, "config_files", mapping)
+            if config_files:
+                args += ["--config-files", config_files]
+            mutable_files = _xbps_utils.compose_xbps_file_list(pkg, "mutable_files", mapping)
+            if mutable_files:
+                args += ["--mutable-files", mutable_files]
+
             args += [pack_dir]
 
             xbps_file = "{}-{}.{}.xbps".format(pkg.name, version, pkg.architecture)

@@ -344,6 +344,12 @@ properties:
                 'tasks':
                     type: array
                     items: { $ref: '#/definitions/nested_task' }
+                'config_files':
+                    type: array
+                    items: { type: string }
+                'mutable_files':
+                    type: array
+                    items: { type: string }
                 'scripts':
                     type: object
                     additionalProperties: false
