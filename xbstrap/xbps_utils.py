@@ -1,9 +1,14 @@
 import itertools
 import plistlib
+import re
 import shlex
 import tarfile
 
 import zstandard
+
+import xbstrap.subpkgs as _subpkgs
+import xbstrap.util as _util
+from xbstrap.exceptions import GenericError
 
 
 def read_repodata(path):
@@ -131,3 +136,36 @@ def compose_xbps_install(cfg, pkg):
         + "".join(f"    {s}\n" for s in step_sh)
         + "    ;;\nesac\n"
     )
+
+
+# Resolves the file patterns in the package's yml key against the files claimed by the package.
+def compose_xbps_file_list(pkg, key, mapping):
+    patterns = pkg._this_yml.get(key, [])
+    if not patterns:
+        return None
+
+    regexes = [
+        re.compile(_util.translate_glob(pat, recursive=True, include_hidden=True))
+        for pat in patterns
+    ]
+    # Also track matches in other subpackages to only reject patterns that match nothing at all.
+    matched = [False] * len(patterns)
+    files = []
+    for path, child in _subpkgs.walk_files(mapping):
+        hits = [idx for idx, regex in enumerate(regexes) if regex.match(path)]
+        if not hits:
+            continue
+        for idx in hits:
+            matched[idx] = True
+        if pkg.name not in child.claims:
+            continue
+        if any(c.isspace() for c in path):
+            raise GenericError(f"File {path} in {key} of {pkg.name} contains whitespace")
+        files.append(path)
+
+    for pat, m in zip(patterns, matched):
+        if not m:
+            raise GenericError(f"Pattern {pat} in {key} of {pkg.name} does not match any file")
+    if not files:
+        return None
+    return " ".join(sorted(files))
