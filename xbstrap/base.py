@@ -2888,9 +2888,8 @@ def run_program(
                     {"destination": build_yml["src_mount"], "source": cfg.source_root},
                     {"destination": build_yml["build_mount"], "source": cfg.build_root},
                 ],
+                "provideDev": True,
             }
-            if is_xbstrap_rootfs:
-                cbuild_json["provideDev"] = True
             if workspace.has_subids:
                 cbuild_json["mapCurrentUserTo"] = {
                     "uid": build_yml["uid"],
