@@ -11,8 +11,11 @@ import subprocess
 import sys
 import urllib.parse
 import urllib.request
+import uuid
 
 import colorama
+
+from xbstrap.exceptions import GenericError
 
 
 def eprint(*args, **kwargs):
@@ -71,6 +74,12 @@ class CbuildrtWorkspace:
         self.has_subids = has_subids
 
 
+def xbstrap_bin_environ():
+    environ = os.environ.copy()
+    build_environ_paths(environ, "PATH", prepend=[os.path.join(find_home(), "bin")])
+    return environ
+
+
 def ensure_cbuildrt_workspace():
     workspace = find_cbuildrt_workspace()
     try_mkdir(os.path.dirname(workspace), recursive=True)
@@ -86,6 +95,43 @@ def ensure_cbuildrt_workspace():
         meta = json.load(f)
     has_subids = meta.get("subUid") is not None and meta.get("subGid") is not None
     return CbuildrtWorkspace(workspace, has_subids)
+
+
+def _sysroot_volume_link(sysroot):
+    # abspath() strips trailing slashes, which would put the link inside the sysroot.
+    return os.path.abspath(sysroot) + ".volume"
+
+
+def read_sysroot_volume(sysroot):
+    # Returns the name of the sysroot's volume, or None if it has none.
+    link = _sysroot_volume_link(sysroot)
+    try:
+        target = os.readlink(link)
+    except FileNotFoundError:
+        return None
+    except OSError as e:
+        raise GenericError(f"Failed to read {link}: {e}")
+    # cbuildrt would silently create an empty volume of the same name in another workspace.
+    workspace = os.path.dirname(os.path.dirname(target))
+    if os.path.realpath(workspace) != os.path.realpath(find_cbuildrt_workspace()):
+        raise GenericError(
+            f"{link} points to cbuildrt workspace {workspace},"
+            f" but the current workspace is {find_cbuildrt_workspace()}"
+        )
+    return os.path.basename(target)
+
+
+def ensure_sysroot_volume(sysroot):
+    # Returns the name of the sysroot's volume, assigning one on first use.
+    name = "sysroot-" + uuid.uuid4().hex
+    target = os.path.join(find_cbuildrt_workspace(), "volumes", name)
+    try:
+        # symlink() fails if the link exists, so concurrent callers agree on one volume.
+        # Containerless steps only see the empty mount point at the sysroot itself.
+        os.symlink(target, _sysroot_volume_link(sysroot))
+        return name
+    except FileExistsError:
+        return read_sysroot_volume(sysroot)
 
 
 def try_mkdir(path, recursive=False):

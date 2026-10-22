@@ -283,6 +283,7 @@ class Config:
         self._cached_repodata = dict()
         self._included_files = set()
         self._rootfs_cache = dict()
+        self._sysroot_pkgs = None
 
         self._bootstrap_path = changed_source_root or os.path.join(
             path, os.path.dirname(os.readlink(os.path.join(path, "bootstrap.link")))
@@ -299,6 +300,16 @@ class Config:
 
         except FileNotFoundError:
             pass
+
+        if self.sysroot_volume:
+            if self.container_runtime != "cbuildrt" or not self.use_xbps:
+                raise GenericError("sysroot_volume requires the cbuildrt runtime and xbps")
+            # The volume is mounted over the system root, so symlinks are not acceptable either.
+            sysroot = os.path.abspath(self.sysroot_dir)
+            if os.path.lexists(sysroot) and (
+                os.path.islink(sysroot) or not os.path.isdir(sysroot)
+            ):
+                raise GenericError(f"sysroot_volume requires {sysroot} to be a directory")
 
         commit_path = os.path.join(self._bootstrap_path, "bootstrap-commits.yml")
         try:
@@ -598,6 +609,19 @@ class Config:
             return None
         return self._site_yml["container"].get("runtime")
 
+    # The main sysroot lives in a cbuildrt volume such that xbps can install it as root inside the
+    # user namespace. Containerless steps do not see it.
+    @property
+    def sysroot_volume(self):
+        return (self._site_yml.get("container") or {}).get("sysroot_volume", False)
+
+    def uses_sysroot_volume(self, sysroot):
+        # Only the main sysroot lives in the volume. Comparing paths distinguishes it from the
+        # isolated sysroots of package builds, which are always host directories.
+        return self.sysroot_volume and os.path.abspath(sysroot) == os.path.abspath(
+            self.sysroot_dir
+        )
+
     @property
     def container_build_yml(self):
         site_container_yml = self._site_yml.get("container") or {}
@@ -845,32 +869,56 @@ class Config:
             return {}
         return index
 
-    def get_installed_pkgs(self):
-        if not self.use_xbps:
-            raise GenericError("Package management configuration cannot query installed packages")
-        environ = os.environ.copy()
-        _util.build_environ_paths(
-            environ, "PATH", prepend=[os.path.join(_util.find_home(), "bin")]
-        )
-
-        out = subprocess.check_output(
-            ["xbps-query", "-r", self.sysroot_dir, "-l"],
-            env=environ,
-            stderr=subprocess.DEVNULL,
-            encoding="utf-8",
-        )
+    def query_sysroot_pkgs(self):
+        # Maps names of packages in the main sysroot to their xbps state (e.g., "ii").
+        if self._sysroot_pkgs is not None:
+            return self._sysroot_pkgs
+        environ = _util.xbstrap_bin_environ()
+        sysroot = os.path.abspath(self.sysroot_dir)
+        args = ["xbps-query", "-r", sysroot, "-l"]
+        if not self.sysroot_volume:
+            out = subprocess.check_output(
+                args, env=environ, stderr=subprocess.DEVNULL, encoding="utf-8"
+            )
+        else:
+            volume = _util.read_sysroot_volume(sysroot)
+            if volume is None:
+                # Do not create a volume just to find out that it is empty.
+                out = ""
+            else:
+                _util.try_mkdir(sysroot)
+                try:
+                    out = run_in_cbuildrt(
+                        self,
+                        args,
+                        volumes=[{"name": volume, "destination": sysroot}],
+                        environ=environ,
+                        stdout=subprocess.PIPE,
+                    ).stdout
+                except ProgramFailureError:
+                    raise GenericError(f"Failed to list packages in sysroot volume {volume}")
 
         # Lines have a format such as:
         # "ii linux-headers-6.9.3_1            Linux kernel headers"
         # "ii libexpat-2.5.0_6                 Stream-oriented XML parser library"
-        pattern = re.compile(r"^[\w?]+ ([^ ]+) ")
+        pattern = re.compile(r"^([\w?]+) ([^ ]+) ")
+        pkgs = dict()
         for line in out.splitlines():
             match = pattern.match(line)
             if not match:
                 raise GenericError(f"Unexpected line {repr(line)} from xbps-query")
-            pkgver = match.group(1)
-            name = pkgver.rsplit("-", maxsplit=1)[0]
+            name = match.group(2).rsplit("-", maxsplit=1)[0]
+            pkgs[name] = match.group(1)
+        self._sysroot_pkgs = pkgs
+        return pkgs
 
+    def invalidate_sysroot_pkgs(self):
+        self._sysroot_pkgs = None
+
+    def get_installed_pkgs(self):
+        if not self.use_xbps:
+            raise GenericError("Package management configuration cannot query installed packages")
+        for name in self.query_sysroot_pkgs():
             pkg = self._target_pkgs.get(name)
             if pkg is None:
                 continue
@@ -1985,7 +2033,12 @@ class TargetPackage(RequirementsMixin):
             raise GenericError("Package management configuration does not support pack")
 
     def check_if_installed(self, settings, *, sysroot):
-        if self._cfg.use_xbps:
+        if self._cfg.uses_sysroot_volume(sysroot):
+            # List the volume once instead of entering the namespace for each package.
+            if self._cfg.query_sysroot_pkgs().get(self.name) not in ("ii", "uu"):
+                return ItemState(missing=True)
+            return ItemState()
+        elif self._cfg.use_xbps:
             environ = os.environ.copy()
             _util.build_environ_paths(
                 environ, "PATH", prepend=[os.path.join(_util.find_home(), "bin")]
@@ -2377,6 +2430,8 @@ def run_in_cbuildrt(
     volumes=None,
     environ=None,
     host_environ=None,
+    stdout=None,
+    check=True,
 ):
     # Runs args as root inside the cbuildrt user namespace.
     build_yml = cfg.container_build_yml
@@ -2418,12 +2473,15 @@ def run_in_cbuildrt(
             prepend=[os.path.join(_util.find_home(), "bin"), "/sbin"],
         )
 
-        result = subprocess.call(
+        result = subprocess.run(
             ["cbuildrt", "--workspace", workspace.path, "run", f.name],
             env=host_environ,
+            stdout=stdout,
+            encoding="utf-8",
         )
-        if result != 0:
-            raise RuntimeError("cbuildrt failed with exit code {}".format(result))
+        if check and result.returncode != 0:
+            raise ProgramFailureError()
+        return result
 
 
 def prepare_rootfs(cfg, rootfs):
@@ -2860,6 +2918,10 @@ def run_program(
                     raise GenericError(
                         "cbuildrt workspace has no subordinate IDs, which are required for root_in_container"
                     )
+                if cfg.sysroot_volume:
+                    raise GenericError(
+                        "cbuildrt workspace has no subordinate IDs, which are required for sysroot_volume"
+                    )
 
             if rootfs is None:
                 rootfs = cfg.get_rootfs(rootfs_pkgs)
@@ -2899,15 +2961,18 @@ def run_program(
                 cbuild_json["user"] = {"uid": 0, "gid": 0}
             else:
                 cbuild_json["user"] = {"uid": build_yml["uid"], "gid": build_yml["gid"]}
-            if sysroot is not None:
+            sysroot_dest = os.path.join(build_yml["build_mount"], cfg.sysroot_subdir)
+            if sysroot is not None and not cfg.uses_sysroot_volume(sysroot):
                 if verbosity:
                     _util.log_info(f"Bind mounting {sysroot} as sysroot")
-                cbuild_json["bindMounts"].append(
-                    {
-                        "destination": os.path.join(build_yml["build_mount"], cfg.sysroot_subdir),
-                        "source": sysroot,
-                    },
-                )
+                cbuild_json["bindMounts"].append({"destination": sysroot_dest, "source": sysroot})
+            elif cfg.sysroot_volume:
+                # Also mount the volume for steps without a sysroot (e.g., tasks) since they
+                # would otherwise only see the empty mount point inside the build directory.
+                volume = _util.ensure_sysroot_volume(cfg.sysroot_dir)
+                if verbosity:
+                    _util.log_info(f"Mounting sysroot volume {volume}")
+                cbuild_json["volumes"] = [{"name": volume, "destination": sysroot_dest}]
             else:
                 if verbosity:
                     _util.log_info("Sysroot is not bind mounted")
@@ -3479,22 +3544,41 @@ def install_pkg(cfg, pkg, *, sysroot):
         uname = os.uname()
         environ["XBPS_ARCH"] = f"{uname.machine}-{uname.sysname}.HOST"
 
-        # Work around xbps: https://github.com/void-linux/xbps/issues/408
-        args = ["xbps-remove", "-Fy", "-r", sysroot, pkg.name]
-        _util.log_info("Running {}".format(args))
-        subprocess.call(args, env=environ, stdout=output)
+        in_volume = cfg.uses_sysroot_volume(sysroot)
+        if in_volume:
+            sysroot = os.path.abspath(sysroot)
+            volume = _util.ensure_sysroot_volume(sysroot)
 
-        args = [
-            "xbps-install",
-            "-fyU",
-            "-r",
-            sysroot,
-            "--repository",
-            cfg.xbps_repository_dir,
-            pkg.name,
-        ]
-        _util.log_info("Running {}".format(args))
-        subprocess.check_call(args, env=environ, stdout=output)
+        def run_xbps(args, *, check):
+            _util.log_info("Running {}".format(args))
+            if in_volume:
+                # Run xbps as root inside the user namespace to preserve file ownership.
+                run_in_cbuildrt(
+                    cfg,
+                    args,
+                    volumes=[{"name": volume, "destination": sysroot}],
+                    environ=environ,
+                    stdout=output,
+                    check=check,
+                )
+            else:
+                subprocess.run(args, env=environ, stdout=output, check=check)
+
+        cfg.invalidate_sysroot_pkgs()
+        # Work around xbps: https://github.com/void-linux/xbps/issues/408
+        run_xbps(["xbps-remove", "-Fy", "-r", sysroot, pkg.name], check=False)
+        run_xbps(
+            [
+                "xbps-install",
+                "-fyU",
+                "-r",
+                sysroot,
+                "--repository",
+                cfg.xbps_repository_dir,
+                pkg.name,
+            ],
+            check=True,
+        )
     else:
         installtree(pkg.staging_dir, sysroot)
         pkg.mark_as_installed(sysroot=sysroot)
