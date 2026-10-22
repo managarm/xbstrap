@@ -2367,6 +2367,65 @@ def _build_rootfs_layers(cfg, rootfs):
     return layers
 
 
+def run_in_cbuildrt(
+    cfg,
+    args,
+    *,
+    rootfs=None,
+    no_chroot_or_mounts=False,
+    bind_mounts=None,
+    volumes=None,
+    environ=None,
+    host_environ=None,
+):
+    # Runs args as root inside the cbuildrt user namespace.
+    build_yml = cfg.container_build_yml
+    workspace = _util.ensure_cbuildrt_workspace()
+    if not workspace.has_subids:
+        raise GenericError(
+            "cbuildrt workspace has no subordinate IDs, which are required to run as root in cbuildrt"
+        )
+
+    cbuild_json = {
+        "user": {"uid": 0, "gid": 0},
+        "process": {
+            "args": list(args),
+            "environ": environ or {},
+        },
+        "mapCurrentUserTo": {
+            "uid": build_yml["uid"],
+            "gid": build_yml["gid"],
+        },
+        "provideDev": True,
+        "bindMounts": bind_mounts or [],
+        "volumes": volumes or [],
+    }
+    if rootfs is not None:
+        cbuild_json["rootfs"] = rootfs
+    if no_chroot_or_mounts:
+        cbuild_json["noChroot"] = True
+        cbuild_json["noSystemMounts"] = True
+
+    with tempfile.NamedTemporaryFile("w+", suffix=".json") as f:
+        json.dump(cbuild_json, f)
+        f.flush()
+
+        if host_environ is None:
+            host_environ = os.environ.copy()
+        _util.build_environ_paths(
+            host_environ,
+            "PATH",
+            prepend=[os.path.join(_util.find_home(), "bin"), "/sbin"],
+        )
+
+        result = subprocess.call(
+            ["cbuildrt", "--workspace", workspace.path, "run", f.name],
+            env=host_environ,
+        )
+        if result != 0:
+            raise RuntimeError("cbuildrt failed with exit code {}".format(result))
+
+
 def prepare_rootfs(cfg, rootfs):
     # Inspired by https://codeberg.org/Mintsuki/jinx.
 
@@ -2383,61 +2442,6 @@ def prepare_rootfs(cfg, rootfs):
     except FileNotFoundError:
         pass
 
-    def run_cbuildrt(
-        args,
-        *,
-        rootfs=None,
-        no_chroot_or_mounts=False,
-        bind_mounts=None,
-        volumes=None,
-        environ=None,
-        host_environ=None,
-    ):
-        workspace = _util.ensure_cbuildrt_workspace()
-        if not workspace.has_subids:
-            raise GenericError(
-                "cbuildrt workspace has no subordinate IDs, which are required to prepare the rootfs"
-            )
-
-        cbuild_json = {
-            "user": {"uid": 0, "gid": 0},
-            "process": {
-                "args": list(args),
-                "environ": environ or {},
-            },
-            "mapCurrentUserTo": {
-                "uid": build_yml["uid"],
-                "gid": build_yml["gid"],
-            },
-            "provideDev": True,
-            "bindMounts": bind_mounts or [],
-            "volumes": volumes or [],
-        }
-        if rootfs is not None:
-            cbuild_json["rootfs"] = rootfs
-        if no_chroot_or_mounts:
-            cbuild_json["noChroot"] = True
-            cbuild_json["noSystemMounts"] = True
-
-        with tempfile.NamedTemporaryFile("w+", suffix=".json") as f:
-            json.dump(cbuild_json, f)
-            f.flush()
-
-            if host_environ is None:
-                host_environ = os.environ.copy()
-            _util.build_environ_paths(
-                host_environ,
-                "PATH",
-                prepend=[os.path.join(_util.find_home(), "bin"), "/sbin"],
-            )
-
-            result = subprocess.call(
-                ["cbuildrt", "--workspace", workspace.path, "run", f.name],
-                env=host_environ,
-            )
-            if result != 0:
-                raise RuntimeError("cbuildrt failed with exit code {}".format(result))
-
     container_environ = {
         "LANG": "C.UTF-8",
         "DEBIAN_FRONTEND": "noninteractive",
@@ -2448,7 +2452,8 @@ def prepare_rootfs(cfg, rootfs):
         lower_dirs = _build_rootfs_layers(cfg, parent_rootfs)
 
         _util.log_info("Installing {} into rootfs".format(rootfs.packages[-1]))
-        run_cbuildrt(
+        run_in_cbuildrt(
+            cfg,
             args=["apt-get", "install", "-y", rootfs.packages[-1]],
             rootfs={
                 "layers": lower_dirs,
@@ -2495,7 +2500,8 @@ def prepare_rootfs(cfg, rootfs):
 
             # Run debootstrap via cbuildrt with noChroot + noSystemMounts.
             _util.log_info("Building base rootfs")
-            run_cbuildrt(
+            run_in_cbuildrt(
+                cfg,
                 args=[
                     "debootstrap",
                     suite,
@@ -2543,7 +2549,8 @@ APTEOF
             """
 
             _util.log_info("Finalizing rootfs")
-            run_cbuildrt(
+            run_in_cbuildrt(
+                cfg,
                 args=["sh", "-c", script],
                 rootfs={
                     "layers": [empty_layer_dir],
