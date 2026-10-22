@@ -3584,6 +3584,43 @@ def install_pkg(cfg, pkg, *, sysroot):
         pkg.mark_as_installed(sysroot=sysroot)
 
 
+def gc_sysroot_volumes(*, dry_run=False):
+    # Removes sysroot volumes that are no longer linked from their sysroot.
+    # List first to fail before removing anything if cbuildrt lacks volume support.
+    volumes = []
+    if os.path.exists(os.path.join(_util.find_cbuildrt_workspace(), "workspace.json")):
+        volumes = _util.list_cbuildrt_volumes()
+
+    registry_dir = _util.find_sysroot_registry_dir()
+    _util.try_mkdir(registry_dir, recursive=True)
+    with _util.lock_directory(registry_dir):
+        registry = _util.read_sysroot_registry()
+        # We do not know the sysroots of untracked volumes, so we never remove them.
+        for name in volumes:
+            if name.startswith("sysroot-") and name not in registry:
+                _util.log_warn(f"Sysroot volume {name} is not tracked by xbstrap")
+
+        would_remove = False
+        for name, sysroot in sorted(registry.items()):
+            if _util.is_sysroot_volume_linked(sysroot, name):
+                continue
+            if dry_run:
+                _util.log_info(f"Would remove sysroot volume {name} of {sysroot}")
+                would_remove = True
+                continue
+            _util.log_info(f"Removing sysroot volume {name} of {sysroot}")
+            try:
+                _util.remove_cbuildrt_volume(name)
+                del registry[name]
+            except subprocess.CalledProcessError:
+                _util.log_warn(f"Failed to remove sysroot volume {name}")
+        if not dry_run:
+            _util.write_sysroot_registry(registry)
+
+    if would_remove:
+        _util.log_info("Pass -f to remove these volumes")
+
+
 def archive_pkg(cfg, build):
     with tarfile.open(build.archive_file, "w:gz") as tar:
         for ent in os.listdir(build.staging_dir):

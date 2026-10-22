@@ -95,6 +95,22 @@ def ensure_cbuildrt_workspace():
     return CbuildrtWorkspace(workspace, has_subids)
 
 
+def list_cbuildrt_volumes():
+    workspace = ensure_cbuildrt_workspace()
+    try:
+        out = subprocess.check_output(
+            ["cbuildrt", "--workspace", workspace.path, "volume", "ls"],
+            env=xbstrap_bin_environ(),
+            encoding="utf-8",
+        )
+    except subprocess.CalledProcessError:
+        raise GenericError(
+            "cbuildrt volume ls failed; xbstrap needs a cbuildrt with volume support"
+            " (try `xbstrap prereqs cbuildrt`)"
+        )
+    return out.split()
+
+
 def remove_cbuildrt_volume(name):
     workspace = ensure_cbuildrt_workspace()
     subprocess.check_call(
@@ -152,6 +168,19 @@ def read_sysroot_volume(sysroot):
             f" but the current workspace is {find_cbuildrt_workspace()}"
         )
     return os.path.basename(target)
+
+
+def is_sysroot_volume_linked(sysroot, name):
+    # Unlike read_sysroot_volume(), this tolerates any state of the sysroot's build directory.
+    # Volume names are unique, so a matching name is sufficient even if the workspace moved.
+    try:
+        return os.path.basename(os.readlink(_sysroot_volume_link(sysroot))) == name
+    except (FileNotFoundError, NotADirectoryError):
+        return False
+    except OSError as e:
+        # Keep volumes that we cannot prove to be unlinked.
+        log_warn(f"Keeping sysroot volume {name}: {e}")
+        return True
 
 
 def ensure_sysroot_volume(sysroot):

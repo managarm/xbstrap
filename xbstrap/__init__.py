@@ -736,6 +736,19 @@ pull_pack_parser.set_defaults(_impl=do_pull_pack)
 # ----------------------------------------------------------------------------------------
 
 
+def do_gc(args):
+    xbstrap.base.gc_sysroot_volumes(dry_run=not args.force)
+
+
+do_gc.parser = main_subparsers.add_parser(
+    "gc", help="remove sysroot volumes of deleted build directories (requires -f)"
+)
+do_gc.parser.add_argument(
+    "-f", "--force", action="store_true", help="remove volumes instead of only printing them"
+)
+do_gc.parser.set_defaults(_impl=do_gc)
+
+
 def do_list_tools(args):
     cfg = config_for_args(args)
     for tool in cfg.all_tools():
