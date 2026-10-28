@@ -3371,6 +3371,11 @@ def pack_pkg(cfg, pkg, reproduce=False):
                 with open(os.path.join(pack_dir, "INSTALL"), "wt") as f:
                     f.write(install_sh)
 
+            remove_sh = _xbps_utils.compose_xbps_remove(cfg, pkg)
+            if remove_sh:
+                with open(os.path.join(pack_dir, "REMOVE"), "wt") as f:
+                    f.write(remove_sh)
+
             touchtree(pack_dir)
 
             # The directory is now prepared, call xbps-create.
