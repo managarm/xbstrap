@@ -3492,7 +3492,6 @@ def pack_pkg(cfg, pkg, reproduce=False):
             args += ["--tags", " ".join(metadata["categories"])]
         if "replaces" in metadata:
             args += ["--replaces", " ".join(metadata["replaces"])]
-
         config_files = _xbps_utils.compose_xbps_file_list(pkg, "config_files", mapping)
         if config_files:
             args += ["--config-files", config_files]
@@ -3506,6 +3505,7 @@ def pack_pkg(cfg, pkg, reproduce=False):
             "staging_dir": pkg.build.staging_dir,
             "entries": _subpkgs.list_mapping(pkg, mapping),
             "install_sh": _xbps_utils.compose_xbps_install(cfg, pkg),
+            "remove_sh": _xbps_utils.compose_xbps_remove(cfg, pkg),
             "file_attrs": _xbps_utils.compose_xbps_file_attrs(pkg, mapping),
             "create_args": args,
             "verbose": verbosity,

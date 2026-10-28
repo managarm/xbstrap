@@ -112,29 +112,42 @@ def compare_version(v1, v2):
 # <action> <pkgname> <version> <update yes/no> "no" <arch>
 
 
-def compose_xbps_install(cfg, pkg):
-    yml = pkg._this_yml.get("scripts", dict()).get("post_install")
-    if not yml:
-        return None
-
+def _compose_xbps_script(pkg, phases):
+    scripts = pkg._this_yml.get("scripts", dict())
     step_sh = []
-    for step_yml in yml:
-        args_yml = step_yml["args"]
-        if isinstance(args_yml, str):
-            step_sh.append("(eval " + shlex.quote(args_yml) + ")")
-        else:
+    for phase, key in phases:
+        phase_steps = []
+        for step_yml in scripts.get(key, []):
+            args_yml = step_yml["args"]
+            if isinstance(args_yml, str):
+                phase_steps.append("(eval " + shlex.quote(args_yml) + ")")
+            else:
+                phase_steps.append(
+                    "(exec `which "
+                    + shlex.quote(args_yml[0])
+                    + "`"
+                    + "".join(" " + shlex.quote(q) for q in args_yml[1:])
+                    + ")"
+                )
+        if phase_steps:
             step_sh.append(
-                "(exec `which "
-                + shlex.quote(args_yml[0])
-                + "`"
-                + "".join(" " + shlex.quote(q) for q in args_yml[1:])
-                + ")"
+                phase + ")\n"
+                + "".join(f"    {step}\n" for step in phase_steps)
+                + "    ;;\n"
             )
 
-    return (
-        '#!/bin/sh\ncase "$1" in\npost)\n'
-        + "".join(f"    {s}\n" for s in step_sh)
-        + "    ;;\nesac\n"
+    if not step_sh:
+        return None
+    return '#!/bin/sh\ncase "$1" in\n' + "".join(step_sh) + "esac\n"
+
+
+def compose_xbps_install(cfg, pkg):
+    return _compose_xbps_script(pkg, [("pre", "pre_install"), ("post", "post_install")])
+
+
+def compose_xbps_remove(cfg, pkg):
+    return _compose_xbps_script(
+        pkg, [("pre", "pre_remove"), ("post", "post_remove"), ("purge", "purge")]
     )
 
 
