@@ -131,8 +131,13 @@ def _compose_xbps_script(pkg, phases):
                 )
         if phase_steps:
             step_sh.append(
-                phase + ")\n"
-                + "".join(f"    {step}\n" for step in phase_steps)
+                phase
+                + ")\n"
+                + "    _xbstrap_status=0\n"
+                + "".join(
+                    f"    if {step}; then :; else _xbstrap_status=1; fi\n" for step in phase_steps
+                )
+                + '    exit "$_xbstrap_status"\n'
                 + "    ;;\n"
             )
 
