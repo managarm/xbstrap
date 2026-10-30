@@ -85,16 +85,49 @@ def ensure_cbuildrt_workspace():
     try_mkdir(os.path.dirname(workspace), recursive=True)
     meta_path = os.path.join(workspace, "workspace.json")
     if not os.path.exists(meta_path):
-        environ = os.environ.copy()
-        build_environ_paths(environ, "PATH", prepend=[os.path.join(find_home(), "bin")])
         subprocess.check_call(
             ["cbuildrt", "--workspace", workspace, "init"],
-            env=environ,
+            env=xbstrap_bin_environ(),
         )
     with open(meta_path) as f:
         meta = json.load(f)
     has_subids = meta.get("subUid") is not None and meta.get("subGid") is not None
     return CbuildrtWorkspace(workspace, has_subids)
+
+
+def remove_cbuildrt_volume(name):
+    workspace = ensure_cbuildrt_workspace()
+    subprocess.check_call(
+        ["cbuildrt", "--workspace", workspace.path, "volume", "rm", name],
+        env=xbstrap_bin_environ(),
+    )
+
+
+def _read_json(path):
+    try:
+        with open(path, "r") as f:
+            return json.load(f)
+    except (FileNotFoundError, NotADirectoryError):
+        return {}
+
+
+def _write_json(path, data):
+    with open(path + ".tmp", "w") as f:
+        json.dump(data, f, indent=2)
+    os.rename(path + ".tmp", path)
+
+
+# The registry maps sysroot volumes to the sysroots that own them.
+def find_sysroot_registry_dir():
+    return os.path.join(find_cache_dir(), "sysroot_volumes")
+
+
+def read_sysroot_registry():
+    return _read_json(os.path.join(find_sysroot_registry_dir(), "registry.json"))
+
+
+def write_sysroot_registry(registry):
+    _write_json(os.path.join(find_sysroot_registry_dir(), "registry.json"), registry)
 
 
 def _sysroot_volume_link(sysroot):
@@ -123,15 +156,32 @@ def read_sysroot_volume(sysroot):
 
 def ensure_sysroot_volume(sysroot):
     # Returns the name of the sysroot's volume, assigning one on first use.
+    sysroot = os.path.abspath(sysroot)
     name = "sysroot-" + uuid.uuid4().hex
     target = os.path.join(find_cbuildrt_workspace(), "volumes", name)
     try:
         # symlink() fails if the link exists, so concurrent callers agree on one volume.
         # Containerless steps only see the empty mount point at the sysroot itself.
         os.symlink(target, _sysroot_volume_link(sysroot))
-        return name
     except FileExistsError:
-        return read_sysroot_volume(sysroot)
+        name = read_sysroot_volume(sysroot)
+
+    # gc removes registered volumes that have no link, so register after linking.
+    try_mkdir(find_sysroot_registry_dir(), recursive=True)
+    with lock_directory(find_sysroot_registry_dir()):
+        registry = read_sysroot_registry()
+        if registry.get(name) != sysroot:
+            # Other volumes of this sysroot belong to a deleted build directory.
+            for stale in [v for v, owner in registry.items() if owner == sysroot]:
+                log_info(f"Removing sysroot volume {stale} of a previous build in {sysroot}")
+                try:
+                    remove_cbuildrt_volume(stale)
+                    del registry[stale]
+                except subprocess.CalledProcessError:
+                    log_warn(f"Failed to remove sysroot volume {stale}")
+            registry[name] = sysroot
+            write_sysroot_registry(registry)
+    return name
 
 
 def try_mkdir(path, recursive=False):
