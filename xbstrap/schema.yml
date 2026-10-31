@@ -45,6 +45,19 @@ definitions:
         items:
             type: string
 
+    'xbps_script_steps':
+        type: array
+        items:
+            type: object
+            additionalProperties: false
+            properties:
+                'args':
+                    oneOf:
+                      - type: string
+                      - type: array
+                        items:
+                            type: string
+
     'task_deps':
         type: array
         items:
@@ -354,18 +367,12 @@ properties:
                     type: object
                     additionalProperties: false
                     properties:
+                        'pre_install': { $ref: '#/definitions/xbps_script_steps' }
                         'post_install':
-                            type: array
-                            items:
-                                type: object
-                                additionalProperties: false
-                                properties:
-                                    'args':
-                                        oneOf:
-                                          - type: string
-                                          - type: array
-                                            items:
-                                                type: string
+                            { $ref: '#/definitions/xbps_script_steps' }
+                        'pre_remove': { $ref: '#/definitions/xbps_script_steps' }
+                        'post_remove': { $ref: '#/definitions/xbps_script_steps' }
+                        'purge': { $ref: '#/definitions/xbps_script_steps' }
                 'subpackages':
                     type: array
                     items:
