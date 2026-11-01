@@ -3401,6 +3401,8 @@ def build_pkg(cfg, build, *, sysroot, reproduce=False):
 
 def run_pack(cfg, pack_args, xbps_file, out_dir):
     if cfg.container_runtime != "cbuildrt":
+        if pack_args["file_attrs"]:
+            raise GenericError("file_attrs requires the cbuildrt runtime")
         with tempfile.TemporaryDirectory() as pack_dir:
             _pack.execute_pack({**pack_args, "root": pack_dir, "out_dir": out_dir})
         return
@@ -3504,6 +3506,7 @@ def pack_pkg(cfg, pkg, reproduce=False):
             "staging_dir": pkg.build.staging_dir,
             "entries": _subpkgs.list_mapping(pkg, mapping),
             "install_sh": _xbps_utils.compose_xbps_install(cfg, pkg),
+            "file_attrs": _xbps_utils.compose_xbps_file_attrs(pkg, mapping),
             "create_args": args,
             "verbose": verbosity,
         }
@@ -3641,6 +3644,8 @@ def gc_sysroot_volumes(*, dry_run=False):
 
 
 def archive_pkg(cfg, build):
+    if "file_attrs" in build._this_yml:
+        raise GenericError("file_attrs requires xbps packages")
     with tarfile.open(build.archive_file, "w:gz") as tar:
         for ent in os.listdir(build.staging_dir):
             tar.add(os.path.join(build.staging_dir, ent), arcname=ent)

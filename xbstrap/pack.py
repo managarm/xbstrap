@@ -42,6 +42,14 @@ def execute_pack(pack_args):
         with open(os.path.join(root, "INSTALL"), "wt") as f:
             f.write(pack_args["install_sh"])
 
+    for path, uid, gid, mode in pack_args["file_attrs"]:
+        file_path = os.path.join(root, path.lstrip("/"))
+        if mode is None:
+            mode = stat.S_IMODE(os.lstat(file_path).st_mode)
+        # chown() clears the setuid and setgid bits, so the mode has to be set afterwards.
+        os.chown(file_path, uid, gid, follow_symlinks=False)
+        os.chmod(file_path, mode)
+
     _util.touchtree(root)
 
     # The directory is now prepared, call xbps-create.

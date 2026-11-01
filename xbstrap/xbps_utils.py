@@ -177,3 +177,25 @@ def compose_xbps_file_list(pkg, key, mapping):
     if not files:
         return None
     return " ".join(sorted(files))
+
+
+# Resolves file_attrs against the files claimed by the package. Returns (path, uid, gid, mode) for
+# each file, where a mode of None keeps the mode that the file has in the staging directory.
+def compose_xbps_file_attrs(pkg, mapping):
+    attrs_yml = pkg._this_yml.get("file_attrs", [])
+    patterns = []
+    pattern_attrs = []
+    for idx, attr_yml in enumerate(attrs_yml):
+        for pat in attr_yml["include"]:
+            patterns.append(pat)
+            pattern_attrs.append(idx)
+
+    attrs = []
+    for path, hits in match_file_patterns(pkg, "file_attrs", patterns, mapping):
+        matching = {pattern_attrs[idx] for idx in hits}
+        if len(matching) > 1:
+            raise GenericError(f"File {path} matches multiple file_attrs of {pkg.name}")
+        attr_yml = attrs_yml[matching.pop()]
+        mode = int(attr_yml["mode"], 8) if "mode" in attr_yml else None
+        attrs.append((path, attr_yml.get("uid", 0), attr_yml.get("gid", 0), mode))
+    return attrs
