@@ -22,6 +22,7 @@ import colorama
 import jsonschema
 import yaml
 
+import xbstrap.pack as _pack
 import xbstrap.subpkgs as _subpkgs
 import xbstrap.util as _util
 import xbstrap.vcs_utils as _vcs_utils
@@ -3398,6 +3399,11 @@ def build_pkg(cfg, build, *, sysroot, reproduce=False):
             raise GenericError("Could not reproduce all files")
 
 
+def run_pack(pack_args, out_dir):
+    with tempfile.TemporaryDirectory() as pack_dir:
+        _pack.execute_pack({**pack_args, "root": pack_dir, "out_dir": out_dir})
+
+
 def pack_pkg(cfg, pkg, reproduce=False):
     # Sanity checking: make sure that the rolling ID matches the expected one.
     src = cfg.get_source(pkg.source)
@@ -3422,72 +3428,59 @@ def pack_pkg(cfg, pkg, reproduce=False):
         if verbosity:
             output = None
 
-        with tempfile.TemporaryDirectory() as pack_dir:
-            # Copy only the files for this specific subpackage.
-            mapping = _subpkgs.determine_mapping(pkg.build)
-            _subpkgs.install_entries(
-                _subpkgs.list_mapping(pkg, mapping), pkg.build.staging_dir, pack_dir
-            )
+        # Copy only the files for this specific subpackage.
+        mapping = _subpkgs.determine_mapping(pkg.build)
 
-            install_sh = _xbps_utils.compose_xbps_install(cfg, pkg)
-            if install_sh:
-                with open(os.path.join(pack_dir, "INSTALL"), "wt") as f:
-                    f.write(install_sh)
+        args = [
+            "xbps-create",
+            "-A",
+            pkg.architecture,
+            "-s",
+            pkg.name,
+            "-n",
+            "{}-{}".format(pkg.name, version),
+            "-D",
+            pkg.xbps_dependency_string(),
+        ]
 
-            _util.touchtree(pack_dir)
+        metadata = pkg._this_yml.get("metadata", dict())
+        if "summary" in metadata:
+            args += ["--desc", metadata["summary"]]
+        if "description" in metadata:
+            args += ["--long-desc", metadata["description"]]
+        if "spdx" in metadata:
+            args += ["--license", metadata["spdx"]]
+        if "website" in metadata:
+            args += ["--homepage", metadata["website"]]
+        if "maintainer" in metadata:
+            args += ["--maintainer", metadata["maintainer"]]
+        if "categories" in metadata:
+            args += ["--tags", " ".join(metadata["categories"])]
+        if "replaces" in metadata:
+            args += ["--replaces", " ".join(metadata["replaces"])]
 
-            # The directory is now prepared, call xbps-create.
-            environ = os.environ.copy()
-            _util.build_environ_paths(
-                environ, "PATH", prepend=[os.path.join(_util.find_home(), "bin")]
-            )
+        config_files = _xbps_utils.compose_xbps_file_list(pkg, "config_files", mapping)
+        if config_files:
+            args += ["--config-files", config_files]
+        mutable_files = _xbps_utils.compose_xbps_file_list(pkg, "mutable_files", mapping)
+        if mutable_files:
+            args += ["--mutable-files", mutable_files]
 
-            args = [
-                "xbps-create",
-                "-A",
-                pkg.architecture,
-                "-s",
-                pkg.name,
-                "-n",
-                "{}-{}".format(pkg.name, version),
-                "-D",
-                pkg.xbps_dependency_string(),
-            ]
+        xbps_file = "{}-{}.{}.xbps".format(pkg.name, version, pkg.architecture)
 
-            metadata = pkg._this_yml.get("metadata", dict())
-            if "summary" in metadata:
-                args += ["--desc", metadata["summary"]]
-            if "description" in metadata:
-                args += ["--long-desc", metadata["description"]]
-            if "spdx" in metadata:
-                args += ["--license", metadata["spdx"]]
-            if "website" in metadata:
-                args += ["--homepage", metadata["website"]]
-            if "maintainer" in metadata:
-                args += ["--maintainer", metadata["maintainer"]]
-            if "categories" in metadata:
-                args += ["--tags", " ".join(metadata["categories"])]
-            if "replaces" in metadata:
-                args += ["--replaces", " ".join(metadata["replaces"])]
+        pack_args = {
+            "staging_dir": pkg.build.staging_dir,
+            "entries": _subpkgs.list_mapping(pkg, mapping),
+            "install_sh": _xbps_utils.compose_xbps_install(cfg, pkg),
+            "create_args": args,
+            "verbose": verbosity,
+        }
 
-            config_files = _xbps_utils.compose_xbps_file_list(pkg, "config_files", mapping)
-            if config_files:
-                args += ["--config-files", config_files]
-            mutable_files = _xbps_utils.compose_xbps_file_list(pkg, "mutable_files", mapping)
-            if mutable_files:
-                args += ["--mutable-files", mutable_files]
-
-            args += [pack_dir]
-
-            xbps_file = "{}-{}.{}.xbps".format(pkg.name, version, pkg.architecture)
-
-            _util.log_info("Running {}".format(args))
-            if not reproduce:
-                subprocess.check_call(
-                    args, env=environ, cwd=cfg.xbps_repository_dir, stdout=output
-                )
-            else:
-                subprocess.check_call(args, env=environ, cwd=cfg.package_out_dir, stdout=output)
+        _util.log_info("Running {}".format(args))
+        if not reproduce:
+            run_pack(pack_args, cfg.xbps_repository_dir)
+        else:
+            run_pack(pack_args, cfg.package_out_dir)
 
         if not reproduce:
             rindex_archs = [pkg.architecture]
