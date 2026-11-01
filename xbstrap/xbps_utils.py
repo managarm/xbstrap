@@ -138,12 +138,9 @@ def compose_xbps_install(cfg, pkg):
     )
 
 
-# Resolves the file patterns in the package's yml key against the files claimed by the package.
-def compose_xbps_file_list(pkg, key, mapping):
-    patterns = pkg._this_yml.get(key, [])
-    if not patterns:
-        return None
-
+# Resolves file patterns against the files claimed by the package. Returns (path, hits) for each
+# file that matches, where hits are the indices of the matching patterns.
+def match_file_patterns(pkg, key, patterns, mapping):
     regexes = [
         re.compile(_util.translate_glob(pat, recursive=True, include_hidden=True))
         for pat in patterns
@@ -159,13 +156,24 @@ def compose_xbps_file_list(pkg, key, mapping):
             matched[idx] = True
         if pkg.name not in child.claims:
             continue
-        if any(c.isspace() for c in path):
-            raise GenericError(f"File {path} in {key} of {pkg.name} contains whitespace")
-        files.append(path)
+        files.append((path, hits))
 
     for pat, m in zip(patterns, matched):
         if not m:
             raise GenericError(f"Pattern {pat} in {key} of {pkg.name} does not match any file")
+    return files
+
+
+# Resolves the file patterns in the package's yml key against the files claimed by the package.
+def compose_xbps_file_list(pkg, key, mapping):
+    patterns = pkg._this_yml.get(key, [])
+    if not patterns:
+        return None
+
+    files = [path for path, _ in match_file_patterns(pkg, key, patterns, mapping)]
+    for path in files:
+        if any(c.isspace() for c in path):
+            raise GenericError(f"File {path} in {key} of {pkg.name} contains whitespace")
     if not files:
         return None
     return " ".join(sorted(files))
