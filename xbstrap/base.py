@@ -3491,9 +3491,11 @@ def pack_pkg(cfg, pkg, reproduce=False):
 
             _util.log_info("Running {}".format(args))
             if not reproduce:
-                subprocess.call(args, env=environ, cwd=cfg.xbps_repository_dir, stdout=output)
+                subprocess.check_call(
+                    args, env=environ, cwd=cfg.xbps_repository_dir, stdout=output
+                )
             else:
-                subprocess.call(args, env=environ, cwd=cfg.package_out_dir, stdout=output)
+                subprocess.check_call(args, env=environ, cwd=cfg.package_out_dir, stdout=output)
 
         if not reproduce:
             rindex_archs = [pkg.architecture]
@@ -3510,7 +3512,7 @@ def pack_pkg(cfg, pkg, reproduce=False):
                 environ["XBPS_TARGET_ARCH"] = arch
 
                 _util.log_info("Running {} ({})".format(args, arch))
-                subprocess.call(args, env=environ, stdout=output)
+                subprocess.check_call(args, env=environ, stdout=output)
         else:
             if not filecmp.cmp(
                 os.path.join(cfg.package_out_dir, xbps_file),
