@@ -3399,9 +3399,41 @@ def build_pkg(cfg, build, *, sysroot, reproduce=False):
             raise GenericError("Could not reproduce all files")
 
 
-def run_pack(pack_args, out_dir):
-    with tempfile.TemporaryDirectory() as pack_dir:
-        _pack.execute_pack({**pack_args, "root": pack_dir, "out_dir": out_dir})
+def run_pack(cfg, pack_args, xbps_file, out_dir):
+    if cfg.container_runtime != "cbuildrt":
+        with tempfile.TemporaryDirectory() as pack_dir:
+            _pack.execute_pack({**pack_args, "root": pack_dir, "out_dir": out_dir})
+        return
+
+    # Packing runs as root in the user namespace such that files can have arbitrary owners.
+    # The temporary volume keeps files that are owned by subordinate IDs out of the build
+    # directory, and cbuildrt removes it even if this process gets killed.
+    build_yml = cfg.container_build_yml
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        mount_point = os.path.join(tmp_dir, "volume")
+        os.mkdir(mount_point)
+        pack_args_path = os.path.join(tmp_dir, "pack-args.json")
+        with open(pack_args_path, "w") as f:
+            json.dump(
+                {
+                    **pack_args,
+                    "root": os.path.join(mount_point, "root"),
+                    "out_dir": os.path.join(mount_point, "out"),
+                    "publish": {
+                        "file": xbps_file,
+                        "dest_dir": out_dir,
+                        "uid": build_yml["uid"],
+                        "gid": build_yml["gid"],
+                    },
+                },
+                f,
+            )
+        run_in_cbuildrt(
+            cfg,
+            [sys.executable, "-m", "xbstrap", "execute-pack", pack_args_path],
+            volumes=[{"destination": mount_point}],
+            environ=_util.xbstrap_bin_environ(),
+        )
 
 
 def pack_pkg(cfg, pkg, reproduce=False):
@@ -3478,9 +3510,9 @@ def pack_pkg(cfg, pkg, reproduce=False):
 
         _util.log_info("Running {}".format(args))
         if not reproduce:
-            run_pack(pack_args, cfg.xbps_repository_dir)
+            run_pack(cfg, pack_args, xbps_file, cfg.xbps_repository_dir)
         else:
-            run_pack(pack_args, cfg.package_out_dir)
+            run_pack(cfg, pack_args, xbps_file, cfg.package_out_dir)
 
         if not reproduce:
             rindex_archs = [pkg.architecture]
