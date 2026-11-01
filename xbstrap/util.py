@@ -213,6 +213,16 @@ def ensure_sysroot_volume(sysroot):
     return name
 
 
+def touchtree(root):
+    for name in os.listdir(root):
+        path = os.path.join(root, name)
+
+        os.utime(path, (0, 0), follow_symlinks=False)
+
+        if not os.path.islink(path) and os.path.isdir(path):
+            touchtree(path)
+
+
 def try_mkdir(path, recursive=False):
     try:
         if not recursive:

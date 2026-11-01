@@ -17,6 +17,7 @@ import yaml
 import xbstrap.base
 import xbstrap.cli_utils
 import xbstrap.exceptions
+import xbstrap.pack
 import xbstrap.util as _util
 from xbstrap.util import eprint
 
@@ -1094,6 +1095,16 @@ def do_execute_manifest(args):
 execute_manifest_parser = main_subparsers.add_parser("execute-manifest")
 execute_manifest_parser.add_argument("-c", type=str)
 execute_manifest_parser.set_defaults(_impl=do_execute_manifest)
+
+
+def do_execute_pack(args):
+    with open(args.pack_args) as f:
+        xbstrap.pack.execute_pack(json.load(f))
+
+
+execute_pack_parser = main_subparsers.add_parser("execute-pack")
+execute_pack_parser.add_argument("pack_args", type=str)
+execute_pack_parser.set_defaults(_impl=do_execute_pack)
 
 
 def main():

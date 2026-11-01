@@ -138,12 +138,9 @@ def compose_xbps_install(cfg, pkg):
     )
 
 
-# Resolves the file patterns in the package's yml key against the files claimed by the package.
-def compose_xbps_file_list(pkg, key, mapping):
-    patterns = pkg._this_yml.get(key, [])
-    if not patterns:
-        return None
-
+# Resolves file patterns against the files claimed by the package. Returns (path, hits) for each
+# file that matches, where hits are the indices of the matching patterns.
+def match_file_patterns(pkg, key, patterns, mapping):
     regexes = [
         re.compile(_util.translate_glob(pat, recursive=True, include_hidden=True))
         for pat in patterns
@@ -159,13 +156,46 @@ def compose_xbps_file_list(pkg, key, mapping):
             matched[idx] = True
         if pkg.name not in child.claims:
             continue
-        if any(c.isspace() for c in path):
-            raise GenericError(f"File {path} in {key} of {pkg.name} contains whitespace")
-        files.append(path)
+        files.append((path, hits))
 
     for pat, m in zip(patterns, matched):
         if not m:
             raise GenericError(f"Pattern {pat} in {key} of {pkg.name} does not match any file")
+    return files
+
+
+# Resolves the file patterns in the package's yml key against the files claimed by the package.
+def compose_xbps_file_list(pkg, key, mapping):
+    patterns = pkg._this_yml.get(key, [])
+    if not patterns:
+        return None
+
+    files = [path for path, _ in match_file_patterns(pkg, key, patterns, mapping)]
+    for path in files:
+        if any(c.isspace() for c in path):
+            raise GenericError(f"File {path} in {key} of {pkg.name} contains whitespace")
     if not files:
         return None
     return " ".join(sorted(files))
+
+
+# Resolves file_attrs against the files claimed by the package. Returns (path, uid, gid, mode) for
+# each file, where a mode of None keeps the mode that the file has in the staging directory.
+def compose_xbps_file_attrs(pkg, mapping):
+    attrs_yml = pkg._this_yml.get("file_attrs", [])
+    patterns = []
+    pattern_attrs = []
+    for idx, attr_yml in enumerate(attrs_yml):
+        for pat in attr_yml["include"]:
+            patterns.append(pat)
+            pattern_attrs.append(idx)
+
+    attrs = []
+    for path, hits in match_file_patterns(pkg, "file_attrs", patterns, mapping):
+        matching = {pattern_attrs[idx] for idx in hits}
+        if len(matching) > 1:
+            raise GenericError(f"File {path} matches multiple file_attrs of {pkg.name}")
+        attr_yml = attrs_yml[matching.pop()]
+        mode = int(attr_yml["mode"], 8) if "mode" in attr_yml else None
+        attrs.append((path, attr_yml.get("uid", 0), attr_yml.get("gid", 0), mode))
+    return attrs

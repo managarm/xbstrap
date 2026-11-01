@@ -22,6 +22,7 @@ import colorama
 import jsonschema
 import yaml
 
+import xbstrap.pack as _pack
 import xbstrap.subpkgs as _subpkgs
 import xbstrap.util as _util
 import xbstrap.vcs_utils as _vcs_utils
@@ -151,16 +152,6 @@ def installtree(src_root, dest_root):
         else:
             try_unlink(dest_path)
             shutil.copy2(src_path, dest_path)
-
-
-def touchtree(root):
-    for name in os.listdir(root):
-        path = os.path.join(root, name)
-
-        os.utime(path, (0, 0), follow_symlinks=False)
-
-        if not os.path.islink(path) and os.path.isdir(path):
-            touchtree(path)
 
 
 class ResetMode(Enum):
@@ -3408,6 +3399,45 @@ def build_pkg(cfg, build, *, sysroot, reproduce=False):
             raise GenericError("Could not reproduce all files")
 
 
+def run_pack(cfg, pack_args, xbps_file, out_dir):
+    if cfg.container_runtime != "cbuildrt":
+        if pack_args["file_attrs"]:
+            raise GenericError("file_attrs requires the cbuildrt runtime")
+        with tempfile.TemporaryDirectory() as pack_dir:
+            _pack.execute_pack({**pack_args, "root": pack_dir, "out_dir": out_dir})
+        return
+
+    # Packing runs as root in the user namespace such that files can have arbitrary owners.
+    # The temporary volume keeps files that are owned by subordinate IDs out of the build
+    # directory, and cbuildrt removes it even if this process gets killed.
+    build_yml = cfg.container_build_yml
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        mount_point = os.path.join(tmp_dir, "volume")
+        os.mkdir(mount_point)
+        pack_args_path = os.path.join(tmp_dir, "pack-args.json")
+        with open(pack_args_path, "w") as f:
+            json.dump(
+                {
+                    **pack_args,
+                    "root": os.path.join(mount_point, "root"),
+                    "out_dir": os.path.join(mount_point, "out"),
+                    "publish": {
+                        "file": xbps_file,
+                        "dest_dir": out_dir,
+                        "uid": build_yml["uid"],
+                        "gid": build_yml["gid"],
+                    },
+                },
+                f,
+            )
+        run_in_cbuildrt(
+            cfg,
+            [sys.executable, "-m", "xbstrap", "execute-pack", pack_args_path],
+            volumes=[{"destination": mount_point}],
+            environ=_util.xbstrap_bin_environ(),
+        )
+
+
 def pack_pkg(cfg, pkg, reproduce=False):
     # Sanity checking: make sure that the rolling ID matches the expected one.
     src = cfg.get_source(pkg.source)
@@ -3432,68 +3462,60 @@ def pack_pkg(cfg, pkg, reproduce=False):
         if verbosity:
             output = None
 
-        with tempfile.TemporaryDirectory() as pack_dir:
-            # Copy only the files for this specific subpackage.
-            mapping = _subpkgs.determine_mapping(pkg.build)
-            _subpkgs.install_mapping(pkg, mapping, pack_dir)
+        # Copy only the files for this specific subpackage.
+        mapping = _subpkgs.determine_mapping(pkg.build)
 
-            install_sh = _xbps_utils.compose_xbps_install(cfg, pkg)
-            if install_sh:
-                with open(os.path.join(pack_dir, "INSTALL"), "wt") as f:
-                    f.write(install_sh)
+        args = [
+            "xbps-create",
+            "-A",
+            pkg.architecture,
+            "-s",
+            pkg.name,
+            "-n",
+            "{}-{}".format(pkg.name, version),
+            "-D",
+            pkg.xbps_dependency_string(),
+        ]
 
-            touchtree(pack_dir)
+        metadata = pkg._this_yml.get("metadata", dict())
+        if "summary" in metadata:
+            args += ["--desc", metadata["summary"]]
+        if "description" in metadata:
+            args += ["--long-desc", metadata["description"]]
+        if "spdx" in metadata:
+            args += ["--license", metadata["spdx"]]
+        if "website" in metadata:
+            args += ["--homepage", metadata["website"]]
+        if "maintainer" in metadata:
+            args += ["--maintainer", metadata["maintainer"]]
+        if "categories" in metadata:
+            args += ["--tags", " ".join(metadata["categories"])]
+        if "replaces" in metadata:
+            args += ["--replaces", " ".join(metadata["replaces"])]
 
-            # The directory is now prepared, call xbps-create.
-            environ = os.environ.copy()
-            _util.build_environ_paths(
-                environ, "PATH", prepend=[os.path.join(_util.find_home(), "bin")]
-            )
+        config_files = _xbps_utils.compose_xbps_file_list(pkg, "config_files", mapping)
+        if config_files:
+            args += ["--config-files", config_files]
+        mutable_files = _xbps_utils.compose_xbps_file_list(pkg, "mutable_files", mapping)
+        if mutable_files:
+            args += ["--mutable-files", mutable_files]
 
-            args = [
-                "xbps-create",
-                "-A",
-                pkg.architecture,
-                "-s",
-                pkg.name,
-                "-n",
-                "{}-{}".format(pkg.name, version),
-                "-D",
-                pkg.xbps_dependency_string(),
-            ]
+        xbps_file = "{}-{}.{}.xbps".format(pkg.name, version, pkg.architecture)
 
-            metadata = pkg._this_yml.get("metadata", dict())
-            if "summary" in metadata:
-                args += ["--desc", metadata["summary"]]
-            if "description" in metadata:
-                args += ["--long-desc", metadata["description"]]
-            if "spdx" in metadata:
-                args += ["--license", metadata["spdx"]]
-            if "website" in metadata:
-                args += ["--homepage", metadata["website"]]
-            if "maintainer" in metadata:
-                args += ["--maintainer", metadata["maintainer"]]
-            if "categories" in metadata:
-                args += ["--tags", " ".join(metadata["categories"])]
-            if "replaces" in metadata:
-                args += ["--replaces", " ".join(metadata["replaces"])]
+        pack_args = {
+            "staging_dir": pkg.build.staging_dir,
+            "entries": _subpkgs.list_mapping(pkg, mapping),
+            "install_sh": _xbps_utils.compose_xbps_install(cfg, pkg),
+            "file_attrs": _xbps_utils.compose_xbps_file_attrs(pkg, mapping),
+            "create_args": args,
+            "verbose": verbosity,
+        }
 
-            config_files = _xbps_utils.compose_xbps_file_list(pkg, "config_files", mapping)
-            if config_files:
-                args += ["--config-files", config_files]
-            mutable_files = _xbps_utils.compose_xbps_file_list(pkg, "mutable_files", mapping)
-            if mutable_files:
-                args += ["--mutable-files", mutable_files]
-
-            args += [pack_dir]
-
-            xbps_file = "{}-{}.{}.xbps".format(pkg.name, version, pkg.architecture)
-
-            _util.log_info("Running {}".format(args))
-            if not reproduce:
-                subprocess.call(args, env=environ, cwd=cfg.xbps_repository_dir, stdout=output)
-            else:
-                subprocess.call(args, env=environ, cwd=cfg.package_out_dir, stdout=output)
+        _util.log_info("Running {}".format(args))
+        if not reproduce:
+            run_pack(cfg, pack_args, xbps_file, cfg.xbps_repository_dir)
+        else:
+            run_pack(cfg, pack_args, xbps_file, cfg.package_out_dir)
 
         if not reproduce:
             rindex_archs = [pkg.architecture]
@@ -3510,7 +3532,7 @@ def pack_pkg(cfg, pkg, reproduce=False):
                 environ["XBPS_TARGET_ARCH"] = arch
 
                 _util.log_info("Running {} ({})".format(args, arch))
-                subprocess.call(args, env=environ, stdout=output)
+                subprocess.check_call(args, env=environ, stdout=output)
         else:
             if not filecmp.cmp(
                 os.path.join(cfg.package_out_dir, xbps_file),
@@ -3622,6 +3644,8 @@ def gc_sysroot_volumes(*, dry_run=False):
 
 
 def archive_pkg(cfg, build):
+    if "file_attrs" in build._this_yml:
+        raise GenericError("file_attrs requires xbps packages")
     with tarfile.open(build.archive_file, "w:gz") as tar:
         for ent in os.listdir(build.staging_dir):
             tar.add(os.path.join(build.staging_dir, ent), arcname=ent)

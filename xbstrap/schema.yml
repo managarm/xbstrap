@@ -350,6 +350,19 @@ properties:
                 'mutable_files':
                     type: array
                     items: { type: string }
+                'file_attrs':
+                    type: array
+                    items:
+                        type: object
+                        additionalProperties: false
+                        required: ['include']
+                        properties:
+                            'include':
+                                type: array
+                                items: { type: string }
+                            'uid': { type: integer, minimum: 0 }
+                            'gid': { type: integer, minimum: 0 }
+                            'mode': { type: string, pattern: '^[0-7]{3,4}$' }
                 'scripts':
                     type: object
                     additionalProperties: false
