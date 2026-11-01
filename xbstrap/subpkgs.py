@@ -87,30 +87,44 @@ def determine_mapping(build):
     return root
 
 
-def install_mapping(pkg, root, outdir):
-    def visit(mapping, src_path, dest_path):
+# Returns (path, kind) for all entries claimed by the package, with parents before their children.
+# Unlike a mapping, the result is plain data and can be passed to another process.
+def list_mapping(pkg, root):
+    entries = []
+
+    def visit(mapping, path):
         if pkg.name not in mapping.claims:
             return
 
         if mapping.directory:
-            # The root directory was already created by the caller.
+            # The caller of install_entries() creates the root directory.
             if mapping != root:
-                os.mkdir(dest_path)
-                shutil.copystat(src_path, dest_path)
+                entries.append((path, "dir"))
 
             for name, child in mapping.children.items():
-                visit(
-                    child,
-                    os.path.join(src_path, name),
-                    os.path.join(dest_path, name),
-                )
+                visit(child, os.path.join(path, name))
         elif mapping.dirent.is_symlink():
+            entries.append((path, "symlink"))
+        else:
+            entries.append((path, "file"))
+
+    visit(root, "")
+    return entries
+
+
+def install_entries(entries, src_dir, outdir):
+    for path, kind in entries:
+        src_path = os.path.join(src_dir, path)
+        dest_path = os.path.join(outdir, path)
+
+        if kind == "dir":
+            os.mkdir(dest_path)
+            shutil.copystat(src_path, dest_path)
+        elif kind == "symlink":
             # Do not preserve attributes
             os.symlink(os.readlink(src_path), dest_path)
         else:
             shutil.copy2(src_path, dest_path)
-
-    visit(root, pkg.build.staging_dir, outdir)
 
 
 # Yields (path, mapping) for all regular files in the mapping.

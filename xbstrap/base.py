@@ -3425,7 +3425,9 @@ def pack_pkg(cfg, pkg, reproduce=False):
         with tempfile.TemporaryDirectory() as pack_dir:
             # Copy only the files for this specific subpackage.
             mapping = _subpkgs.determine_mapping(pkg.build)
-            _subpkgs.install_mapping(pkg, mapping, pack_dir)
+            _subpkgs.install_entries(
+                _subpkgs.list_mapping(pkg, mapping), pkg.build.staging_dir, pack_dir
+            )
 
             install_sh = _xbps_utils.compose_xbps_install(cfg, pkg)
             if install_sh:
