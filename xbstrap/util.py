@@ -119,6 +119,22 @@ def remove_cbuildrt_volume(name):
     )
 
 
+def list_cbuildrt_layers():
+    workspace = ensure_cbuildrt_workspace()
+    try:
+        out = subprocess.check_output(
+            ["cbuildrt", "--workspace", workspace.path, "layer", "ls"],
+            env=xbstrap_bin_environ(),
+            encoding="utf-8",
+        )
+    except subprocess.CalledProcessError:
+        raise GenericError(
+            "cbuildrt layer ls failed; xbstrap needs a cbuildrt with layer support"
+            " (try `xbstrap prereqs cbuildrt`)"
+        )
+    return out.split()
+
+
 # Fails if the layer is in use by a container.
 def remove_cbuildrt_layer(name):
     workspace = ensure_cbuildrt_workspace()

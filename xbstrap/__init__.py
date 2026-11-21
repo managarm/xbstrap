@@ -739,13 +739,19 @@ pull_pack_parser.set_defaults(_impl=do_pull_pack)
 
 def do_gc(args):
     xbstrap.base.gc_sysroot_volumes(dry_run=not args.force)
+    xbstrap.base.gc_rootfs(dry_run=not args.force)
 
 
 do_gc.parser = main_subparsers.add_parser(
-    "gc", help="remove sysroot volumes of deleted build directories (requires -f)"
+    "gc",
+    help="remove sysroot volumes of deleted build directories and unused rootfs layers"
+    " (requires -f)",
 )
 do_gc.parser.add_argument(
-    "-f", "--force", action="store_true", help="remove volumes instead of only printing them"
+    "-f",
+    "--force",
+    action="store_true",
+    help="remove volumes and layers instead of only printing them",
 )
 do_gc.parser.set_defaults(_impl=do_gc)
 
