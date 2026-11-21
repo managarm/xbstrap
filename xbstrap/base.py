@@ -2402,13 +2402,14 @@ def _build_rootfs_layers(cfg, rootfs):
     _util.try_mkdir(empty_layer_dir)
 
     base_rootfs = cfg.get_rootfs(())
-    layers = [empty_layer_dir, os.path.join(rootfs_cache, base_rootfs.hash + ".tar.zstd")]
+    layers = [os.path.join(rootfs_cache, base_rootfs.hash + ".tar.zstd")]
 
     for i in range(len(rootfs.packages)):
         pkg_rootfs = cfg.get_rootfs(rootfs.packages[: i + 1])
         layers.append(os.path.join(rootfs_cache, pkg_rootfs.hash + ".tar.zstd"))
 
-    return layers
+    # cbuildrt stacks the first layer on top, so each package layer must precede its parent.
+    return [empty_layer_dir] + layers[::-1]
 
 
 def run_in_cbuildrt(
