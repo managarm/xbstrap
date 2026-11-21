@@ -119,6 +119,15 @@ def remove_cbuildrt_volume(name):
     )
 
 
+# Fails if the layer is in use by a container.
+def remove_cbuildrt_layer(name):
+    workspace = ensure_cbuildrt_workspace()
+    subprocess.check_call(
+        ["cbuildrt", "--workspace", workspace.path, "layer", "rm", name],
+        env=xbstrap_bin_environ(),
+    )
+
+
 def _read_json(path):
     try:
         with open(path, "r") as f:

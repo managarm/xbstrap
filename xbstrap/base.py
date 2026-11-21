@@ -2388,11 +2388,26 @@ class RootFs:
     def name(self):
         return self._name
 
-    def check_if_prepared(self, _, cfg):
-        rootfs_cache = os.path.join(_util.find_cache_dir(), "rootfs_cache")
-        rootfs_tar_path = os.path.join(rootfs_cache, self.hash + ".tar.zstd")
+    @property
+    def layer_name(self):
+        return "rootfs-" + self.hash
 
-        return ItemState(missing=not os.path.exists(rootfs_tar_path))
+    @property
+    def layer_path(self):
+        return os.path.join(_util.find_cbuildrt_workspace(), "layers", self.layer_name)
+
+    # Names of the cbuildrt layers that make up this rootfs, topmost first.
+    @property
+    def layer_stack(self):
+        stack = []
+        rootfs = self
+        while rootfs is not None:
+            stack.append(rootfs.layer_name)
+            rootfs = rootfs.parent
+        return stack
+
+    def check_if_prepared(self, _, cfg):
+        return ItemState(missing=not os.path.isdir(self.layer_path))
 
 
 # Build the initial file system that debootstrap runs on.
@@ -2412,23 +2427,15 @@ def _build_rootfs_seed_tar(tar_path):
 
 
 # Build the cbuildrt lower layer configuration for a given rootfs.
-def _build_rootfs_layers(cfg, rootfs):
+def _build_rootfs_layers(rootfs):
     rootfs_cache = os.path.join(_util.find_cache_dir(), "rootfs_cache")
 
     # OverlayFS requires at least two lower layers when no upper layer is used.
     # Hence, always prepend an empty layer.
     empty_layer_dir = os.path.join(rootfs_cache, "empty")
-    _util.try_mkdir(empty_layer_dir)
+    _util.try_mkdir(empty_layer_dir, recursive=True)
 
-    base_rootfs = cfg.get_rootfs(())
-    layers = [os.path.join(rootfs_cache, base_rootfs.hash + ".tar.zstd")]
-
-    for i in range(len(rootfs.packages)):
-        pkg_rootfs = cfg.get_rootfs(rootfs.packages[: i + 1])
-        layers.append(os.path.join(rootfs_cache, pkg_rootfs.hash + ".tar.zstd"))
-
-    # cbuildrt stacks the first layer on top, so each package layer must precede its parent.
-    return [empty_layer_dir] + layers[::-1]
+    return [empty_layer_dir] + [{"name": name} for name in rootfs.layer_stack]
 
 
 def run_in_cbuildrt(
@@ -2501,15 +2508,12 @@ def prepare_rootfs(cfg, rootfs):
     build_yml = cfg.container_build_yml
 
     rootfs_cache = os.path.join(_util.find_cache_dir(), "rootfs_cache")
-    _util.try_mkdir(rootfs_cache)
+    _util.try_mkdir(rootfs_cache, recursive=True)
 
-    out_tar_path = os.path.join(rootfs_cache, rootfs.hash + ".tar.zstd")
-
-    # Remove existing tar file.
-    try:
-        os.remove(out_tar_path)
-    except FileNotFoundError:
-        pass
+    # Layers are never replaced, so explicitly requested rebuilds have to remove them first.
+    if os.path.isdir(rootfs.layer_path):
+        _util.log_info(f"Removing existing rootfs layer {rootfs.layer_name}")
+        _util.remove_cbuildrt_layer(rootfs.layer_name)
 
     container_environ = {
         "LANG": "C.UTF-8",
@@ -2517,8 +2521,7 @@ def prepare_rootfs(cfg, rootfs):
     }
 
     if rootfs.packages:
-        parent_rootfs = cfg.get_rootfs(rootfs.packages[:-1])
-        lower_dirs = _build_rootfs_layers(cfg, parent_rootfs)
+        lower_dirs = _build_rootfs_layers(rootfs.parent)
 
         _util.log_info("Installing {} into rootfs".format(rootfs.packages[-1]))
         run_in_cbuildrt(
@@ -2527,7 +2530,7 @@ def prepare_rootfs(cfg, rootfs):
             rootfs={
                 "layers": lower_dirs,
                 "withUpper": True,
-                "extractUpper": out_tar_path,
+                "commitUpper": rootfs.layer_name,
             },
             volumes=[
                 {"name": "apt_cache", "destination": "/var/cache/apt/archives"},
@@ -2624,7 +2627,7 @@ APTEOF
                 rootfs={
                     "layers": [empty_layer_dir],
                     "withUpper": True,
-                    "extractUpper": out_tar_path,
+                    "commitUpper": rootfs.layer_name,
                     "importUpper": base_tar,
                 },
                 volumes=[
@@ -2632,6 +2635,13 @@ APTEOF
                 ],
                 environ=container_environ,
             )
+
+    # Old cbuildrt versions silently ignore commitUpper.
+    if not os.path.isdir(rootfs.layer_path):
+        raise GenericError(
+            f"cbuildrt did not create rootfs layer {rootfs.layer_name}; xbstrap needs a cbuildrt"
+            " with commitUpper support (try `xbstrap prereqs cbuildrt`)"
+        )
 
 
 def run_program(
@@ -2936,7 +2946,7 @@ def run_program(
 
             if rootfs is None:
                 rootfs = cfg.get_rootfs(rootfs_pkgs)
-                rootfs = {"layers": _build_rootfs_layers(cfg, rootfs)}
+                rootfs = {"layers": _build_rootfs_layers(rootfs)}
 
             manifest["source_root"] = build_yml["src_mount"]
             manifest["build_root"] = build_yml["build_mount"]
