@@ -918,20 +918,34 @@ class Config:
             yield pkg
 
     def get_rootfs(self, packages):
-        container_yml = self._root_yml.get("container", {})
-        suite = container_yml.get("suite", "")
-        snapshot = container_yml.get("snapshot", "")
         sorted_pkgs = tuple(sorted(set(packages)))
 
+        # Each package layer is installed on top of the rootfs with one package less.
         hasher = hashlib.sha256()
-        hasher.update(b"debian\0")
-        hasher.update(suite.encode() + b"\0")
-        hasher.update(snapshot.encode() + b"\0")
-        hasher.update("\0".join(sorted_pkgs).encode())
+        if sorted_pkgs:
+            parent = self.get_rootfs(sorted_pkgs[:-1])
+            hasher.update(b"layer\0")
+            hasher.update(parent.hash.encode() + b"\0")
+            hasher.update(sorted_pkgs[-1].encode())
+        else:
+            parent = None
+            container_yml = self._root_yml.get("container", {})
+            suite = container_yml.get("suite", "")
+            snapshot = container_yml.get("snapshot", "")
+            base_pkgs = sorted(set(container_yml.get("base_packages", [])))
+            # The rootfs contains the mount points since the container cannot create them.
+            build_yml = self.container_build_yml
+            hasher.update(b"debian\0")
+            hasher.update(f"{ROOTFS_FORMAT_VERSION}\0".encode())
+            hasher.update(suite.encode() + b"\0")
+            hasher.update(snapshot.encode() + b"\0")
+            hasher.update(build_yml.get("src_mount", "").encode() + b"\0")
+            hasher.update(build_yml.get("build_mount", "").encode() + b"\0")
+            hasher.update("\0".join(base_pkgs).encode())
         digest = hasher.hexdigest()
 
         if digest not in self._rootfs_cache:
-            rootfs = RootFs(sorted_pkgs, digest)
+            rootfs = RootFs(sorted_pkgs, digest, parent)
             self._rootfs_cache[digest] = rootfs
 
         return self._rootfs_cache[digest]
@@ -2347,10 +2361,15 @@ def execute_manifest(manifest):
 # ---
 
 
+# Bump whenever prepare_rootfs() changes the contents of the rootfs.
+ROOTFS_FORMAT_VERSION = 1
+
+
 class RootFs:
-    def __init__(self, packages, hash):
+    def __init__(self, packages, hash, parent):
         self.packages = tuple(sorted(set(packages)))
         self.hash = hash
+        self.parent = parent
 
         if self.packages:
             self._name = self.packages[-1]
