@@ -2,6 +2,7 @@
 
 import collections
 import errno
+import fcntl
 import filecmp
 import hashlib
 import json
@@ -14,6 +15,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 import urllib.request
 import zipfile
 from enum import Enum
@@ -918,20 +920,34 @@ class Config:
             yield pkg
 
     def get_rootfs(self, packages):
-        container_yml = self._root_yml.get("container", {})
-        suite = container_yml.get("suite", "")
-        snapshot = container_yml.get("snapshot", "")
         sorted_pkgs = tuple(sorted(set(packages)))
 
+        # Each package layer is installed on top of the rootfs with one package less.
         hasher = hashlib.sha256()
-        hasher.update(b"debian\0")
-        hasher.update(suite.encode() + b"\0")
-        hasher.update(snapshot.encode() + b"\0")
-        hasher.update("\0".join(sorted_pkgs).encode())
+        if sorted_pkgs:
+            parent = self.get_rootfs(sorted_pkgs[:-1])
+            hasher.update(b"layer\0")
+            hasher.update(parent.hash.encode() + b"\0")
+            hasher.update(sorted_pkgs[-1].encode())
+        else:
+            parent = None
+            container_yml = self._root_yml.get("container", {})
+            suite = container_yml.get("suite", "")
+            snapshot = container_yml.get("snapshot", "")
+            base_pkgs = sorted(set(container_yml.get("base_packages", [])))
+            # The rootfs contains the mount points since the container cannot create them.
+            build_yml = self.container_build_yml
+            hasher.update(b"debian\0")
+            hasher.update(f"{ROOTFS_FORMAT_VERSION}\0".encode())
+            hasher.update(suite.encode() + b"\0")
+            hasher.update(snapshot.encode() + b"\0")
+            hasher.update(build_yml.get("src_mount", "").encode() + b"\0")
+            hasher.update(build_yml.get("build_mount", "").encode() + b"\0")
+            hasher.update("\0".join(base_pkgs).encode())
         digest = hasher.hexdigest()
 
         if digest not in self._rootfs_cache:
-            rootfs = RootFs(sorted_pkgs, digest)
+            rootfs = RootFs(sorted_pkgs, digest, parent)
             self._rootfs_cache[digest] = rootfs
 
         return self._rootfs_cache[digest]
@@ -2347,10 +2363,19 @@ def execute_manifest(manifest):
 # ---
 
 
+# Bump whenever prepare_rootfs() changes the contents of the rootfs.
+ROOTFS_FORMAT_VERSION = 1
+
+# gc keeps the most recently used rootfs layers and all layers that were used recently.
+ROOTFS_KEEP_RECENT = 3
+ROOTFS_MAX_UNUSED_DAYS = 7
+
+
 class RootFs:
-    def __init__(self, packages, hash):
+    def __init__(self, packages, hash, parent):
         self.packages = tuple(sorted(set(packages)))
         self.hash = hash
+        self.parent = parent
 
         if self.packages:
             self._name = self.packages[-1]
@@ -2369,11 +2394,63 @@ class RootFs:
     def name(self):
         return self._name
 
-    def check_if_prepared(self, _, cfg):
-        rootfs_cache = os.path.join(_util.find_cache_dir(), "rootfs_cache")
-        rootfs_tar_path = os.path.join(rootfs_cache, self.hash + ".tar.zstd")
+    @property
+    def layer_name(self):
+        return "rootfs-" + self.hash
 
-        return ItemState(missing=not os.path.exists(rootfs_tar_path))
+    @property
+    def layer_path(self):
+        return os.path.join(_util.find_cbuildrt_workspace(), "layers", self.layer_name)
+
+    # Names of the cbuildrt layers that make up this rootfs, topmost first.
+    @property
+    def layer_stack(self):
+        stack = []
+        rootfs = self
+        while rootfs is not None:
+            stack.append(rootfs.layer_name)
+            rootfs = rootfs.parent
+        return stack
+
+    def check_if_prepared(self, _, cfg):
+        # Mark the rootfs as used early such that gc does not remove it while the plan runs.
+        return ItemState(missing=not use_rootfs(self))
+
+
+def _ensure_rootfs_cache():
+    rootfs_cache = os.path.join(_util.find_cache_dir(), "rootfs_cache")
+    _util.try_mkdir(rootfs_cache, recursive=True)
+    return rootfs_cache
+
+
+# The mtime of the metadata file records when the rootfs was last used.
+def touch_rootfs(rootfs):
+    metadata_path = os.path.join(_ensure_rootfs_cache(), rootfs.hash + ".json")
+    try:
+        os.utime(metadata_path)
+        return
+    except FileNotFoundError:
+        pass
+    metadata = {
+        "layer": rootfs.layer_name,
+        "parent": rootfs.parent.hash if rootfs.parent is not None else None,
+        "packages": list(rootfs.packages),
+    }
+    with tempfile.NamedTemporaryFile(
+        "w", dir=os.path.dirname(metadata_path), suffix=".tmp", delete=False
+    ) as f:
+        json.dump(metadata, f)
+    os.replace(f.name, metadata_path)
+
+
+# Marks the rootfs as used if it exists. gc holds the lock exclusively, so it cannot remove the
+# layer between our check and our touch.
+def use_rootfs(rootfs):
+    with _util.lock_directory(_ensure_rootfs_cache(), fcntl.LOCK_SH):
+        if not os.path.isdir(rootfs.layer_path):
+            return False
+        touch_rootfs(rootfs)
+        return True
 
 
 # Build the initial file system that debootstrap runs on.
@@ -2393,22 +2470,15 @@ def _build_rootfs_seed_tar(tar_path):
 
 
 # Build the cbuildrt lower layer configuration for a given rootfs.
-def _build_rootfs_layers(cfg, rootfs):
+def _build_rootfs_layers(rootfs):
     rootfs_cache = os.path.join(_util.find_cache_dir(), "rootfs_cache")
 
     # OverlayFS requires at least two lower layers when no upper layer is used.
     # Hence, always prepend an empty layer.
     empty_layer_dir = os.path.join(rootfs_cache, "empty")
-    _util.try_mkdir(empty_layer_dir)
+    _util.try_mkdir(empty_layer_dir, recursive=True)
 
-    base_rootfs = cfg.get_rootfs(())
-    layers = [empty_layer_dir, os.path.join(rootfs_cache, base_rootfs.hash + ".tar.zstd")]
-
-    for i in range(len(rootfs.packages)):
-        pkg_rootfs = cfg.get_rootfs(rootfs.packages[: i + 1])
-        layers.append(os.path.join(rootfs_cache, pkg_rootfs.hash + ".tar.zstd"))
-
-    return layers
+    return [empty_layer_dir] + [{"name": name} for name in rootfs.layer_stack]
 
 
 def run_in_cbuildrt(
@@ -2480,16 +2550,15 @@ def prepare_rootfs(cfg, rootfs):
 
     build_yml = cfg.container_build_yml
 
-    rootfs_cache = os.path.join(_util.find_cache_dir(), "rootfs_cache")
-    _util.try_mkdir(rootfs_cache)
+    rootfs_cache = _ensure_rootfs_cache()
 
-    out_tar_path = os.path.join(rootfs_cache, rootfs.hash + ".tar.zstd")
+    # Layers are never replaced, so explicitly requested rebuilds have to remove them first.
+    if os.path.isdir(rootfs.layer_path):
+        _util.log_info(f"Removing existing rootfs layer {rootfs.layer_name}")
+        _util.remove_cbuildrt_layer(rootfs.layer_name)
 
-    # Remove existing tar file.
-    try:
-        os.remove(out_tar_path)
-    except FileNotFoundError:
-        pass
+    # Write the metadata first such that gc also cleans up after interrupted runs.
+    touch_rootfs(rootfs)
 
     container_environ = {
         "LANG": "C.UTF-8",
@@ -2497,8 +2566,7 @@ def prepare_rootfs(cfg, rootfs):
     }
 
     if rootfs.packages:
-        parent_rootfs = cfg.get_rootfs(rootfs.packages[:-1])
-        lower_dirs = _build_rootfs_layers(cfg, parent_rootfs)
+        lower_dirs = _build_rootfs_layers(rootfs.parent)
 
         _util.log_info("Installing {} into rootfs".format(rootfs.packages[-1]))
         run_in_cbuildrt(
@@ -2507,7 +2575,7 @@ def prepare_rootfs(cfg, rootfs):
             rootfs={
                 "layers": lower_dirs,
                 "withUpper": True,
-                "extractUpper": out_tar_path,
+                "commitUpper": rootfs.layer_name,
             },
             volumes=[
                 {"name": "apt_cache", "destination": "/var/cache/apt/archives"},
@@ -2604,7 +2672,7 @@ APTEOF
                 rootfs={
                     "layers": [empty_layer_dir],
                     "withUpper": True,
-                    "extractUpper": out_tar_path,
+                    "commitUpper": rootfs.layer_name,
                     "importUpper": base_tar,
                 },
                 volumes=[
@@ -2612,6 +2680,19 @@ APTEOF
                 ],
                 environ=container_environ,
             )
+
+    # Old cbuildrt versions silently ignore commitUpper.
+    if not os.path.isdir(rootfs.layer_path):
+        raise GenericError(
+            f"cbuildrt did not create rootfs layer {rootfs.layer_name}; xbstrap needs a cbuildrt"
+            " with commitUpper support (try `xbstrap prereqs cbuildrt`)"
+        )
+
+    # The cache only grows when we prepare a rootfs, so this is a good time to shrink it.
+    try:
+        gc_rootfs()
+    except Exception as e:
+        _util.log_warn(f"Failed to remove unused rootfs layers: {e}")
 
 
 def run_program(
@@ -2916,7 +2997,12 @@ def run_program(
 
             if rootfs is None:
                 rootfs = cfg.get_rootfs(rootfs_pkgs)
-                rootfs = {"layers": _build_rootfs_layers(cfg, rootfs)}
+                # Not all programs run as part of a plan (e.g., runtool), so mark the rootfs here.
+                used = rootfs
+                while used is not None:
+                    use_rootfs(used)
+                    used = used.parent
+                rootfs = {"layers": _build_rootfs_layers(rootfs)}
 
             manifest["source_root"] = build_yml["src_mount"]
             manifest["build_root"] = build_yml["build_mount"]
@@ -3641,6 +3727,73 @@ def gc_sysroot_volumes(*, dry_run=False):
 
     if would_remove:
         _util.log_info("Pass -f to remove these volumes")
+
+
+def gc_rootfs(*, dry_run=False):
+    rootfs_cache = os.path.join(_util.find_cache_dir(), "rootfs_cache")
+    if not os.path.isdir(rootfs_cache):
+        return
+
+    max_unused = ROOTFS_MAX_UNUSED_DAYS * 86400
+
+    def unused_for(metadata_path):
+        return time.time() - os.stat(metadata_path).st_mtime
+
+    would_remove = False
+    with _util.lock_directory(rootfs_cache):
+        layers = set()
+        if os.path.exists(os.path.join(_util.find_cbuildrt_workspace(), "workspace.json")):
+            layers = set(_util.list_cbuildrt_layers())
+
+        entries = dict()
+        for fname in os.listdir(rootfs_cache):
+            if not fname.endswith(".json"):
+                continue
+            metadata_path = os.path.join(rootfs_cache, fname)
+            with open(metadata_path) as f:
+                entries[fname[: -len(".json")]] = (metadata_path, json.load(f))
+
+        for name in sorted(layers):
+            if name.startswith("rootfs-") and name[len("rootfs-") :] not in entries:
+                _util.log_warn(f"Rootfs layer {name} is not tracked by xbstrap")
+
+        # Metadata without a layer (preparation failed or in progress) does not count as recent.
+        by_recency = sorted(entries, key=lambda h: unused_for(entries[h][0]))
+        prepared = [h for h in by_recency if entries[h][1]["layer"] in layers]
+        keep = set(prepared[:ROOTFS_KEEP_RECENT])
+        for h in by_recency:
+            if unused_for(entries[h][0]) < max_unused:
+                keep.add(h)
+        # Package layers are useless without their parents.
+        for h in list(keep):
+            parent = entries[h][1]["parent"]
+            while parent is not None and parent in entries:
+                keep.add(parent)
+                parent = entries[parent][1]["parent"]
+
+        for h in by_recency:
+            if h in keep:
+                continue
+            metadata_path, metadata = entries[h]
+            layer = metadata["layer"]
+            # Plans that start using the rootfs touch it without taking our lock.
+            if unused_for(metadata_path) < max_unused:
+                continue
+            days = int(unused_for(metadata_path) // 86400)
+            if dry_run:
+                _util.log_info(f"Would remove rootfs layer {layer} (unused for {days} days)")
+                would_remove = True
+                continue
+            _util.log_info(f"Removing rootfs layer {layer} (unused for {days} days)")
+            try:
+                if layer in layers:
+                    _util.remove_cbuildrt_layer(layer)
+                os.unlink(metadata_path)
+            except subprocess.CalledProcessError:
+                _util.log_warn(f"Failed to remove rootfs layer {layer}")
+
+    if would_remove:
+        _util.log_info("Pass -f to remove these rootfs layers")
 
 
 def archive_pkg(cfg, build):
