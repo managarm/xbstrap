@@ -818,6 +818,18 @@ def do_list_tools(args):
 do_list_tools.parser = main_subparsers.add_parser("list-tools")
 
 
+def do_list_rootfses(args):
+    cfg = config_for_args(args)
+    for rootfs in cfg.all_rootfses():
+        print(rootfs.name, rootfs.version)
+
+
+do_list_rootfses.parser = main_subparsers.add_parser(
+    "list-rootfses", help="print the name and version of each rootfs"
+)
+do_list_rootfses.parser.set_defaults(_impl=do_list_rootfses)
+
+
 def do_list_pkgs(args):
     cfg = config_for_args(args)
     for tool in cfg.all_pkgs():
