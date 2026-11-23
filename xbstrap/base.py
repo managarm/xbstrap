@@ -275,7 +275,8 @@ class Config:
         self._site_archs = set()
         self._cached_repodata = dict()
         self._included_files = set()
-        self._rootfs_cache = dict()
+        self._rootfses = dict()
+        self._default_rootfs = None
         self._sysroot_pkgs = None
 
         self._bootstrap_path = changed_source_root or os.path.join(
@@ -312,6 +313,27 @@ class Config:
             pass
 
         self._parse_yml(root_path, self._root_yml)
+
+        # For backwards compatibility, a rootfs that is specified by the container section
+        # becomes the rootfs "base", which is also the default rootfs.
+        container_yml = self._root_yml.get("container") or {}
+        self._default_rootfs = container_yml.get("default_rootfs")
+        if any(key in container_yml for key in ["suite", "snapshot", "base_packages"]):
+            if "suite" not in container_yml or "snapshot" not in container_yml:
+                raise GenericError("The container section specifies no suite or no snapshot")
+            if "base" in self._rootfses:
+                raise GenericError("Duplicate rootfs base")
+            self._rootfses["base"] = RootFs(
+                self,
+                {
+                    "name": "base",
+                    "suite": container_yml["suite"],
+                    "snapshot": container_yml["snapshot"],
+                    "packages": container_yml.get("base_packages", []),
+                },
+            )
+            if self._default_rootfs is None:
+                self._default_rootfs = "base"
 
         # Collect all architectures that this build uses.
         for tool in self._tool_pkgs.values():
@@ -528,6 +550,13 @@ class Config:
                 if not (filter_tasks is None) and (task.name not in filter_tasks):
                     continue
                 self._tasks[task.name] = task
+
+        if "rootfses" in current_yml and isinstance(current_yml["rootfses"], list):
+            for rootfs_yml in current_yml["rootfses"]:
+                rootfs = RootFs(self, rootfs_yml)
+                if rootfs.name in self._rootfses:
+                    raise GenericError("Duplicate rootfs {}".format(rootfs.name))
+                self._rootfses[rootfs.name] = rootfs
 
     @property
     def patch_author(self):
@@ -919,38 +948,18 @@ class Config:
                 continue
             yield pkg
 
-    def get_rootfs(self, packages):
-        sorted_pkgs = tuple(sorted(set(packages)))
+    def all_rootfses(self):
+        yield from self._rootfses.values()
 
-        # Each package layer is installed on top of the rootfs with one package less.
-        hasher = hashlib.sha256()
-        if sorted_pkgs:
-            parent = self.get_rootfs(sorted_pkgs[:-1])
-            hasher.update(b"layer\0")
-            hasher.update(parent.hash.encode() + b"\0")
-            hasher.update(sorted_pkgs[-1].encode())
-        else:
-            parent = None
-            container_yml = self._root_yml.get("container", {})
-            suite = container_yml.get("suite", "")
-            snapshot = container_yml.get("snapshot", "")
-            base_pkgs = sorted(set(container_yml.get("base_packages", [])))
-            # The rootfs contains the mount points since the container cannot create them.
-            build_yml = self.container_build_yml
-            hasher.update(b"debian\0")
-            hasher.update(f"{ROOTFS_FORMAT_VERSION}\0".encode())
-            hasher.update(suite.encode() + b"\0")
-            hasher.update(snapshot.encode() + b"\0")
-            hasher.update(build_yml.get("src_mount", "").encode() + b"\0")
-            hasher.update(build_yml.get("build_mount", "").encode() + b"\0")
-            hasher.update("\0".join(base_pkgs).encode())
-        digest = hasher.hexdigest()
-
-        if digest not in self._rootfs_cache:
-            rootfs = RootFs(sorted_pkgs, digest, parent)
-            self._rootfs_cache[digest] = rootfs
-
-        return self._rootfs_cache[digest]
+    # Tools, packages and tasks that do not select a rootfs use the default one.
+    def get_rootfs(self, name=None):
+        if name is None:
+            name = self._default_rootfs
+            if name is None:
+                raise GenericError("bootstrap.yml does not specify a default_rootfs")
+        if name not in self._rootfses:
+            raise GenericError(f"Unknown rootfs {name}")
+        return self._rootfses[name]
 
 
 class ScriptStep:
@@ -1392,9 +1401,8 @@ class Source(RequirementsMixin):
         yield from self._regenerate_steps
 
     @property
-    def rootfs_packages(self):
-        if "rootfs_packages" in self._this_yml:
-            yield from self._this_yml["rootfs_packages"]
+    def rootfs_name(self):
+        return None
 
     def check_if_fetched(self, settings):
         s = _vcs_utils.check_repo(self, self.sub_dir, check_remotes=settings.check_remotes)
@@ -1698,9 +1706,8 @@ class HostPackage(RequirementsMixin):
         yield from self._configure_steps
 
     @property
-    def rootfs_packages(self):
-        if "rootfs_packages" in self._this_yml:
-            yield from self._this_yml["rootfs_packages"]
+    def rootfs_name(self):
+        return self._this_yml.get("rootfs")
 
     def compute_version(self, **kwargs):
         source = self._cfg.get_source(self.source)
@@ -1870,9 +1877,8 @@ class Build(RequirementsMixin):
         yield from self._build_steps
 
     @property
-    def rootfs_packages(self):
-        if "rootfs_packages" in self._this_yml:
-            yield from self._this_yml["rootfs_packages"]
+    def rootfs_name(self):
+        return self._this_yml.get("rootfs")
 
     def compute_version(self, **kwargs):
         source = self._cfg.get_source(self.source)
@@ -2179,9 +2185,8 @@ class RunTask(RequirementsMixin):
             yield ArtifactFile(e["name"], os.path.join(path, e["name"]), architecture)
 
     @property
-    def rootfs_packages(self):
-        if "rootfs_packages" in self._this_yml:
-            yield from self._this_yml["rootfs_packages"]
+    def rootfs_name(self):
+        return self._this_yml.get("rootfs")
 
 
 def execute_manifest(manifest):
@@ -2372,19 +2377,17 @@ ROOTFS_MAX_UNUSED_DAYS = 7
 
 
 class RootFs:
-    def __init__(self, packages, hash, parent):
-        self.packages = tuple(sorted(set(packages)))
-        self.hash = hash
-        self.parent = parent
+    def __init__(self, cfg, rootfs_yml):
+        self._cfg = cfg
+        self._this_yml = rootfs_yml
+        self._name = rootfs_yml["name"]
 
-        if self.packages:
-            self._name = self.packages[-1]
-        else:
-            self._name = "base"
+        if "from" in rootfs_yml:
+            raise GenericError(f"Rootfs {self.name} uses 'from', which is not supported yet")
 
     @property
     def subject_id(self):
-        return SubjectId(SubjectType.ROOTFS, self.hash)
+        return SubjectId(SubjectType.ROOTFS, self.name)
 
     @property
     def subject_type(self):
@@ -2395,6 +2398,40 @@ class RootFs:
         return self._name
 
     @property
+    def suite(self):
+        return self._this_yml["suite"]
+
+    @property
+    def snapshot(self):
+        return self._this_yml["snapshot"]
+
+    @property
+    def packages(self):
+        return sorted(set(self._this_yml.get("packages", [])))
+
+    @property
+    def version(self):
+        revision = self._this_yml.get("revision", 1)
+        if revision < 1:
+            raise GenericError("Rootfs {} specifies a revision < 1".format(self.name))
+
+        return self.snapshot + "_" + str(revision)
+
+    @property
+    def hash(self):
+        # The rootfs contains the mount points since the container cannot create them.
+        build_yml = self._cfg.container_build_yml
+        hasher = hashlib.sha256()
+        hasher.update(b"debian\0")
+        hasher.update(f"{ROOTFS_FORMAT_VERSION}\0".encode())
+        hasher.update(self.suite.encode() + b"\0")
+        hasher.update(self.snapshot.encode() + b"\0")
+        hasher.update(build_yml.get("src_mount", "").encode() + b"\0")
+        hasher.update(build_yml.get("build_mount", "").encode() + b"\0")
+        hasher.update("\0".join(self.packages).encode())
+        return hasher.hexdigest()
+
+    @property
     def layer_name(self):
         return "rootfs-" + self.hash
 
@@ -2402,17 +2439,7 @@ class RootFs:
     def layer_path(self):
         return os.path.join(_util.find_cbuildrt_workspace(), "layers", self.layer_name)
 
-    # Names of the cbuildrt layers that make up this rootfs, topmost first.
-    @property
-    def layer_stack(self):
-        stack = []
-        rootfs = self
-        while rootfs is not None:
-            stack.append(rootfs.layer_name)
-            rootfs = rootfs.parent
-        return stack
-
-    def check_if_prepared(self, _, cfg):
+    def check_if_prepared(self, settings):
         # Mark the rootfs as used early such that gc does not remove it while the plan runs.
         return ItemState(missing=not use_rootfs(self))
 
@@ -2433,8 +2460,9 @@ def touch_rootfs(rootfs):
         pass
     metadata = {
         "layer": rootfs.layer_name,
-        "parent": rootfs.parent.hash if rootfs.parent is not None else None,
-        "packages": list(rootfs.packages),
+        "parent": None,
+        "name": rootfs.name,
+        "version": rootfs.version,
     }
     with tempfile.NamedTemporaryFile(
         "w", dir=os.path.dirname(metadata_path), suffix=".tmp", delete=False
@@ -2478,7 +2506,7 @@ def _build_rootfs_layers(rootfs):
     empty_layer_dir = os.path.join(rootfs_cache, "empty")
     _util.try_mkdir(empty_layer_dir, recursive=True)
 
-    return [empty_layer_dir] + [{"name": name} for name in rootfs.layer_stack]
+    return [empty_layer_dir, {"name": rootfs.layer_name}]
 
 
 def run_in_cbuildrt(
@@ -2565,121 +2593,97 @@ def prepare_rootfs(cfg, rootfs):
         "DEBIAN_FRONTEND": "noninteractive",
     }
 
-    if rootfs.packages:
-        lower_dirs = _build_rootfs_layers(rootfs.parent)
+    src_mount = build_yml.get("src_mount")
+    build_mount = build_yml.get("build_mount")
 
-        _util.log_info("Installing {} into rootfs".format(rootfs.packages[-1]))
+    if src_mount.startswith("/"):
+        src_mount = src_mount[1:]
+    if build_mount.startswith("/"):
+        build_mount = build_mount[1:]
+
+    # OverlayFS needs at least one lowerdir.
+    empty_layer_dir = os.path.join(rootfs_cache, "empty")
+    _util.try_mkdir(empty_layer_dir)
+
+    host_environ = os.environ.copy()
+    host_environ["DEBOOTSTRAP_DIR"] = os.path.join(_util.find_home(), "debootstrap")
+
+    # debootstrap is installed in ~/.xbstrap/bin, so we need PATH to include it.
+    _util.build_environ_paths(
+        host_environ,
+        "PATH",
+        prepend=[os.path.join(_util.find_home(), "bin"), "/sbin"],
+    )
+
+    with tempfile.TemporaryDirectory() as scratch:
+        seed_tar = os.path.join(scratch, "seed.tar")
+        base_tar = os.path.join(scratch, "base.tar")
+        _build_rootfs_seed_tar(seed_tar)
+
+        # Run debootstrap via cbuildrt with noChroot + noSystemMounts.
+        _util.log_info("Building base rootfs")
         run_in_cbuildrt(
             cfg,
-            args=["apt-get", "install", "-y", rootfs.packages[-1]],
+            args=[
+                "debootstrap",
+                rootfs.suite,
+                ".",
+                f"https://snapshot.debian.org/archive/debian/{rootfs.snapshot}",
+            ],
             rootfs={
-                "layers": lower_dirs,
+                "layers": [empty_layer_dir],
                 "withUpper": True,
-                "commitUpper": rootfs.layer_name,
+                "extractUpper": base_tar,
+                "importUpper": seed_tar,
             },
+            no_chroot_or_mounts=True,
             volumes=[
                 {"name": "apt_cache", "destination": "/var/cache/apt/archives"},
             ],
-            environ=container_environ,
-        )
-    else:
-        container_yml = cfg._root_yml.get("container", dict())
-
-        suite = container_yml["suite"]
-        snapshot = container_yml["snapshot"]
-
-        src_mount = build_yml.get("src_mount")
-        build_mount = build_yml.get("build_mount")
-
-        if src_mount.startswith("/"):
-            src_mount = src_mount[1:]
-        if build_mount.startswith("/"):
-            build_mount = build_mount[1:]
-
-        # OverlayFS needs at least one lowerdir.
-        empty_layer_dir = os.path.join(rootfs_cache, "empty")
-        _util.try_mkdir(empty_layer_dir)
-
-        host_environ = os.environ.copy()
-        host_environ["DEBOOTSTRAP_DIR"] = os.path.join(_util.find_home(), "debootstrap")
-
-        # debootstrap is installed in ~/.xbstrap/bin, so we need PATH to include it.
-        _util.build_environ_paths(
-            host_environ,
-            "PATH",
-            prepend=[os.path.join(_util.find_home(), "bin"), "/sbin"],
+            host_environ=host_environ,
         )
 
-        with tempfile.TemporaryDirectory() as scratch:
-            seed_tar = os.path.join(scratch, "seed.tar")
-            base_tar = os.path.join(scratch, "base.tar")
-            _build_rootfs_seed_tar(seed_tar)
+        # Install packages and xbstrap itself.
+        pkgs_str = " ".join(shlex.quote(p) for p in rootfs.packages)
 
-            # Run debootstrap via cbuildrt with noChroot + noSystemMounts.
-            _util.log_info("Building base rootfs")
-            run_in_cbuildrt(
-                cfg,
-                args=[
-                    "debootstrap",
-                    suite,
-                    ".",
-                    f"https://snapshot.debian.org/archive/debian/{snapshot}",
-                ],
-                rootfs={
-                    "layers": [empty_layer_dir],
-                    "withUpper": True,
-                    "extractUpper": base_tar,
-                    "importUpper": seed_tar,
-                },
-                no_chroot_or_mounts=True,
-                volumes=[
-                    {"name": "apt_cache", "destination": "/var/cache/apt/archives"},
-                ],
-                host_environ=host_environ,
-            )
+        script = f"""
+            set -e
 
-            # Install packages and xbstrap itself.
-            base_pkgs = container_yml.get("base_packages", [])
-            base_pkgs_str = " ".join(shlex.quote(p) for p in base_pkgs)
+            printf '%s\\n' 'en_US.UTF-8 UTF-8' > /etc/locale.gen
 
-            script = f"""
-                set -e
-
-                printf '%s\\n' 'en_US.UTF-8 UTF-8' > /etc/locale.gen
-
-                cat > /etc/apt/apt.conf <<APTEOF
+            cat > /etc/apt/apt.conf <<APTEOF
 APT::Install-Suggests "0";
 APT::Install-Recommends "0";
 APT::Sandbox::User "root";
 Acquire::Check-Valid-Until "0";
 APTEOF
 
-                apt-get update -y
-                apt-get install -y locales
-                locale-gen
+            apt-get update -y
+            apt-get install -y locales
+            locale-gen
 
-                apt-get install -y python3 python3-pip {base_pkgs_str}
-                python3 -m pip install --progress-bar off --root-user-action ignore --break-system-packages xbstrap
+            apt-get install -y python3 python3-pip {pkgs_str}
+            python3 -m pip install --progress-bar off --root-user-action ignore --break-system-packages xbstrap
 
-                mkdir -p "$target/{src_mount}"
-                mkdir -p "$target/{build_mount}"
-            """
+            mkdir -p "$target/{src_mount}"
+            mkdir -p "$target/{build_mount}"
+        """
 
-            _util.log_info("Finalizing rootfs")
-            run_in_cbuildrt(
-                cfg,
-                args=["sh", "-c", script],
-                rootfs={
-                    "layers": [empty_layer_dir],
-                    "withUpper": True,
-                    "commitUpper": rootfs.layer_name,
-                    "importUpper": base_tar,
-                },
-                volumes=[
-                    {"name": "apt_cache", "destination": "/var/cache/apt/archives"},
-                ],
-                environ=container_environ,
-            )
+        _util.log_info("Finalizing rootfs")
+        run_in_cbuildrt(
+            cfg,
+            args=["sh", "-c", script],
+            rootfs={
+                "layers": [empty_layer_dir],
+                "withUpper": True,
+                "commitUpper": rootfs.layer_name,
+                "importUpper": base_tar,
+            },
+            volumes=[
+                {"name": "apt_cache", "destination": "/var/cache/apt/archives"},
+            ],
+            environ=container_environ,
+        )
 
     # Old cbuildrt versions silently ignore commitUpper.
     if not os.path.isdir(rootfs.layer_path):
@@ -2756,7 +2760,7 @@ def run_program(
         "option_values": {name: cfg.get_option_value(name) for name in cfg.all_options},
     }
 
-    rootfs_pkgs = []
+    rootfs_name = None
 
     if context == "source":
         manifest["subject"] = {"source_subdir": subject.source_subdir}
@@ -2769,7 +2773,7 @@ def run_program(
             "prefix_subdir": subject.prefix_subdir,
         }
         manifest["source_date_epoch"] = src.source_date_epoch
-        rootfs_pkgs = list(subject.rootfs_packages)
+        rootfs_name = subject.rootfs_name
     elif context == "tool-stage":
         tool = subject.pkg
         src = cfg.get_source(tool.source)
@@ -2779,7 +2783,7 @@ def run_program(
             "prefix_subdir": tool.prefix_subdir,
         }
         manifest["source_date_epoch"] = src.source_date_epoch
-        rootfs_pkgs = list(tool.rootfs_packages)
+        rootfs_name = tool.rootfs_name
     elif context == "build":
         # TODO: For now we translate "build" -> "pkg".
         #       This is a workaround for compatibility with old execute-manifest.
@@ -2792,7 +2796,7 @@ def run_program(
             "collect_subdir": subject.collect_subdir,
         }
         manifest["source_date_epoch"] = src.source_date_epoch
-        rootfs_pkgs = list(subject.rootfs_packages)
+        rootfs_name = subject.rootfs_name
     elif context == "tool-task":
         tool = subject.pkg
         src = cfg.get_source(tool.source)
@@ -2811,9 +2815,9 @@ def run_program(
             "collect_subdir": build.collect_subdir,
         }
         manifest["source_date_epoch"] = src.source_date_epoch
-        rootfs_pkgs = list(build.rootfs_packages)
+        rootfs_name = build.rootfs_name
     elif context == "task":
-        rootfs_pkgs = list(subject.rootfs_packages)
+        rootfs_name = subject.rootfs_name
 
     for tool in pkg_queue:
         manifest["tools"].append(
@@ -2996,12 +3000,9 @@ def run_program(
                     )
 
             if rootfs is None:
-                rootfs = cfg.get_rootfs(rootfs_pkgs)
+                rootfs = cfg.get_rootfs(rootfs_name)
                 # Not all programs run as part of a plan (e.g., runtool), so mark the rootfs here.
-                used = rootfs
-                while used is not None:
-                    use_rootfs(used)
-                    used = used.parent
+                use_rootfs(rootfs)
                 rootfs = {"layers": _build_rootfs_layers(rootfs)}
 
             manifest["source_root"] = build_yml["src_mount"]
@@ -3764,13 +3765,6 @@ def gc_rootfs(*, dry_run=False):
         for h in by_recency:
             if unused_for(entries[h][0]) < max_unused:
                 keep.add(h)
-        # Package layers are useless without their parents.
-        for h in list(keep):
-            parent = entries[h][1]["parent"]
-            while parent is not None and parent in entries:
-                keep.add(parent)
-                parent = entries[parent][1]["parent"]
-
         for h in by_recency:
             if h in keep:
                 continue
@@ -4147,7 +4141,7 @@ class PlanItem:
             Action.WANT_TOOL: lambda s, c: s.check_if_fully_installed(c),
             Action.WANT_PKG: lambda s, c: s.check_want_pkg(c),
             Action.MIRROR_SRC: lambda s, c: s.check_if_mirrord(c),
-            Action.PREPARE_ROOTFS: lambda s, c: s.check_if_prepared(c, self.plan._cfg),
+            Action.PREPARE_ROOTFS: lambda s, c: s.check_if_prepared(c),
         }
         self._state = visitors[self.action](self.subject, self.settings)
 
@@ -4281,27 +4275,15 @@ class Plan:
             if self.cfg.container_runtime != "cbuildrt" or not self.layered_rootfs:
                 return
 
-            rootfs_id = None
-
-            if isinstance(s, Source):
-                rootfs_id = self._cfg.get_rootfs(s.rootfs_packages)
-            elif isinstance(s, HostStage):
-                rootfs_id = self._cfg.get_rootfs(s.pkg.rootfs_packages)
-            elif isinstance(s, HostPackage):
-                rootfs_id = self._cfg.get_rootfs(s.rootfs_packages)
-            elif isinstance(s, Build):
-                rootfs_id = self._cfg.get_rootfs(s.rootfs_packages)
-            elif isinstance(s, RunTask):
-                rootfs_id = self._cfg.get_rootfs(s.rootfs_packages)
+            if isinstance(s, HostStage):
+                rootfs_name = s.pkg.rootfs_name
             elif isinstance(s, PackageRunTask):
-                build = s.build
-                assert isinstance(build, Build) or isinstance(build, TargetPackage)
-                rootfs_id = self._cfg.get_rootfs(build.rootfs_packages)
+                rootfs_name = s.build.rootfs_name
             else:
-                raise RuntimeError("Unexpected subject type for rootfs dependencies")
+                rootfs_name = s.rootfs_name
 
-            assert rootfs_id is not None
-            item.require_edges.add(PlanKey(Action.PREPARE_ROOTFS, rootfs_id))
+            rootfs = self._cfg.get_rootfs(rootfs_name)
+            item.require_edges.add(PlanKey(Action.PREPARE_ROOTFS, rootfs))
 
         if action == Action.FETCH_SRC:
             # FETCH_SRC has no dependencies.
@@ -4442,11 +4424,7 @@ class Plan:
             add_rootfs_dependencies(subject)
 
         elif action == Action.PREPARE_ROOTFS:
-            packages = subject.packages
-
-            if packages:
-                rootfs_id = self._cfg.get_rootfs(packages[:-1])
-                item.require_edges.add(PlanKey(Action.PREPARE_ROOTFS, rootfs_id))
+            pass
 
         return item
 

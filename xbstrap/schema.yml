@@ -288,10 +288,8 @@ properties:
                 'tasks':
                     type: array
                     items: { $ref: '#/definitions/nested_task' }
-                'rootfs_packages':
-                    type: array
-                    items:
-                        type: string
+                'rootfs':
+                    type: string
     'packages':
         type: array
         items:
@@ -390,10 +388,8 @@ properties:
                             'include':
                                 type: array
                                 items: { type: string }
-                'rootfs_packages':
-                    type: array
-                    items:
-                        type: string
+                'rootfs':
+                    type: string
     'tasks':
         type: array
         items:
@@ -427,15 +423,36 @@ properties:
                 'tools_required': { $ref: '#/definitions/tool_deps' }
                 'pkgs_required': { $ref: '#/definitions/pkg_deps' }
                 'tasks_required': { $ref: '#/definitions/task_deps' }
-                'rootfs_packages':
+                'rootfs':
+                    type: string
+    'rootfses':
+        type: array
+        items:
+            type: object
+            additionalProperties: false
+            required: ['name', 'suite', 'snapshot']
+            properties:
+                'name':
+                    type: string
+                'from':
+                    type: string
+                'revision':
+                    type: integer
+                'suite':
+                    type: string
+                'snapshot':
+                    type: string
+                'packages':
                     type: array
                     items:
                         type: string
     'container':
         type: object
         additionalProperties: false
-        required: ['suite', 'snapshot']
         properties:
+            'default_rootfs':
+                type: string
+            # Deprecated: use rootfses instead.
             'suite':
                 type: string
             'snapshot':

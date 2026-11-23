@@ -674,18 +674,33 @@ do_install.parser = main_subparsers.add_parser(
 )
 
 
+def select_rootfses(cfg, args):
+    if args.all:
+        return list(cfg.all_rootfses())
+    if not args.rootfses:
+        return [cfg.get_rootfs()]
+    return [cfg.get_rootfs(name) for name in args.rootfses]
+
+
+select_rootfses.parser = argparse.ArgumentParser(add_help=False)
+select_rootfses.parser.add_argument("--all", action="store_true", help="select all rootfses")
+select_rootfses.parser.add_argument(
+    "rootfses", nargs="*", type=str, help="names of rootfses (default: the default rootfs)"
+)
+
+
 def do_prepare_rootfs(args):
     cfg = config_for_args(args)
     plan = xbstrap.base.Plan(cfg)
     handle_plan_args(cfg, plan, args)
-    rootfs = cfg.get_rootfs([])
-    plan.wanted.add((xbstrap.base.Action.PREPARE_ROOTFS, rootfs))
+    sel = select_rootfses(cfg, args)
+    plan.wanted.update([(xbstrap.base.Action.PREPARE_ROOTFS, rootfs) for rootfs in sel])
     plan.run_plan()
 
 
 do_prepare_rootfs.parser = main_subparsers.add_parser(
     "prepare-rootfs",
-    parents=[handle_plan_args.parser],
+    parents=[handle_plan_args.parser, select_rootfses.parser],
 )
 do_prepare_rootfs.parser.set_defaults(_impl=do_prepare_rootfs)
 
