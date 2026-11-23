@@ -199,6 +199,8 @@ properties:
                   - type: object
                     additionalProperties:
                         type: string
+            'rootfs_archives':
+                type: string
             'xbps':
                 oneOf:
                   - type: string

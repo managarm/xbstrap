@@ -5,6 +5,7 @@ import errno
 import fcntl
 import filecmp
 import hashlib
+import http.client
 import json
 import os
 import re
@@ -278,6 +279,7 @@ class Config:
         self._included_files = set()
         self._rootfses = dict()
         self._default_rootfs = None
+        self.rootfs_archives_override = None
         self._sysroot_pkgs = None
 
         self._bootstrap_path = changed_source_root or os.path.join(
@@ -613,6 +615,15 @@ class Config:
             return archive_yml.get(arch)
         else:
             raise RuntimeError("xbps repo specification must be dict or string")
+
+    # Build servers override the repository since they pull from the repository of their build.
+    @property
+    def rootfs_archives_url(self):
+        if self.rootfs_archives_override is not None:
+            return self.rootfs_archives_override
+        if "repositories" not in self._root_yml:
+            return None
+        return self._root_yml["repositories"].get("rootfs_archives", None)
 
     @property
     def auto_pull(self):
@@ -2548,8 +2559,10 @@ def hash_rootfs_tarball(tar_path):
 
 
 # Adds a rootfs tarball to the rootfs cache and returns its hash.
-def store_rootfs(tar_path):
+def store_rootfs(tar_path, *, expected_digest=None):
     digest = hash_rootfs_tarball(tar_path)
+    if expected_digest is not None and digest != expected_digest:
+        raise GenericError(f"Rootfs tarball has hash {digest} instead of {expected_digest}")
     with _util.lock_directory(_ensure_rootfs_cache(), fcntl.LOCK_SH):
         # Tarballs with the same contents may differ in their compression.
         added = not os.path.exists(rootfs_tarball_path(digest))
@@ -2793,6 +2806,69 @@ def archive_rootfs(cfg, rootfs):
         json.dump(record, f)
         os.fchmod(f.fileno(), 0o644)
     os.replace(f.name, rootfs.archive_metadata_file)
+
+
+def pull_rootfs(cfg, rootfs):
+    _util.try_mkdir(cfg.rootfs_archive_dir)
+
+    # Archives that are already in the build directory (e.g., from a CI cache) are not downloaded.
+    # Downloaded files do not stay in the build directory: the tarball ends up in the rootfs
+    # cache and the metadata in the record.
+    downloads = []
+
+    def download(path):
+        if os.path.exists(path):
+            return
+        if cfg.rootfs_archives_url is None:
+            raise GenericError(
+                f"There is no rootfs_archives repository to pull rootfs {rootfs.name} from"
+                " (try `xbstrap prepare-rootfs`)"
+            )
+        url = urllib.parse.urljoin(cfg.rootfs_archives_url + "/", os.path.basename(path))
+        _util.log_info("Downloading rootfs {} from {}".format(rootfs.name, url))
+        downloads.append(path)
+        try:
+            _util.interactive_download(url, path)
+        except (OSError, http.client.HTTPException) as e:
+            raise GenericError(f"Failed to download {url}: {e}")
+
+    # Removes the broken archive such that the next pull does not use it again.
+    def broken(e):
+        try_unlink(rootfs.archive_file)
+        try_unlink(rootfs.archive_metadata_file)
+        return GenericError(f"Rootfs archive {rootfs.archive_metadata_file} is broken: {e}")
+
+    try:
+        download(rootfs.archive_metadata_file)
+        try:
+            with open(rootfs.archive_metadata_file) as f:
+                metadata = json.load(f)
+            if metadata["name"] != rootfs.name or metadata["version"] != rootfs.version:
+                raise GenericError(
+                    "it describes version {} of rootfs {}".format(
+                        metadata["version"], metadata["name"]
+                    )
+                )
+            # The hash becomes part of file names.
+            digest = metadata["hash"]
+            if not re.fullmatch("[0-9a-f]{64}", digest):
+                raise GenericError("it does not contain a hash")
+        except (KeyError, TypeError, ValueError, GenericError) as e:
+            raise broken(e)
+
+        # Tarballs that are already in the rootfs cache are not downloaded.
+        if not use_rootfs(digest):
+            download(rootfs.archive_file)
+            try:
+                store_rootfs(rootfs.archive_file, expected_digest=digest)
+            except GenericError as e:
+                raise broken(e)
+
+        rootfs.write_record(metadata)
+    finally:
+        for path in downloads:
+            try_unlink(path)
+            try_unlink(path + ".download")
 
 
 def run_program(
@@ -4089,6 +4165,7 @@ class Action(Enum):
     # System root related actions.
     PREPARE_ROOTFS = 24
     ARCHIVE_ROOTFS = 25
+    PULL_ROOTFS = 26
 
 
 Action.strings = {
@@ -4117,6 +4194,7 @@ Action.strings = {
     Action.MIRROR_SRC: "mirror",
     Action.PREPARE_ROOTFS: "prepare-rootfs",
     Action.ARCHIVE_ROOTFS: "archive-rootfs",
+    Action.PULL_ROOTFS: "pull-rootfs",
 }
 
 
@@ -4268,6 +4346,7 @@ class PlanItem:
             Action.MIRROR_SRC: lambda s, c: s.check_if_mirrord(c),
             Action.PREPARE_ROOTFS: lambda s, c: s.check_if_prepared(c),
             Action.ARCHIVE_ROOTFS: lambda s, c: s.check_if_archived(c),
+            Action.PULL_ROOTFS: lambda s, c: s.check_if_prepared(c),
         }
         self._state = visitors[self.action](self.subject, self.settings)
 
@@ -4409,7 +4488,11 @@ class Plan:
                 rootfs_name = s.rootfs_name
 
             rootfs = self._cfg.get_rootfs(rootfs_name)
-            item.require_edges.add(PlanKey(Action.PREPARE_ROOTFS, rootfs))
+            # Like tools outside of the build scope, rootfses are pulled instead of built.
+            if self.pull_out_of_scope and rootfs not in self.build_scope:
+                item.require_edges.add(PlanKey(Action.PULL_ROOTFS, rootfs))
+            else:
+                item.require_edges.add(PlanKey(Action.PREPARE_ROOTFS, rootfs))
 
         if action == Action.FETCH_SRC:
             # FETCH_SRC has no dependencies.
@@ -4554,6 +4637,9 @@ class Plan:
 
         elif action == Action.ARCHIVE_ROOTFS:
             item.build_edges.add(PlanKey(Action.PREPARE_ROOTFS, subject))
+
+        elif action == Action.PULL_ROOTFS:
+            pass
 
         return item
 
@@ -4746,6 +4832,8 @@ class Plan:
                 Action.CONFIGURE_PKG,
                 Action.BUILD_PKG,
                 Action.REPRODUCE_BUILD_PKG,
+                Action.PREPARE_ROOTFS,
+                Action.ARCHIVE_ROOTFS,
             }:
                 scope.add(subject)
 
@@ -5006,6 +5094,8 @@ class Plan:
                     prepare_rootfs(self._cfg, subject)
                 elif action == Action.ARCHIVE_ROOTFS:
                     archive_rootfs(self._cfg, subject)
+                elif action == Action.PULL_ROOTFS:
+                    pull_rootfs(self._cfg, subject)
                 else:
                     raise AssertionError("Unexpected action")
                 item.exec_status = ExecutionStatus.SUCCESS

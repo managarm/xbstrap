@@ -765,6 +765,28 @@ pull_pack_parser = main_subparsers.add_parser(
 )
 pull_pack_parser.set_defaults(_impl=do_pull_pack)
 
+
+def do_pull_rootfs(args):
+    cfg = config_for_args(args)
+    cfg.rootfs_archives_override = args.repository_url
+    plan = xbstrap.base.Plan(cfg)
+    handle_plan_args(cfg, plan, args)
+    sel = select_rootfses(cfg, args)
+    plan.wanted.update([(xbstrap.base.Action.PULL_ROOTFS, rootfs) for rootfs in sel])
+    plan.run_plan()
+
+
+do_pull_rootfs.parser = main_subparsers.add_parser(
+    "pull-rootfs",
+    parents=[handle_plan_args.parser, select_rootfses.parser],
+)
+do_pull_rootfs.parser.add_argument(
+    "--repository-url",
+    type=str,
+    help="pull from this repository instead of repositories.rootfs_archives",
+)
+do_pull_rootfs.parser.set_defaults(_impl=do_pull_rootfs)
+
 # ----------------------------------------------------------------------------------------
 
 
