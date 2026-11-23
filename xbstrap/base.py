@@ -656,6 +656,12 @@ class Config:
             self.sysroot_dir
         )
 
+    # True if xbstrap builds the rootfses that containers run in.
+    @property
+    def builds_rootfses(self):
+        site_container_yml = self._site_yml.get("container") or {}
+        return self.container_runtime == "cbuildrt" and "rootfs" not in site_container_yml
+
     @property
     def container_build_yml(self):
         site_container_yml = self._site_yml.get("container") or {}
@@ -4166,6 +4172,7 @@ class Action(Enum):
     PREPARE_ROOTFS = 24
     ARCHIVE_ROOTFS = 25
     PULL_ROOTFS = 26
+    WANT_ROOTFS = 27
 
 
 Action.strings = {
@@ -4195,6 +4202,7 @@ Action.strings = {
     Action.PREPARE_ROOTFS: "prepare-rootfs",
     Action.ARCHIVE_ROOTFS: "archive-rootfs",
     Action.PULL_ROOTFS: "pull-rootfs",
+    Action.WANT_ROOTFS: "want-rootfs",
 }
 
 
@@ -4239,6 +4247,7 @@ class PlanItem:
     def get_ordering_key(item):
         # Pull packages as early as possible, install them as late as possible.
         action_to_prio = {
+            Action.WANT_ROOTFS: -2,
             Action.WANT_TOOL: -2,
             Action.WANT_PKG: -1,
             Action.PULL_PKG_PACK: -1,
@@ -4347,6 +4356,7 @@ class PlanItem:
             Action.PREPARE_ROOTFS: lambda s, c: s.check_if_prepared(c),
             Action.ARCHIVE_ROOTFS: lambda s, c: s.check_if_archived(c),
             Action.PULL_ROOTFS: lambda s, c: s.check_if_prepared(c),
+            Action.WANT_ROOTFS: lambda s, c: s.check_if_prepared(c),
         }
         self._state = visitors[self.action](self.subject, self.settings)
 
@@ -4409,9 +4419,6 @@ class Plan:
 
         if cfg.container_runtime == "cbuildrt":
             self.isolate_sysroots = True
-
-            container_yml = self.cfg._site_yml.get("container", dict())
-            self.layered_rootfs = "rootfs" not in container_yml
 
     @property
     def cfg(self):
@@ -4477,7 +4484,7 @@ class Plan:
                 item.order_before_edges.add(PlanKey(Action.RUN, dep_task))
 
         def add_rootfs_dependencies(s):
-            if self.cfg.container_runtime != "cbuildrt" or not self.layered_rootfs:
+            if not self.cfg.builds_rootfses:
                 return
 
             if isinstance(s, HostStage):
@@ -4489,8 +4496,11 @@ class Plan:
 
             rootfs = self._cfg.get_rootfs(rootfs_name)
             # Like tools outside of the build scope, rootfses are pulled instead of built.
-            if self.pull_out_of_scope and rootfs not in self.build_scope:
-                item.require_edges.add(PlanKey(Action.PULL_ROOTFS, rootfs))
+            if self.build_scope is not None and rootfs not in self.build_scope:
+                if self.pull_out_of_scope:
+                    item.require_edges.add(PlanKey(Action.PULL_ROOTFS, rootfs))
+                else:
+                    item.require_edges.add(PlanKey(Action.WANT_ROOTFS, rootfs))
             else:
                 item.require_edges.add(PlanKey(Action.PREPARE_ROOTFS, rootfs))
 
@@ -4639,6 +4649,9 @@ class Plan:
             item.build_edges.add(PlanKey(Action.PREPARE_ROOTFS, subject))
 
         elif action == Action.PULL_ROOTFS:
+            pass
+
+        elif action == Action.WANT_ROOTFS:
             pass
 
         return item
@@ -4994,6 +5007,8 @@ class Plan:
                     }
                     if action == Action.ARCHIVE_TOOL:
                         yml["architecture"] = subject.architecture
+                    if action == Action.ARCHIVE_ROOTFS:
+                        yml["architecture"] = subject.architecture
                     if action == Action.PACK_PKG:
                         yml["architecture"] = subject.architecture
                     if action == Action.RUN:
@@ -5096,6 +5111,10 @@ class Plan:
                     archive_rootfs(self._cfg, subject)
                 elif action == Action.PULL_ROOTFS:
                     pull_rootfs(self._cfg, subject)
+                elif action == Action.WANT_ROOTFS:
+                    # 'want' actions denote dependencies outside of the build scope.
+                    # If they are activated, the plan fails unconditionally.
+                    raise ExecutionFailureError(action, subject)
                 else:
                     raise AssertionError("Unexpected action")
                 item.exec_status = ExecutionStatus.SUCCESS
