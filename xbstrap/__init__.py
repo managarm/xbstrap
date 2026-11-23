@@ -705,6 +705,22 @@ do_prepare_rootfs.parser = main_subparsers.add_parser(
 do_prepare_rootfs.parser.set_defaults(_impl=do_prepare_rootfs)
 
 
+def do_archive_rootfs(args):
+    cfg = config_for_args(args)
+    plan = xbstrap.base.Plan(cfg)
+    handle_plan_args(cfg, plan, args)
+    sel = select_rootfses(cfg, args)
+    plan.wanted.update([(xbstrap.base.Action.ARCHIVE_ROOTFS, rootfs) for rootfs in sel])
+    plan.run_plan()
+
+
+do_archive_rootfs.parser = main_subparsers.add_parser(
+    "archive-rootfs",
+    parents=[handle_plan_args.parser, select_rootfses.parser],
+)
+do_archive_rootfs.parser.set_defaults(_impl=do_archive_rootfs)
+
+
 def do_archive_tool(args):
     cfg = config_for_args(args)
     sel = select_tools(cfg, args)

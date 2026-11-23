@@ -691,6 +691,10 @@ class Config:
         return os.path.join(self.build_root, "rootfses")
 
     @property
+    def rootfs_archive_dir(self):
+        return os.path.join(self.build_root, "rootfs-archives")
+
+    @property
     def tool_build_subdir(self):
         if (
             "directories" not in self._root_yml
@@ -2443,6 +2447,33 @@ class RootFs:
             json.dump(record, f)
         os.replace(f.name, self.record_file)
 
+    # A rootfs only runs on the architecture of the host that it was built on.
+    @property
+    def architecture(self):
+        return os.uname().machine
+
+    @property
+    def archive_name(self):
+        return "{}-{}.{}".format(self.name, self.version, self.architecture)
+
+    # Archives consist of the tarball of the rootfs and of a metadata file. The metadata is a
+    # separate file such that it can be read without downloading the tarball.
+    @property
+    def archive_file(self):
+        return os.path.join(self._cfg.rootfs_archive_dir, self.archive_name + ".tar.zstd")
+
+    @property
+    def archive_metadata_file(self):
+        return os.path.join(self._cfg.rootfs_archive_dir, self.archive_name + ".json")
+
+    def check_if_archived(self, settings):
+        try:
+            stat = os.stat(self.archive_file)
+            os.stat(self.archive_metadata_file)
+        except FileNotFoundError:
+            return ItemState(missing=True)
+        return ItemState(timestamp=stat.st_mtime)
+
     def check_if_prepared(self, settings):
         record = self.read_record()
         # Mark the rootfs as used early such that gc does not remove it while the plan runs.
@@ -2735,6 +2766,33 @@ APTEOF
         digest = store_rootfs(rootfs_tar)
 
     rootfs.write_record(rootfs.make_metadata(digest))
+
+
+def archive_rootfs(cfg, rootfs):
+    record = rootfs.read_record()
+    if record is None or not use_rootfs(record["hash"]):
+        raise GenericError(f"Rootfs {rootfs.name} is not prepared")
+    # The archive is named after the version in bootstrap.yml.
+    if record["version"] != rootfs.version:
+        raise GenericError(
+            "Rootfs {} is prepared as version {} but bootstrap.yml specifies version {}".format(
+                rootfs.name, record["version"], rootfs.version
+            )
+        )
+
+    # The metadata is removed first and written last such that it always describes the tarball
+    # that is next to it.
+    _util.try_mkdir(cfg.rootfs_archive_dir)
+    try_unlink(rootfs.archive_metadata_file)
+    link_or_copy(rootfs_tarball_path(record["hash"]), rootfs.archive_file)
+
+    # The record of the build directory doubles as the metadata of the archive.
+    with tempfile.NamedTemporaryFile(
+        "w", dir=cfg.rootfs_archive_dir, suffix=".tmp", delete=False
+    ) as f:
+        json.dump(record, f)
+        os.fchmod(f.fileno(), 0o644)
+    os.replace(f.name, rootfs.archive_metadata_file)
 
 
 def run_program(
@@ -4030,6 +4088,7 @@ class Action(Enum):
     MIRROR_SRC = 23
     # System root related actions.
     PREPARE_ROOTFS = 24
+    ARCHIVE_ROOTFS = 25
 
 
 Action.strings = {
@@ -4057,6 +4116,7 @@ Action.strings = {
     Action.WANT_PKG: "want-pkg",
     Action.MIRROR_SRC: "mirror",
     Action.PREPARE_ROOTFS: "prepare-rootfs",
+    Action.ARCHIVE_ROOTFS: "archive-rootfs",
 }
 
 
@@ -4207,6 +4267,7 @@ class PlanItem:
             Action.WANT_PKG: lambda s, c: s.check_want_pkg(c),
             Action.MIRROR_SRC: lambda s, c: s.check_if_mirrord(c),
             Action.PREPARE_ROOTFS: lambda s, c: s.check_if_prepared(c),
+            Action.ARCHIVE_ROOTFS: lambda s, c: s.check_if_archived(c),
         }
         self._state = visitors[self.action](self.subject, self.settings)
 
@@ -4490,6 +4551,9 @@ class Plan:
 
         elif action == Action.PREPARE_ROOTFS:
             pass
+
+        elif action == Action.ARCHIVE_ROOTFS:
+            item.build_edges.add(PlanKey(Action.PREPARE_ROOTFS, subject))
 
         return item
 
@@ -4940,6 +5004,8 @@ class Plan:
                     mirror_src(self._cfg, subject)
                 elif action == Action.PREPARE_ROOTFS:
                     prepare_rootfs(self._cfg, subject)
+                elif action == Action.ARCHIVE_ROOTFS:
+                    archive_rootfs(self._cfg, subject)
                 else:
                     raise AssertionError("Unexpected action")
                 item.exec_status = ExecutionStatus.SUCCESS
