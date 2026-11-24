@@ -674,20 +674,51 @@ do_install.parser = main_subparsers.add_parser(
 )
 
 
+def select_rootfses(cfg, args):
+    if args.all:
+        return list(cfg.all_rootfses())
+    if not args.rootfses:
+        return [cfg.get_rootfs()]
+    return [cfg.get_rootfs(name) for name in args.rootfses]
+
+
+select_rootfses.parser = argparse.ArgumentParser(add_help=False)
+select_rootfses.parser.add_argument("--all", action="store_true", help="select all rootfses")
+select_rootfses.parser.add_argument(
+    "rootfses", nargs="*", type=str, help="names of rootfses (default: the default rootfs)"
+)
+
+
 def do_prepare_rootfs(args):
     cfg = config_for_args(args)
     plan = xbstrap.base.Plan(cfg)
     handle_plan_args(cfg, plan, args)
-    rootfs = cfg.get_rootfs([])
-    plan.wanted.add((xbstrap.base.Action.PREPARE_ROOTFS, rootfs))
+    sel = select_rootfses(cfg, args)
+    plan.wanted.update([(xbstrap.base.Action.PREPARE_ROOTFS, rootfs) for rootfs in sel])
     plan.run_plan()
 
 
 do_prepare_rootfs.parser = main_subparsers.add_parser(
     "prepare-rootfs",
-    parents=[handle_plan_args.parser],
+    parents=[handle_plan_args.parser, select_rootfses.parser],
 )
 do_prepare_rootfs.parser.set_defaults(_impl=do_prepare_rootfs)
+
+
+def do_archive_rootfs(args):
+    cfg = config_for_args(args)
+    plan = xbstrap.base.Plan(cfg)
+    handle_plan_args(cfg, plan, args)
+    sel = select_rootfses(cfg, args)
+    plan.wanted.update([(xbstrap.base.Action.ARCHIVE_ROOTFS, rootfs) for rootfs in sel])
+    plan.run_plan()
+
+
+do_archive_rootfs.parser = main_subparsers.add_parser(
+    "archive-rootfs",
+    parents=[handle_plan_args.parser, select_rootfses.parser],
+)
+do_archive_rootfs.parser.set_defaults(_impl=do_archive_rootfs)
 
 
 def do_archive_tool(args):
@@ -734,6 +765,28 @@ pull_pack_parser = main_subparsers.add_parser(
 )
 pull_pack_parser.set_defaults(_impl=do_pull_pack)
 
+
+def do_pull_rootfs(args):
+    cfg = config_for_args(args)
+    cfg.rootfs_archives_override = args.repository_url
+    plan = xbstrap.base.Plan(cfg)
+    handle_plan_args(cfg, plan, args)
+    sel = select_rootfses(cfg, args)
+    plan.wanted.update([(xbstrap.base.Action.PULL_ROOTFS, rootfs) for rootfs in sel])
+    plan.run_plan()
+
+
+do_pull_rootfs.parser = main_subparsers.add_parser(
+    "pull-rootfs",
+    parents=[handle_plan_args.parser, select_rootfses.parser],
+)
+do_pull_rootfs.parser.add_argument(
+    "--repository-url",
+    type=str,
+    help="pull from this repository instead of repositories.rootfs_archives",
+)
+do_pull_rootfs.parser.set_defaults(_impl=do_pull_rootfs)
+
 # ----------------------------------------------------------------------------------------
 
 
@@ -763,6 +816,18 @@ def do_list_tools(args):
 
 
 do_list_tools.parser = main_subparsers.add_parser("list-tools")
+
+
+def do_list_rootfses(args):
+    cfg = config_for_args(args)
+    for rootfs in cfg.all_rootfses():
+        print(rootfs.name, rootfs.version)
+
+
+do_list_rootfses.parser = main_subparsers.add_parser(
+    "list-rootfses", help="print the name and version of each rootfs"
+)
+do_list_rootfses.parser.set_defaults(_impl=do_list_rootfses)
 
 
 def do_list_pkgs(args):

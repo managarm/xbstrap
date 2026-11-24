@@ -83,6 +83,14 @@ class Pipeline:
             if build.stability_level == "unstable":
                 job.unstable = True
             self.jobs[name] = job
+        # Each rootfs is built by a job of its own such that all other jobs can pull it.
+        if cfg.builds_rootfses:
+            for rootfs in cfg.all_rootfses():
+                name = "rootfs:" + rootfs.name
+                assert name not in self.jobs
+                job = Job(name, [], [], default_caps=default_caps)
+                job.rootfses.add(rootfs)
+                self.jobs[name] = job
 
     def all_jobs(self):
         return self.jobs.values()
@@ -101,6 +109,7 @@ class Job:
         self.name = name
         self.tools = set(tools)
         self.pkgs = set(pkgs)
+        self.rootfses = set()
         self.tasks = set()
         self.unstable = False
 
@@ -116,6 +125,22 @@ class Job:
             caps.update(with_caps)
             caps.difference_update(without_caps)
         self.capabilities = caps
+
+
+# Adds the scope and the wanted actions of a job to a plan.
+def setup_plan_for_job(cfg, plan, job):
+    plan.build_scope = set().union(job.tools, [pkg.build for pkg in job.pkgs], job.rootfses)
+    for tool in job.tools:
+        plan.wanted.update([(xbstrap.base.Action.ARCHIVE_TOOL, tool)])
+    for pkg in job.pkgs:
+        if cfg.use_xbps:
+            plan.wanted.update([(xbstrap.base.Action.PACK_PKG, pkg)])
+        else:
+            plan.wanted.update([(xbstrap.base.Action.BUILD_PKG, pkg.build)])
+    for rootfs in job.rootfses:
+        plan.wanted.update([(xbstrap.base.Action.ARCHIVE_ROOTFS, rootfs)])
+    for task in job.tasks:
+        plan.wanted.update([(xbstrap.base.Action.RUN, task)])
 
 
 def pipeline_for_dir(cfg):
@@ -162,18 +187,14 @@ def do_compute_graph(args):
                     if pkg.version != version_yml["pkgs"][pkg.name]:
                         up2date = False
                         break
+                for rootfs in job.rootfses:
+                    # Version files of older build servers do not report rootfses.
+                    if rootfs.version != version_yml.get("rootfses", dict()).get(rootfs.name):
+                        up2date = False
+                        break
 
             plan = xbstrap.base.Plan(cfg)
-            plan.build_scope = set().union(job.tools, [pkg.build for pkg in job.pkgs])
-            for tool in job.tools:
-                plan.wanted.update([(xbstrap.base.Action.ARCHIVE_TOOL, tool)])
-            for pkg in job.pkgs:
-                if cfg.use_xbps:
-                    plan.wanted.update([(xbstrap.base.Action.PACK_PKG, pkg)])
-                else:
-                    plan.wanted.update([(xbstrap.base.Action.BUILD_PKG, pkg.build)])
-            for task in job.tasks:
-                plan.wanted.update([(xbstrap.base.Action.RUN, task)])
+            setup_plan_for_job(cfg, plan, job)
             plan.compute_plan(no_ordering=True)
 
             out_job = {
@@ -181,8 +202,8 @@ def do_compute_graph(args):
                 "up2date": up2date,
                 "capabilities": list(job.capabilities),
             }
-            out_job["products"] = {"tools": [], "pkgs": [], "files": []}
-            out_job["needed"] = {"tools": [], "pkgs": []}
+            out_job["products"] = {"tools": [], "pkgs": [], "rootfses": [], "files": []}
+            out_job["needed"] = {"tools": [], "pkgs": [], "rootfses": []}
             for tool in job.tools:
                 out_job["products"]["tools"].append(
                     {
@@ -197,6 +218,14 @@ def do_compute_graph(args):
                         "name": pkg.name,
                         "version": pkg.version,
                         "architecture": pkg.architecture,
+                    }
+                )
+            for rootfs in job.rootfses:
+                out_job["products"]["rootfses"].append(
+                    {
+                        "name": rootfs.name,
+                        "version": rootfs.version,
+                        "architecture": rootfs.architecture,
                     }
                 )
             for task in job.tasks:
@@ -230,6 +259,14 @@ def do_compute_graph(args):
                             "architecture": subject.architecture,
                         }
                     )
+                if action == xbstrap.base.Action.WANT_ROOTFS:
+                    out_job["needed"]["rootfses"].append(
+                        {
+                            "name": subject.name,
+                            "version": subject.version,
+                            "architecture": subject.architecture,
+                        }
+                    )
             out_root[job.name] = out_job
 
         if args.json:
@@ -244,24 +281,18 @@ def do_compute_graph(args):
 
         tool_mapping = dict()
         pkg_mapping = dict()
+        rootfs_mapping = dict()
         for item in items.values():
             for tool in item.job.tools:
                 tool_mapping[tool] = item.job.name
             for pkg in item.job.pkgs:
                 pkg_mapping[pkg] = item.job.name
+            for rootfs in item.job.rootfses:
+                rootfs_mapping[rootfs] = item.job.name
 
         for item in items.values():
             plan = xbstrap.base.Plan(cfg)
-            plan.build_scope = set().union(item.job.tools, [pkg.build for pkg in item.job.pkgs])
-            for tool in item.job.tools:
-                plan.wanted.update([(xbstrap.base.Action.ARCHIVE_TOOL, tool)])
-            for pkg in item.job.pkgs:
-                if cfg.use_xbps:
-                    plan.wanted.update([(xbstrap.base.Action.PACK_PKG, pkg)])
-                else:
-                    plan.wanted.update([(xbstrap.base.Action.BUILD_PKG, pkg.build)])
-            for task in item.job.tasks:
-                plan.wanted.update([(xbstrap.base.Action.RUN, task)])
+            setup_plan_for_job(cfg, plan, item.job)
             plan.compute_plan(no_ordering=True)
 
             for key in plan.materialized_steps():
@@ -274,6 +305,8 @@ def do_compute_graph(args):
                     if subject in item.job.pkgs:
                         continue
                     item.edge_set.add(pkg_mapping[subject])
+                if action == xbstrap.base.Action.WANT_ROOTFS:
+                    item.edge_set.add(rootfs_mapping[subject])
 
         for item in items.values():
             item.edge_list = list(item.edge_set)
@@ -356,20 +389,11 @@ def do_run_job(args):
         plan.check = True
     if args.keep_going:
         plan.keep_going = True
-    plan.build_scope = set().union(job.tools, [pkg.build for pkg in job.pkgs])
 
     if args.progress_file is not None:
         plan.progress_file = xbstrap.cli_utils.open_file_from_cli(args.progress_file, "wt")
 
-    for tool in job.tools:
-        plan.wanted.update([(xbstrap.base.Action.ARCHIVE_TOOL, tool)])
-    for pkg in job.pkgs:
-        if cfg.use_xbps:
-            plan.wanted.update([(xbstrap.base.Action.PACK_PKG, pkg)])
-        else:
-            plan.wanted.update([(xbstrap.base.Action.BUILD_PKG, pkg.build)])
-    for task in job.tasks:
-        plan.wanted.update([(xbstrap.base.Action.RUN, task)])
+    setup_plan_for_job(cfg, plan, job)
     plan.run_plan()
 
 
