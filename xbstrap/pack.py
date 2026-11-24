@@ -42,6 +42,10 @@ def execute_pack(pack_args):
         with open(os.path.join(root, "INSTALL"), "wt") as f:
             f.write(pack_args["install_sh"])
 
+    if pack_args["remove_sh"]:
+        with open(os.path.join(root, "REMOVE"), "wt") as f:
+            f.write(pack_args["remove_sh"])
+
     for path, uid, gid, mode in pack_args["file_attrs"]:
         file_path = os.path.join(root, path.lstrip("/"))
         if mode is None:
